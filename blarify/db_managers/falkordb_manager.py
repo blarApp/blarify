@@ -46,7 +46,7 @@ class FalkorDBManager:
         cypher_query = """
         UNWIND $nodes AS node
         CREATE (n)
-        SET n = node.attributes
+        FOREACH (key IN keys(node.attributes) | SET n[key] = node.attributes[key])
         WITH n AS created_node, node.extra_labels AS labels
         UNWIND labels AS label
         SET created_node:label

@@ -15,6 +15,7 @@ example
 delete.py
 *.json
 static/
+kuzu_db/
 
 
 !blarify/vendor/**/*.json

@@ -16,6 +16,7 @@ delete.py
 *.json
 static/
 kuzu_db/
+easy/
 
 
 !blarify/vendor/**/*.json

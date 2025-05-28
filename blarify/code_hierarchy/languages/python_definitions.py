@@ -13,6 +13,9 @@ from blarify.graph.node import Node as GraphNode
 
 
 class PythonDefinitions(LanguageDefinitions):
+    CONTROL_FLOW_STATEMENTS = ["if_statement", "while_statement", "for_statement"]
+    CONSEQUENCE_STATEMENTS = ["block"]
+
     def get_language_name() -> str:
         return "python"
 

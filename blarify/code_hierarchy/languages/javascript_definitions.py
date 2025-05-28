@@ -12,6 +12,9 @@ from typing import Dict
 
 
 class JavascriptDefinitions(LanguageDefinitions):
+    CONTROL_FLOW_STATEMENTS = ["for_statement", "if_statement", "while_statement", "else_clause"]
+    CONSEQUENCE_STATEMENTS = ["statement_block"]
+    
     def get_language_name() -> str:
         return "javascript"
 

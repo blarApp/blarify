@@ -18,7 +18,7 @@ class ProjectFilesIterator:
         names_to_skip: List[str] = None,
         extensions_to_skip: List[str] = None,
         blarignore_path: str = None,
-        max_file_size_mb: int = 10,
+        max_file_size_mb: int = 0.8,
     ):
         self.paths_to_skip = paths_to_skip or []
         self.root_path = root_path

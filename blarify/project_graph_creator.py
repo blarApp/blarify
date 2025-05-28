@@ -1,5 +1,6 @@
 import time
 from blarify.code_hierarchy.languages.go_definitions import GoDefinitions
+from blarify.code_hierarchy.languages.php_definitions import PhpDefinitions
 from blarify.code_references import LspQueryHelper, FileExtensionNotSupported
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.graph.node import NodeLabels, NodeFactory
@@ -43,6 +44,7 @@ class ProjectGraphCreator:
         ".rb": RubyDefinitions,
         ".cs": CsharpDefinitions,
         ".go": GoDefinitions,
+        ".php": PhpDefinitions,
     }
 
     def __init__(
@@ -60,41 +62,40 @@ class ProjectGraphCreator:
         self.graph = Graph()
 
     def build(self) -> Graph:
-        self.create_code_hierarchy()
-
-        # TODO: Implement a better way to wait for the lsp to finish
-        logger.info("Waiting for LSP to finish")
-        # time.sleep(15)
-        logger.info("LSP finished")
-
-        self.create_relationships_from_references_for_files()
+        self._create_code_hierarchy()
+        self._create_relationships_from_references_for_files()
         return self.graph
 
     def build_hierarchy_only(self) -> Graph:
-        self.create_code_hierarchy()
+        """
+        Build the graph with only the code hierarchy (folders, files, class definitions, function definitions)
+
+        This will modify the graph in place and return it.
+        """
+        self._create_code_hierarchy()
         return self.graph
 
-    def create_code_hierarchy(self):
+    def _create_code_hierarchy(self):
         start_time = time.time()
 
         for folder in self.project_files_iterator:
-            self.process_folder(folder)
+            self._process_folder(folder)
 
         end_time = time.time()
         execution_time = end_time - start_time
         logger.info(f"Execution time of create_code_hierarchy: {execution_time:.2f} seconds")
 
-    def process_folder(self, folder: "Folder") -> None:
-        folder_node = self.add_or_get_folder_node(folder)
-        folder_nodes = self.create_subfolder_nodes(folder, folder_node)
+    def _process_folder(self, folder: "Folder") -> None:
+        folder_node = self._add_or_get_folder_node(folder)
+        folder_nodes = self._create_subfolder_nodes(folder, folder_node)
         folder_node.relate_nodes_as_contain_relationship(folder_nodes)
 
         self.graph.add_nodes(folder_nodes)
 
         files = folder.files
-        self.process_files(files, parent_folder=folder_node)
+        self._process_files(files, parent_folder=folder_node)
 
-    def add_or_get_folder_node(self, folder: "Folder", parent_folder: "Folder" = None) -> "FolderNode":
+    def _add_or_get_folder_node(self, folder: "Folder", parent_folder: "Folder" = None) -> "FolderNode":
         if self.graph.has_folder_node_with_path(folder.uri_path):
             return self.graph.get_folder_node_by_path(folder.uri_path)
         else:
@@ -104,32 +105,32 @@ class ProjectGraphCreator:
             self.graph.add_node(folder_node)
             return folder_node
 
-    def create_subfolder_nodes(self, folder: "Folder", folder_node: "FolderNode") -> List["Node"]:
+    def _create_subfolder_nodes(self, folder: "Folder", folder_node: "FolderNode") -> List["Node"]:
         nodes = []
         for sub_folder in folder.folders:
-            node = self.add_or_get_folder_node(sub_folder, parent_folder=folder_node)
+            node = self._add_or_get_folder_node(sub_folder, parent_folder=folder_node)
             nodes.append(node)
 
         return nodes
 
-    def process_files(self, files: List["File"], parent_folder: "FolderNode") -> None:
+    def _process_files(self, files: List["File"], parent_folder: "FolderNode") -> None:
         for file in files:
-            self.process_file(file, parent_folder)
+            self._process_file(file, parent_folder)
 
-    def process_file(self, file: "File", parent_folder: "FolderNode") -> None:
+    def _process_file(self, file: "File", parent_folder: "FolderNode") -> None:
         tree_sitter_helper = self._get_tree_sitter_for_file_extension(file.extension)
-        self.try_initialize_directory(file)
-        file_nodes = self.create_file_nodes(
+        self._try_initialize_directory(file)
+        file_nodes = self._create_file_nodes(
             file=file, parent_folder=parent_folder, tree_sitter_helper=tree_sitter_helper
         )
         self.graph.add_nodes(file_nodes)
 
-        file_node = self.get_file_node_from_file_nodes(file_nodes)
+        file_node = self._get_file_node_from_file_nodes(file_nodes)
         file_node.skeletonize()
 
         parent_folder.relate_node_as_contain_relationship(file_node)
 
-    def try_initialize_directory(self, file: "File") -> None:
+    def _try_initialize_directory(self, file: "File") -> None:
         try:
             self.lsp_query_helper.initialize_directory(file)
         except FileExtensionNotSupported:
@@ -142,7 +143,7 @@ class ProjectGraphCreator:
     def _get_language_definition(self, file_extension: str):
         return self.languages.get(file_extension, FallbackDefinitions)
 
-    def get_file_node_from_file_nodes(self, file_nodes) -> "FileNode":
+    def _get_file_node_from_file_nodes(self, file_nodes) -> "FileNode":
         # File node should always be the first node in the list
         for node in file_nodes:
             if node.label == NodeLabels.FILE:
@@ -150,17 +151,17 @@ class ProjectGraphCreator:
 
         raise ValueError("File node not found in file nodes")
 
-    def create_file_nodes(
+    def _create_file_nodes(
         self, file: "File", parent_folder: "FolderNode", tree_sitter_helper: TreeSitterHelper
     ) -> List["Node"]:
         document_symbols = tree_sitter_helper.create_nodes_and_relationships_in_file(file, parent_folder=parent_folder)
         return document_symbols
 
-    def create_relationships_from_references_for_files(self) -> None:
+    def _create_relationships_from_references_for_files(self) -> None:
         file_nodes = self.graph.get_nodes_by_label(NodeLabels.FILE)
-        self.create_relationship_from_references(file_nodes)
+        self._create_relationship_from_references(file_nodes)
 
-    def create_relationship_from_references(self, file_nodes: List["Node"]) -> None:
+    def _create_relationship_from_references(self, file_nodes: List["Node"]) -> None:
         references_relationships = []
 
         total_files = len(file_nodes)
@@ -183,7 +184,7 @@ class ProjectGraphCreator:
 
                 tree_sitter_helper = self._get_tree_sitter_for_file_extension(node.extension)
                 references_relationships.extend(
-                    self.create_node_relationships(node=node, tree_sitter_helper=tree_sitter_helper)
+                    self._create_node_relationships(node=node, tree_sitter_helper=tree_sitter_helper)
                 )
             end_time = time.time()
 
@@ -200,7 +201,7 @@ class ProjectGraphCreator:
         if index % x == 0:
             Logger.log(text)
 
-    def create_node_relationships(
+    def _create_node_relationships(
         self,
         node: "Node",
         tree_sitter_helper: TreeSitterHelper,

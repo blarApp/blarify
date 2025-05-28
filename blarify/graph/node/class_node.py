@@ -25,4 +25,5 @@ class ClassNode(DefinitionNode):
         obj["attributes"]["start_line"] = self.node_range.range.start.line
         obj["attributes"]["end_line"] = self.node_range.range.end.line
         obj["attributes"]["text"] = self.code_text
+        obj["attributes"]["stats_methods_defined"] = sum(1 for node in self._defines if node.label == NodeLabels.FUNCTION)
         return obj

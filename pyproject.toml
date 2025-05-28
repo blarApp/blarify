@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "blarify"
-version = "1.0.6"
+version = "1.1.0"
 description = "A simple graph builder based on LSP calls"
 authors = ["Juan Vargas <juan@blar.io>", "Benjamín Errazuriz <benjamin@blar.io>"]
 readme = "README.md"
@@ -28,6 +28,7 @@ typing-extensions = "^4.12.2"
 jedi-language-server = "^0.43.1"
 psutil = "^7.0.0"
 vendoring = "^1.2.0"
+tree-sitter-php = "^0.23.11"
 
 
 

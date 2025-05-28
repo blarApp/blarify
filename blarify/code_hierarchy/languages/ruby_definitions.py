@@ -9,6 +9,9 @@ from .language_definitions import LanguageDefinitions
 
 
 class RubyDefinitions(LanguageDefinitions):
+    CONTROL_FLOW_STATEMENTS = ["for", "if", "elsif", "unless", "while"]
+    CONSEQUENCE_STATEMENTS = ["do", "then"]
+
     def get_language_name() -> str:
         return "ruby"
 

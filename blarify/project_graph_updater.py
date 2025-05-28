@@ -31,7 +31,7 @@ class ProjectGraphUpdater(ProjectGraphDiffCreator):
         )
 
     def build(self) -> GraphUpdate:
-        self.create_code_hierarchy()
+        self._create_code_hierarchy()
         self.create_relationship_from_references_for_modified_and_added_files()
         self.keep_only_files_to_create()
 
@@ -41,7 +41,7 @@ class ProjectGraphUpdater(ProjectGraphDiffCreator):
         )
 
     def build_hierarchy_only(self) -> GraphUpdate:
-        self.create_code_hierarchy()
+        self._create_code_hierarchy()
         self.keep_only_files_to_create()
 
         return GraphUpdate(

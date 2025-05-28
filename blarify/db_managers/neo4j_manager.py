@@ -86,6 +86,7 @@ class Neo4jManager:
         # Fetch the result
         for record in result:
             logger.info(f"Created {record['total']} nodes")
+            print(record)
 
     @staticmethod
     def _create_edges_txn(tx, edgesList: List[Any], batch_size: int, entityId: str):

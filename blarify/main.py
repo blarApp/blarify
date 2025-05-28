@@ -1,8 +1,8 @@
 from blarify.project_graph_creator import ProjectGraphCreator
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.project_file_explorer import ProjectFileStats
-from blarify.project_graph_updater import ProjectGraphUpdater, UpdatedFile
-from blarify.project_graph_diff_creator import PreviousNodeState, ProjectGraphDiffCreator, FileDiff, ChangeType
+from blarify.project_graph_updater import ProjectGraphUpdater
+from blarify.project_graph_diff_creator import PreviousNodeState, ProjectGraphDiffCreator
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from blarify.code_references import LspQueryHelper
 from blarify.graph.graph_environment import GraphEnvironment

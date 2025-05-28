@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import psutil
 
@@ -8,24 +8,22 @@ from blarify.utils.path_calculator import PathCalculator
 
 from .types.Reference import Reference
 from blarify.graph.node import DefinitionNode
-from blarify.code_hierarchy.languages import (
-    PythonDefinitions,
-    JavascriptDefinitions,
-    RubyDefinitions,
-    TypescriptDefinitions,
-    LanguageDefinitions,
-    CsharpDefinitions,
-    GoDefinitions,
-)
 
 from blarify.vendor.multilspy.multilspy_config import MultilspyConfig
 from blarify.vendor.multilspy.multilspy_logger import MultilspyLogger
 from blarify.vendor.multilspy.lsp_protocol_handler.server import Error
 
+if TYPE_CHECKING:
+    from blarify.graph.node import DefinitionNode
+    from blarify.code_hierarchy.languages import (
+        LanguageDefinitions,
+    )
+
+
 import asyncio
 
-
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +43,18 @@ class LspQueryHelper:
         self.entered_lsp_servers = {}
         self.language_to_lsp_server = {}
 
-    def _get_language_definition_for_extension(self, extension: str) -> LanguageDefinitions:
+    @staticmethod
+    def get_language_definition_for_extension(extension: str) -> "LanguageDefinitions":
+        from blarify.code_hierarchy.languages import (
+            PythonDefinitions,
+            JavascriptDefinitions,
+            RubyDefinitions,
+            TypescriptDefinitions,
+            CsharpDefinitions,
+            GoDefinitions,
+            PhpDefinitions,
+        )
+
         if extension in PythonDefinitions.get_language_file_extensions():
             return PythonDefinitions
         elif extension in JavascriptDefinitions.get_language_file_extensions():
@@ -58,10 +67,12 @@ class LspQueryHelper:
             return CsharpDefinitions
         elif extension in GoDefinitions.get_language_file_extensions():
             return GoDefinitions
+        elif extension in PhpDefinitions.get_language_file_extensions():
+            return PhpDefinitions
         else:
             raise FileExtensionNotSupported(f'File extension "{extension}" is not supported)')
 
-    def _create_lsp_server(self, language_definitions: LanguageDefinitions, timeout=15) -> SyncLanguageServer:
+    def _create_lsp_server(self, language_definitions: "LanguageDefinitions", timeout=15) -> SyncLanguageServer:
         language = language_definitions.get_language_name()
 
         config = MultilspyConfig.from_dict({"code_language": language})
@@ -76,7 +87,7 @@ class LspQueryHelper:
         """
 
     def _get_or_create_lsp_server(self, extension, timeout=15) -> SyncLanguageServer:
-        language_definitions = self._get_language_definition_for_extension(extension)
+        language_definitions = self.get_language_definition_for_extension(extension)
         language = language_definitions.get_language_name()
 
         if language in self.language_to_lsp_server:
@@ -97,7 +108,7 @@ class LspQueryHelper:
         DEPRECATED, LSP servers are started on demand
         """
 
-    def get_paths_where_node_is_referenced(self, node: DefinitionNode) -> list[Reference]:
+    def get_paths_where_node_is_referenced(self, node: "DefinitionNode") -> list[Reference]:
         server = self._get_or_create_lsp_server(node.extension)
         references = self._request_references_with_exponential_backoff(node, server)
 
@@ -128,7 +139,7 @@ class LspQueryHelper:
         return []
 
     def _restart_lsp_for_extension(self, extension):
-        language_definitions = self._get_language_definition_for_extension(extension)
+        language_definitions = self.get_language_definition_for_extension(extension)
         language_name = language_definitions.get_language_name()
 
         self.exit_lsp_server(language_name)
@@ -147,13 +158,14 @@ class LspQueryHelper:
         # TODO: This should not be this hacky!!!
 
         # Since im using the sync language server, I need to manually kill the process
-        # If I try to exit the context, it will hang since it's waiting for the server response
+        # If I try to exit the context when the server has crahed, it will hang since it's waiting for the server response
         # A better way would be to use the async language server, but that would require a lot of changes
         # So for now, I'm just killing the process manually
 
         # Best line of code I've ever written:
         process = self.language_to_lsp_server[language].language_server.server.process
 
+        # Kill running processes
         try:
             if psutil.pid_exists(process.pid):
                 for child in psutil.Process(process.pid).children(recursive=True):
@@ -163,6 +175,7 @@ class LspQueryHelper:
         except Exception as e:
             logger.error(f"Error killing process: {e}")
 
+        # Cancel all tasks in the loop
         loop = self.language_to_lsp_server[language].loop
         try:
             tasks = asyncio.all_tasks(loop=loop)
@@ -171,6 +184,12 @@ class LspQueryHelper:
             logger.info("Tasks cancelled")
         except Exception as e:
             logger.error(f"Error cancelling tasks: {e}")
+
+        # Stop the loop
+
+        # It is important to stop the loop before exiting the context otherwise there will be threads running in definitely
+        if loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
 
         del self.language_to_lsp_server[language]
 

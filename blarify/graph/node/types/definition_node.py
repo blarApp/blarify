@@ -4,6 +4,8 @@ from blarify.graph.node.types.node import Node
 
 import re
 
+from blarify.stats.complexity import CodeComplexityCalculator, NestingStats
+
 if TYPE_CHECKING:
     from ..class_node import ClassNode
     from ..function_node import FunctionNode
@@ -35,7 +37,14 @@ class DefinitionNode(Node):
         self._tree_sitter_node = tree_sitter_node
         self.extra_labels = []
         self.extra_attributes = {}
+
         super().__init__(*args, **kwargs)
+
+    @property
+    def stats(self) -> "NestingStats":
+        if self.body_node is None:
+            return NestingStats(0, 0, 0, 0)
+        return CodeComplexityCalculator.calculate_nesting_stats(self.body_node, extension=self.extension)
 
     def relate_node_as_define_relationship(self, node: Union["ClassNode", "FunctionNode"]) -> None:
         self._defines.append(node)
@@ -166,7 +175,14 @@ class DefinitionNode(Node):
     def as_object(self):
         obj = super().as_object()
         obj["extra_labels"] = self.extra_labels
-        obj["attributes"] = {**obj["attributes"], **self.extra_attributes}
+        obj["attributes"] = {
+            **obj["attributes"],
+            **self.extra_attributes,
+            "stats_max_indentation": self.stats.max_indentation,
+            "stats_min_indentation": self.stats.min_indentation,
+            "stats_average_indentation": self.stats.average_indentation,
+            "stats_sd_indentation": self.stats.sd,
+        }
         return obj
 
     def filter_children_by_path(self, paths_to_keep: List[str]) -> None:

@@ -13,6 +13,9 @@ from blarify.graph.node import Node as GraphNode
 
 
 class GoDefinitions(LanguageDefinitions):
+    CONTROL_FLOW_STATEMENTS = []
+    CONSEQUENCE_STATEMENTS = []
+    
     def get_language_name() -> str:
         return "go"
 

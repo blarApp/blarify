@@ -19,6 +19,9 @@ class IdentifierNodeNotFound(Exception):
 
 
 class LanguageDefinitions(ABC):
+    CONTROL_FLOW_STATEMENTS = []
+    CONSEQUENCE_STATEMENTS = []
+
     @staticmethod
     @abstractmethod
     def get_language_name() -> str:

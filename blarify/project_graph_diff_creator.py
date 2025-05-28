@@ -82,7 +82,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         return [file_diff.path for file_diff in self.file_diffs if file_diff.change_type == ChangeType.MODIFIED]
 
     def build(self) -> GraphUpdate:
-        self.create_code_hierarchy()
+        self._create_code_hierarchy()
         self.mark_updated_and_added_nodes_as_diff()
         self.create_relationship_from_references_for_modified_and_added_files()
         self.keep_only_files_to_create()
@@ -91,7 +91,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         return GraphUpdate(self.graph, self.external_relationship_store)
 
     def build_hierarchy_only(self) -> GraphUpdate:
-        self.create_code_hierarchy()
+        self._create_code_hierarchy()
         self.mark_updated_and_added_nodes_as_diff()
         self.keep_only_files_to_create()
         self.add_deleted_relationships_and_nodes()
@@ -104,7 +104,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
         For example, if a function was modified, a "MODIFIED" relationship will be created between the previous and current function nodes
         """
-        self.create_code_hierarchy()
+        self._create_code_hierarchy()
         self.mark_updated_and_added_nodes_as_diff()
         self.create_relationships_from_previous_node_states(previous_node_states)
         self.create_relationship_from_references_for_modified_and_added_files()
@@ -114,7 +114,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         return GraphUpdate(self.graph, self.external_relationship_store)
 
     def build_hierarchy_only_with_previous_node_states(self, previous_node_states: List[PreviousNodeState]) -> GraphUpdate:
-        self.create_code_hierarchy()
+        self._create_code_hierarchy()
         self.mark_updated_and_added_nodes_as_diff()
         self.create_relationships_from_previous_node_states(previous_node_states)
         self.keep_only_files_to_create()
@@ -220,7 +220,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         paths = self.remove_paths_to_create_from_paths_referenced(paths)
 
         file_nodes.extend(self.get_file_nodes_from_path_list(paths))
-        self.create_relationship_from_references(file_nodes=file_nodes)
+        self._create_relationship_from_references(file_nodes=file_nodes)
 
     def get_paths_referenced_by_file_nodes(self, file_nodes):
         paths = set()

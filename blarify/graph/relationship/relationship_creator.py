@@ -49,6 +49,10 @@ class RelationshipCreator:
             return RelationshipType.FUNCTION_DEFINITION
         elif defined_node.label == NodeLabels.CLASS:
             return RelationshipType.CLASS_DEFINITION
+        elif defined_node.label == NodeLabels.CONSTRUCTOR:
+            return RelationshipType.CONSTRUCTOR_DEFINITION
+        elif defined_node.label == NodeLabels.INTERFACE:
+            return RelationshipType.INTERFACE_DEFINITION
         else:
             raise ValueError(f"Node {defined_node.label} is not a valid definition node")
 

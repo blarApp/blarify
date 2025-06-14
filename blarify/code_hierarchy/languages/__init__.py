@@ -7,3 +7,4 @@ from .fallback_definitions import FallbackDefinitions
 from .csharp_definitions import CsharpDefinitions
 from .go_definitions import GoDefinitions
 from .php_definitions import PhpDefinitions
+from .java_definitions import JavaDefinitions

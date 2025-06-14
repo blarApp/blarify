@@ -1,5 +1,7 @@
 from blarify.graph.node.class_node import ClassNode
 from blarify.graph.node.deleted_node import DeletedNode
+from blarify.graph.node.interface_node import InterfaceNode
+from blarify.graph.node.constructor_node import ConstructorNode
 from ..file_node import FileNode
 from ..folder_node import FolderNode
 from ..function_node import FunctionNode
@@ -82,6 +84,58 @@ class NodeFactory:
         )
 
     @staticmethod
+    def create_interface_node(
+        class_name: str,
+        path: str,
+        definition_range: "Reference",
+        node_range: "Reference",
+        code_text: str,
+        body_node: "TreeSitterNode",
+        level: int,
+        tree_sitter_node: "TreeSitterNode",
+        parent: Union[FileNode, InterfaceNode, FunctionNode] = None,
+        graph_environment: "GraphEnvironment" = None,
+    ) -> InterfaceNode:
+        return InterfaceNode(
+            name=class_name,
+            path=path,
+            definition_range=definition_range,
+            node_range=node_range,
+            code_text=code_text,
+            level=level,
+            tree_sitter_node=tree_sitter_node,
+            body_node=body_node,
+            parent=parent,
+            graph_environment=graph_environment,
+        )
+
+    @staticmethod
+    def create_constructor_node(
+        class_name: str,
+        path: str,
+        definition_range: "Reference",
+        node_range: "Reference",
+        code_text: str,
+        body_node: "TreeSitterNode",
+        level: int,
+        tree_sitter_node: "TreeSitterNode",
+        parent: Union[FileNode, InterfaceNode, FunctionNode] = None,
+        graph_environment: "GraphEnvironment" = None,
+    ) -> ConstructorNode:
+        return ConstructorNode(
+            name=class_name,
+            path=path,
+            definition_range=definition_range,
+            node_range=node_range,
+            code_text=code_text,
+            level=level,
+            tree_sitter_node=tree_sitter_node,
+            body_node=body_node,
+            parent=parent,
+            graph_environment=graph_environment,
+        )
+
+    @staticmethod
     def create_function_node(
         function_name: str,
         path: str,
@@ -123,6 +177,32 @@ class NodeFactory:
     ) -> Union[ClassNode, FunctionNode]:
         if kind == NodeLabels.CLASS:
             return NodeFactory.create_class_node(
+                class_name=name,
+                path=path,
+                definition_range=definition_range,
+                node_range=node_range,
+                code_text=code_text,
+                body_node=body_node,
+                level=level,
+                parent=parent,
+                tree_sitter_node=tree_sitter_node,
+                graph_environment=graph_environment,
+            )
+        elif kind == NodeLabels.INTERFACE:
+            return NodeFactory.create_interface_node(
+                class_name=name,
+                path=path,
+                definition_range=definition_range,
+                node_range=node_range,
+                code_text=code_text,
+                body_node=body_node,
+                level=level,
+                parent=parent,
+                tree_sitter_node=tree_sitter_node,
+                graph_environment=graph_environment,
+            )
+        elif kind == NodeLabels.CONSTRUCTOR:
+            return NodeFactory.create_constructor_node(
                 class_name=name,
                 path=path,
                 definition_range=definition_range,

@@ -14,6 +14,7 @@ from blarify.code_hierarchy.languages import (
     FallbackDefinitions,
     RubyDefinitions,
     CsharpDefinitions,
+    JavaDefinitions
 )
 from typing import List, TYPE_CHECKING
 from blarify.logger import Logger
@@ -45,6 +46,7 @@ class ProjectGraphCreator:
         ".cs": CsharpDefinitions,
         ".go": GoDefinitions,
         ".php": PhpDefinitions,
+        ".java": JavaDefinitions,
     }
 
     def __init__(

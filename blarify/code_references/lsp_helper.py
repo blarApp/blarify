@@ -3,7 +3,6 @@ import psutil
 from blarify.vendor.multilspy import SyncLanguageServer
 from blarify.utils.path_calculator import PathCalculator
 from .types.Reference import Reference
-from blarify.graph.node import DefinitionNode
 from blarify.vendor.multilspy.multilspy_config import MultilspyConfig
 from blarify.vendor.multilspy.multilspy_logger import MultilspyLogger
 from blarify.vendor.multilspy.lsp_protocol_handler.server import Error
@@ -153,11 +152,11 @@ class LspQueryHelper:
                 # It happens sometimes especially with c#
                 def exit_context():
                     context.__exit__(None, None, None)
-                
+
                 thread = threading.Thread(target=exit_context)
                 thread.start()
                 thread.join(timeout=5)  # Wait up to 5 seconds
-                
+
                 if thread.is_alive():
                     logger.warning(f"Context manager exit timed out for {language}")
                     raise TimeoutError("Context manager exit timed out")

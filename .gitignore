@@ -20,3 +20,4 @@ easy/
 
 !blarify/vendor/**/*.json
 
+build

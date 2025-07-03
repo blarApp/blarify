@@ -10,6 +10,7 @@ A simple graph builder based on LSP calls that represents local code repositorie
    installation
    quickstart
    core_components
+   language_implementations
    graph_diff_modes
    api_reference
    visual_examples

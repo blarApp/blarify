@@ -15,21 +15,23 @@ class GraphBuilder:
         graph_environment: GraphEnvironment = None,
     ):
         """
-        A class responsible for constructing a graph representation of a project's codebase.
+        Builds complete project graphs using Tree-sitter and Language Server Protocol.
+
+        Uses ProjectGraphCreator to analyze source code and create comprehensive graphs
+        containing file hierarchy, classes, functions, and their relationships.
 
         Args:
             root_path: Root directory path of the project to analyze
-            extensions_to_skip: File extensions to exclude from analysis (e.g., ['.md', '.txt'])
-            names_to_skip: Filenames/directory names to exclude from analysis (e.g., ['venv', 'tests'])
+            extensions_to_skip: File extensions to exclude (e.g., ['.json', '.md'])
+            names_to_skip: Files/directories to exclude (e.g., ['node_modules', '__pycache__'])
+            only_hierarchy: If True, build only structure without semantic relationships
+            graph_environment: Custom environment configuration
 
         Example:
-            builder = GraphBuilder(
-                    "/path/to/project",
-                    extensions_to_skip=[".json"],
-                    names_to_skip=["__pycache__"]
-                )
-            project_graph = builder.build()
-
+            builder = GraphBuilder("/path/to/project")
+            graph = builder.build()
+            nodes = graph.get_nodes_as_objects()
+            relationships = graph.get_relationships_as_objects()
         """
 
         self.graph_environment = graph_environment or GraphEnvironment("blarify", "repo", root_path)

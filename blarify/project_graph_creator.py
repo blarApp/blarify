@@ -32,6 +32,20 @@ if TYPE_CHECKING:
 
 
 class ProjectGraphCreator:
+    """
+    Core engine for building complete project graphs using Tree-sitter and LSP.
+
+    Analyzes source code files using Tree-sitter parsers for syntax and Language Server
+    Protocol for semantic relationships. Supports 8 programming languages.
+
+    Languages supported: Python, JavaScript, TypeScript, Ruby, Go, C#, Java, PHP
+
+    Components used:
+    - LspQueryHelper: Language Server Protocol communication
+    - ProjectFilesIterator: File discovery and filtering
+    - TreeSitterHelper: Code parsing
+    - Language-specific definitions for each supported language
+    """
     root_path: str
     lsp_query_helper: LspQueryHelper
     project_files_iterator: ProjectFilesIterator

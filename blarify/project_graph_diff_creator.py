@@ -47,6 +47,19 @@ class PreviousNodeState:
 
 
 class ProjectGraphDiffCreator(ProjectGraphCreator):
+    """
+    Core engine for pull request analysis and graph updates.
+
+    Extends ProjectGraphCreator to handle file changes and create graph representations
+    of pull requests. Analyzes FileDiff objects and optionally compares with previous
+    node states for precise change detection.
+
+    Two build modes:
+    - build(): File-level granularity - tags entire files as changed
+    - build_with_previous_node_states(): Function-level granularity - tags only changed functions
+
+    Handles ADDED, MODIFIED, and DELETED change types with appropriate graph relationships.
+    """
     diff_identifier: str
     added_and_modified_paths: List[str]
     file_diffs: List[FileDiff]

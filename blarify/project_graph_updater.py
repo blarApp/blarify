@@ -16,9 +16,20 @@ class ProjectGraphUpdater(ProjectGraphDiffCreator):
 
     def __init__(self, updated_files: List[UpdatedFile], graph_environment: GraphEnvironment, *args, **kwargs):
         """
-        This class is just a wrapper around ProjectGraphDiffCreator
+        Updates existing graphs with modified files using simplified interface.
 
-        All the updated files are considered as added files and the pr_environment is set to the same as the graph_environment
+        Wrapper around ProjectGraphDiffCreator that treats all files as ADDED and uses
+        the same environment for both graph and PR contexts. Output nodes have the same
+        paths as originals, requiring deletion of existing nodes before merging.
+
+        Args:
+            updated_files: List of UpdatedFile objects with file paths
+            graph_environment: Environment configuration for the graph
+
+        Example:
+            files = [UpdatedFile(path="file://src/service.py")]
+            updater = ProjectGraphUpdater(files, graph_environment)
+            graph_update = updater.build()
         """
 
         self.updated_files = updated_files

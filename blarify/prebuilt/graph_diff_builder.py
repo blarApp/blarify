@@ -18,21 +18,29 @@ class GraphDiffBuilder:
         pr_environment: GraphEnvironment = None,
     ):
         """
-        A class responsible for constructing a graph representation of a project's codebase.
+        Adds pull request changes to graphs for AI analysis using Tree-sitter and LSP.
+
+        Uses ProjectGraphDiffCreator to analyze file changes and create graph representations
+        of pull requests. Operates in two modes based on available previous node states.
+
+        Two modes:
+        - Without previous_node_states: Tags entire files as changed
+        - With previous_node_states: Tags only specific functions that changed
 
         Args:
-            root_path: Root directory path of the project to analyze
-            extensions_to_skip: File extensions to exclude from analysis (e.g., ['.md', '.txt'])
-            names_to_skip: Filenames/directory names to exclude from analysis (e.g., ['venv', 'tests'])
+            root_path: Root directory path of the project
+            file_diffs: List of FileDiff objects with git diff information
+            previous_node_states: Previous versions of nodes for precise change detection
+            extensions_to_skip: File extensions to exclude (e.g., ['.json', '.md'])
+            names_to_skip: Files/directories to exclude (e.g., ['node_modules', '__pycache__'])
+            only_hierarchy: If True, build only structure without semantic relationships
+            graph_environment: Environment for main graph
+            pr_environment: Environment for PR-specific nodes
 
         Example:
-            builder = GraphBuilder(
-                    "/path/to/project",
-                    extensions_to_skip=[".json"],
-                    names_to_skip=["__pycache__"]
-                )
-            project_graph = builder.build()
-
+            diffs = [FileDiff(path="file://src/file.py", diff_text="...", change_type=ChangeType.MODIFIED)]
+            builder = GraphDiffBuilder(root_path="/project", file_diffs=diffs)
+            graph_update = builder.build()
         """
 
         self.graph_environment = graph_environment or GraphEnvironment("blarify", "repo", root_path)

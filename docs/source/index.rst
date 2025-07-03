@@ -7,8 +7,11 @@ A simple graph builder based on LSP calls that represents local code repositorie
    :maxdepth: 2
    :caption: Contents:
 
+   installation
    quickstart
    core_components
+   graph_diff_modes
+   api_reference
    visual_examples
 
 Quick Start

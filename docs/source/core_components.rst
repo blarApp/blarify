@@ -244,11 +244,6 @@ Implementation Notes
 - ProjectGraphUpdater and ProjectGraphDiffCreator outputs are designed to be merged to the original graph with a MERGE cypher query.
 - See :class:`blarify.db_managers.neo4j_manager.Neo4jManager` for graph merging operations using ``create_nodes()`` and ``create_edges()`` methods which implement MERGE functionality via ``apoc.merge.node`` and ``apoc.merge.relationship``
 
-
-
-API Reference
--------------
-
 .. autoclass:: blarify.project_graph_creator.ProjectGraphCreator
    :members:
    :show-inheritance:

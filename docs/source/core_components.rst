@@ -165,9 +165,10 @@ A simplified wrapper around ProjectGraphDiffCreator specifically designed for up
    from blarify.project_graph_updater import ProjectGraphUpdater, UpdatedFile
 
    # List of files that have been changed
+   # file:/// prefix is needed
    updated_files = [
-       UpdatedFile(path="src/file1.py"),
-       UpdatedFile(path="src/file2.py")
+       UpdatedFile(path="file:///path/to/project/src/file1.py"),
+       UpdatedFile(path="file:///path/to/project/src/file2.py")
    ]
 
    # Create updater

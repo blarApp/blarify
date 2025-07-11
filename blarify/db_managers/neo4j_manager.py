@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Any, List
+from typing import Any, List, Dict
 
 from dotenv import load_dotenv
 from neo4j import Driver, GraphDatabase, exceptions
@@ -127,3 +127,27 @@ class Neo4jManager:
                 path=path,
             )
             return result.data()
+
+    def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """
+        Execute a Cypher query and return the results.
+        
+        Args:
+            cypher_query: The Cypher query string to execute
+            parameters: Optional dictionary of parameters for the query
+            
+        Returns:
+            List of dictionaries containing the query results
+        """
+        if parameters is None:
+            parameters = {}
+        
+        try:
+            with self.driver.session() as session:
+                result = session.run(cypher_query, parameters)
+                return [record.data() for record in result]
+        except Exception as e:
+            logger.error(f"Error executing Neo4j query: {e}")
+            logger.error(f"Query: {cypher_query}")
+            logger.error(f"Parameters: {parameters}")
+            raise

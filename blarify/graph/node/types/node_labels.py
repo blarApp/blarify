@@ -9,3 +9,4 @@ class NodeLabels(Enum):
     METHOD = "METHOD"
     MODULE = "MODULE"
     DELETED = "DELETED"
+    INFORMATION = "INFORMATION"

@@ -20,3 +20,9 @@ class RelationshipType(Enum):
     MODIFIED = "MODIFIED"
     DELETED = "DELETED"
     ADDED = "ADDED"
+    
+    # Documentation relationships
+    DOCUMENTS = "DOCUMENTS"  # Information node documents a code node
+    EXPLAINS = "EXPLAINS"  # Information node explains another information node
+    REFERENCES_DOC = "REFERENCES_DOC"  # Information node references another information node
+    HAS_EXAMPLE = "HAS_EXAMPLE"  # Information node contains example of a code node

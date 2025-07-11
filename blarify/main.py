@@ -1,3 +1,5 @@
+from typing import Optional
+
 from blarify.project_graph_creator import ProjectGraphCreator
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.project_file_explorer import ProjectFileStats
@@ -7,6 +9,8 @@ from blarify.db_managers.neo4j_manager import Neo4jManager
 from blarify.code_references import LspQueryHelper
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.utils.file_remover import FileRemover
+from blarify.documentation.semantic_analyzer import LLMProvider
+from blarify.documentation.post_processor import DocumentationPostProcessor
 
 import dotenv
 import os
@@ -18,7 +22,7 @@ USER = os.getenv("NEO4J_USERNAME")
 PASSWORD = os.getenv("NEO4J_PASSWORD")
 
 
-def main(root_path: str = None, blarignore_path: str = None):
+def main(root_path: str = None, blarignore_path: str = None, include_documentation: bool = False, llm_provider: Optional[LLMProvider] = None):
     lsp_query_helper = LspQueryHelper(root_uri=root_path)
 
     lsp_query_helper.start()
@@ -165,7 +169,7 @@ def main_diff_with_previous(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     dotenv.load_dotenv()
-    root_path = os.getenv("ROOT_PATH")
+    root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blar-django-server"
     blarignore_path = os.getenv("BLARIGNORE_PATH")
     main(root_path=root_path, blarignore_path=blarignore_path)
     # main_diff(

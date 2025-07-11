@@ -1,5 +1,6 @@
 import time
 from blarify.code_hierarchy.languages.go_definitions import GoDefinitions
+from blarify.code_hierarchy.languages.php_definitions import PhpDefinitions
 from blarify.code_references import LspQueryHelper, FileExtensionNotSupported
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.graph.node import NodeLabels, NodeFactory
@@ -13,6 +14,7 @@ from blarify.code_hierarchy.languages import (
     FallbackDefinitions,
     RubyDefinitions,
     CsharpDefinitions,
+    JavaDefinitions
 )
 from typing import List, TYPE_CHECKING
 from blarify.logger import Logger
@@ -43,6 +45,8 @@ class ProjectGraphCreator:
         ".rb": RubyDefinitions,
         ".cs": CsharpDefinitions,
         ".go": GoDefinitions,
+        ".php": PhpDefinitions,
+        ".java": JavaDefinitions,
     }
 
     def __init__(
@@ -67,7 +71,7 @@ class ProjectGraphCreator:
     def build_hierarchy_only(self) -> Graph:
         """
         Build the graph with only the code hierarchy (folders, files, class definitions, function definitions)
-        
+
         This will modify the graph in place and return it.
         """
         self._create_code_hierarchy()

@@ -32,6 +32,8 @@ langgraph = "^0.0.55"
 langchain = "^0.2.0"
 langchain-openai = "^0.1.0"
 langchain-anthropic = "^0.1.0"
+tree-sitter-php = "^0.23.11"
+tree-sitter-java = "^0.23.5"
 
 
 

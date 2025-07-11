@@ -117,6 +117,10 @@ class LanguageServer:
             )
 
             return DartLanguageServer(config, logger, repository_root_path)
+        elif config.code_language == Language.PHP:
+            from blarify.vendor.multilspy.language_servers.intelephense.intelephense import Intelephense
+
+            return Intelephense(config, logger, repository_root_path)
         else:
             logger.log(
                 f"Language {config.code_language} is not supported", logging.ERROR
@@ -191,6 +195,7 @@ class LanguageServer:
         ```
         """
         self.server_started = True
+        print("Starting server...")
         yield self
         self.server_started = False
 
@@ -674,6 +679,7 @@ class LanguageServer:
 
         :return Tuple[List[multilspy_types.UnifiedSymbolInformation], Union[List[multilspy_types.TreeRepr], None]]: A list of symbols in the file, and the tree representation of the symbols
         """
+        print(f"Requesting document symbols for {relative_file_path}")
         with self.open_file(relative_file_path):
             response = await self.server.send.document_symbol(
                 {
@@ -711,7 +717,7 @@ class LanguageServer:
                 ret.extend(visit_tree_nodes_and_build_tree_repr(item))
             else:
                 ret.append(multilspy_types.UnifiedSymbolInformation(**item))
-
+        print(f"Document symbols for {relative_file_path} received")
         return ret, l_tree
 
     async def request_hover(

@@ -10,26 +10,28 @@ import dotenv
 
 def build(root_path: str = None, include_documentation: bool = False, llm_provider: Optional[LLMProvider] = None):
     graph_builder = GraphBuilder(
-        root_path=root_path, extensions_to_skip=[".json"], names_to_skip=["__pycache__", ".venv", ".git"]
+        root_path=root_path,
+        extensions_to_skip=[".json"],
+        names_to_skip=["__pycache__", ".venv", ".git", ".env", "node_modules"],
     )
-    
+
     # Use FalkorDB for this example
     db_manager = FalkorDBManager(repo_id="repo", entity_id="organization")
-    
+
     # Build graph with optional documentation layer
     graph = graph_builder.build(
         include_documentation=include_documentation,
         llm_provider=llm_provider,
-        db_manager=db_manager if include_documentation else None
+        db_manager=db_manager if include_documentation else None,
     )
 
     relationships = graph.get_relationships_as_objects()
     nodes = graph.get_nodes_as_objects()
-    
+
     # Filter nodes by layer if needed
-    code_nodes = [n for n in nodes if n.get('attributes', {}).get('layer', 'code') == 'code']
-    doc_nodes = [n for n in nodes if n.get('attributes', {}).get('layer', 'code') == 'documentation']
-    
+    code_nodes = [n for n in nodes if n.get("attributes", {}).get("layer", "code") == "code"]
+    doc_nodes = [n for n in nodes if n.get("attributes", {}).get("layer", "code") == "documentation"]
+
     print(f"Code layer: {len(code_nodes)} nodes")
     if include_documentation:
         print(f"Documentation layer: {len(doc_nodes)} nodes")
@@ -57,7 +59,7 @@ def save_to_falkordb(relationships, nodes):
 
 def build_with_documentation_example(root_path: str):
     """Example of building a graph with documentation layer.
-    
+
     Note: This requires an LLM provider to be implemented.
     """
     # TODO: Implement your LLM provider
@@ -79,9 +81,9 @@ if __name__ == "__main__":
 
     dotenv.load_dotenv()
     root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blar-django-server"
-    
+
     # Build without documentation (default)
     build(root_path=root_path)
-    
+
     # To build with documentation, uncomment and implement LLM provider:
     # build_with_documentation_example(root_path)

@@ -1,13 +1,9 @@
 from typing import TYPE_CHECKING, Optional
-
 import psutil
-
 from blarify.vendor.multilspy import SyncLanguageServer
-
 from blarify.utils.path_calculator import PathCalculator
-
 from .types.Reference import Reference
-
+from blarify.graph.node import DefinitionNode
 from blarify.vendor.multilspy.multilspy_config import MultilspyConfig
 from blarify.vendor.multilspy.multilspy_logger import MultilspyLogger
 from blarify.vendor.multilspy.lsp_protocol_handler.server import Error
@@ -22,6 +18,7 @@ if TYPE_CHECKING:
 import asyncio
 
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +30,6 @@ class FileExtensionNotSupported(Exception):
 class LspQueryHelper:
     root_uri: str
     language_to_lsp_server: dict[str, SyncLanguageServer]
-
     LSP_USAGES = 0
 
     def __init__(self, root_uri: str, host: Optional[str] = None, port: Optional[int] = None):
@@ -50,6 +46,8 @@ class LspQueryHelper:
             TypescriptDefinitions,
             CsharpDefinitions,
             GoDefinitions,
+            PhpDefinitions,
+            JavaDefinitions,
         )
 
         if extension in PythonDefinitions.get_language_file_extensions():
@@ -64,14 +62,16 @@ class LspQueryHelper:
             return CsharpDefinitions
         elif extension in GoDefinitions.get_language_file_extensions():
             return GoDefinitions
+        elif extension in PhpDefinitions.get_language_file_extensions():
+            return PhpDefinitions
+        elif extension in JavaDefinitions.get_language_file_extensions():
+            return JavaDefinitions
         else:
             raise FileExtensionNotSupported(f'File extension "{extension}" is not supported)')
 
     def _create_lsp_server(self, language_definitions: "LanguageDefinitions", timeout=15) -> SyncLanguageServer:
         language = language_definitions.get_language_name()
-
         config = MultilspyConfig.from_dict({"code_language": language})
-
         logger = MultilspyLogger()
         lsp = SyncLanguageServer.create(config, logger, PathCalculator.uri_to_path(self.root_uri), timeout=timeout)
         return lsp
@@ -106,7 +106,6 @@ class LspQueryHelper:
     def get_paths_where_node_is_referenced(self, node: "DefinitionNode") -> list[Reference]:
         server = self._get_or_create_lsp_server(node.extension)
         references = self._request_references_with_exponential_backoff(node, server)
-
         return [Reference(reference) for reference in references]
 
     def _request_references_with_exponential_backoff(self, node, lsp):
@@ -118,12 +117,10 @@ class LspQueryHelper:
                     line=node.definition_range.start_dict["line"],
                     column=node.definition_range.start_dict["character"],
                 )
-
                 return references
 
             except (TimeoutError, ConnectionResetError, Error):
                 timeout = timeout * 2
-
                 logger.warning(
                     f"Error requesting references for {self.root_uri}, {node.definition_range}, attempting to restart LSP server with timeout {timeout}"
                 )
@@ -136,9 +133,7 @@ class LspQueryHelper:
     def _restart_lsp_for_extension(self, extension):
         language_definitions = self.get_language_definition_for_extension(extension)
         language_name = language_definitions.get_language_name()
-
         self.exit_lsp_server(language_name)
-
         new_lsp = self._create_lsp_server(language_definitions)
 
         logger.warning("Restarting LSP server")
@@ -150,35 +145,84 @@ class LspQueryHelper:
             logger.error("Connection reset error")
 
     def exit_lsp_server(self, language) -> None:
-        # TODO: This should not be this hacky!!!
+        # First try to properly exit the context manager if it exists
+        if language in self.entered_lsp_servers:
+            context = self.entered_lsp_servers[language]
+            try:
+                # Try to exit context manager with timeout, this is to ensure that we don't hang indefinitely
+                # It happens sometimes especially with c#
+                def exit_context():
+                    context.__exit__(None, None, None)
+                
+                thread = threading.Thread(target=exit_context)
+                thread.start()
+                thread.join(timeout=5)  # Wait up to 5 seconds
+                
+                if thread.is_alive():
+                    logger.warning(f"Context manager exit timed out for {language}")
+                    raise TimeoutError("Context manager exit timed out")
+                logger.info(f"Properly exited context manager for {language}")
+            except Exception as e:
+                logger.warning(f"Error exiting context manager for {language}: {e}")
+                # If context exit fails, fall back to manual cleanup
+                self._manual_cleanup_lsp_server(language)
+            finally:
+                del self.entered_lsp_servers[language]
+        else:
+            # No context manager, do manual cleanup
+            self._manual_cleanup_lsp_server(language)
 
-        # Since im using the sync language server, I need to manually kill the process
-        # If I try to exit the context, it will hang since it's waiting for the server response
-        # A better way would be to use the async language server, but that would require a lot of changes
-        # So for now, I'm just killing the process manually
+        # Remove from the language server dict
+        if language in self.language_to_lsp_server:
+            del self.language_to_lsp_server[language]
+
+    def _manual_cleanup_lsp_server(self, language) -> None:
+        """Manual cleanup when context manager exit fails or doesn't exist."""
+        if language not in self.language_to_lsp_server:
+            return
 
         # Best line of code I've ever written:
         process = self.language_to_lsp_server[language].language_server.server.process
 
+        # Kill running processes
         try:
             if psutil.pid_exists(process.pid):
                 for child in psutil.Process(process.pid).children(recursive=True):
                     child.terminate()
-
                 process.terminate()
         except Exception as e:
             logger.error(f"Error killing process: {e}")
 
+        # Cancel all tasks in the loop
         loop = self.language_to_lsp_server[language].loop
         try:
             tasks = asyncio.all_tasks(loop=loop)
-            for task in tasks:
-                task.cancel()
+            if tasks:
+                for task in tasks:
+                    task.cancel()
+
+                # Schedule a coroutine to wait for cancelled tasks to complete
+                async def wait_for_cancelled_tasks():
+                    try:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                    except Exception:
+                        pass  # Ignore exceptions from cancelled tasks
+
+                # Run the cleanup coroutine in the loop
+                future = asyncio.run_coroutine_threadsafe(wait_for_cancelled_tasks(), loop)
+                try:
+                    future.result(timeout=5)  # Wait up to 5 seconds for cleanup
+                except Exception:
+                    pass  # If cleanup times out, continue anyway
+
             logger.info("Tasks cancelled")
         except Exception as e:
             logger.error(f"Error cancelling tasks: {e}")
 
-        del self.language_to_lsp_server[language]
+        # Stop the loop
+        # It is important to stop the loop before exiting the context otherwise there will be threads running indefinitely
+        if loop.is_running():
+            loop.call_soon_threadsafe(loop.stop)
 
     def get_definition_path_for_reference(self, reference: Reference, extension: str) -> str:
         lsp_caller = self._get_or_create_lsp_server(extension)
@@ -198,12 +242,10 @@ class LspQueryHelper:
                     line=reference.range.start.line,
                     column=reference.range.start.character,
                 )
-
                 return definitions
 
             except (TimeoutError, ConnectionResetError, Error):
                 timeout = timeout * 2
-
                 logger.warning(
                     f"Error requesting definitions for {self.root_uri}, {reference.start_dict}, attempting to restart LSP server with timeout {timeout}"
                 )
@@ -217,8 +259,12 @@ class LspQueryHelper:
         languages = list(self.language_to_lsp_server.keys())
 
         for language in languages:
-            self.exit_lsp_server(language)
+            try:
+                self.exit_lsp_server(language)
+            except Exception as e:
+                logger.error(f"Error shutting down LSP server for {language}: {e}")
 
-        self.entered_lsp_servers = {}
-        self.language_to_lsp_server = {}
+        # Ensure all dictionaries are cleared
+        self.entered_lsp_servers.clear()
+        self.language_to_lsp_server.clear()
         logger.info("LSP servers have been shut down")

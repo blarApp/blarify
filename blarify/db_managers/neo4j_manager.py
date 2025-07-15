@@ -1,10 +1,12 @@
 import os
 import time
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 
 from dotenv import load_dotenv
 from neo4j import Driver, GraphDatabase, exceptions
 import logging
+
+from .dtos import NodeSearchResultDTO
 
 logger = logging.getLogger(__name__)
 
@@ -131,17 +133,17 @@ class Neo4jManager:
     def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return the results.
-        
+
         Args:
             cypher_query: The Cypher query string to execute
             parameters: Optional dictionary of parameters for the query
-            
+
         Returns:
             List of dictionaries containing the query results
         """
         if parameters is None:
             parameters = {}
-        
+
         try:
             with self.driver.session() as session:
                 result = session.run(cypher_query, parameters)
@@ -151,3 +153,42 @@ class Neo4jManager:
             logger.error(f"Query: {cypher_query}")
             logger.error(f"Parameters: {parameters}")
             raise
+
+    def get_node_by_id_v2(
+        self, node_id: str, company_id: str, diff_identifier: Optional[str] = None
+    ) -> Optional[NodeSearchResultDTO]:
+        """
+        Get a node by its ID.
+
+        Args:
+            node_id: The ID of the node to retrieve
+            company_id: Company ID to filter by
+            diff_identifier: Optional diff identifier for PR context
+
+        Returns:
+            An instance of NodeSearchResultDTO containing the node data, or None if not found
+        """
+        query = """
+        MATCH (n:NODE {node_id: $node_id})
+        RETURN n
+        """
+        result = self.query(query, {"node_id": node_id})
+
+        if result:
+            node_data = result[0]["n"]
+            # Create NodeSearchResultDTO with required fields
+            # Note: You'll need to implement the logic to populate outbound_relations and inbound_relations
+            return NodeSearchResultDTO(
+                node_id=node_data.get("node_id", ""),
+                node_name=node_data.get("node_name", ""),
+                node_labels=node_data.get("node_labels", []),
+                path=node_data.get("path", ""),
+                node_path=node_data.get("node_path", ""),
+                code=node_data.get("code", ""),
+                diff_text=node_data.get("diff_text", ""),
+                outbound_relations=[],  # TODO: Implement relationship queries
+                inbound_relations=[],  # TODO: Implement relationship queries
+                modified_node=node_data.get("modified_node", False),
+            )
+        else:
+            return None

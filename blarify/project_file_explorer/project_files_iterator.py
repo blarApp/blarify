@@ -27,7 +27,8 @@ class ProjectFilesIterator:
         self.max_file_size_mb = max_file_size_mb
 
         if blarignore_path:
-            self.names_to_skip.extend(self.get_ignore_files(blarignore_path))
+            ignored_files = self.get_ignore_files(blarignore_path)
+            self.names_to_skip.extend(ignored_files)
 
     def get_ignore_files(self, gitignore_path: str) -> List[str]:
         with open(gitignore_path, "r") as f:

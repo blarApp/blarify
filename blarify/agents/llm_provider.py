@@ -7,8 +7,7 @@ import json_repair
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
-from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_react_agent
 from pydantic import BaseModel
 
 from .chat_fallback import ChatFallback
@@ -150,7 +149,6 @@ class LLMProvider:
         messages: Optional[List[BaseMessage]],
         output_schema: Optional[BaseModel] = None,
         ai_model: Optional[str] = "gpt-4.1",
-        checkpointer: Optional[PostgresSaver] = None,
         config: Optional[Dict[str, Any]] = None,
         name: Optional[str] = None,
     ) -> Any:
@@ -168,12 +166,11 @@ class LLMProvider:
         ).get_fallback_chat_model()
 
         if name:
-            react_agent = create_react_agent(model=model, tools=tools, checkpointer=checkpointer, name=name)
+            react_agent = create_react_agent(model=model, tools=tools, name=name)
         else:
             react_agent = create_react_agent(
                 model=model,
                 tools=tools,
-                checkpointer=checkpointer,
             )
 
         if not messages:

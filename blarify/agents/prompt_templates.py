@@ -49,12 +49,9 @@ class PromptTemplate:
 FRAMEWORK_DETECTION_TEMPLATE = PromptTemplate(
     name="framework_detection",
     description="Analyzes codebase structure to identify technology stack and frameworks",
-    variables=["codebase_skeleton"],
+    variables=[],
     template="""
 You are a senior software architect analyzing a codebase structure. Your task is to identify the technology stack, frameworks, and architectural patterns used in this project.
-
-## Codebase Structure
-{codebase_skeleton}
 
 ## Analysis Instructions
 Please analyze the codebase structure and provide a comprehensive assessment including:
@@ -115,8 +112,6 @@ SYSTEM_OVERVIEW_TEMPLATE = PromptTemplate(
     template="""
 You are a technical documentation specialist creating a comprehensive system overview for a software project. Your task is to analyze the codebase structure and framework information to generate detailed documentation.
 
-## Codebase Structure
-{codebase_skeleton}
 
 ## Framework Analysis
 {framework_info}
@@ -324,10 +319,10 @@ class PromptTemplateManager:
 
 
 # Convenience functions for common operations
-def get_framework_detection_prompt(codebase_skeleton: str) -> str:
+def get_framework_detection_prompt() -> str:
     """Get formatted framework detection prompt."""
     manager = PromptTemplateManager()
-    return manager.format_template("framework_detection", codebase_skeleton=codebase_skeleton)
+    return manager.get_template("framework_detection")
 
 
 def get_system_overview_prompt(codebase_skeleton: str, framework_info: str) -> str:

@@ -94,7 +94,6 @@ class GetCodeByIdTool(BaseTool):
             "name": node_result.node_name,
             "labels": node_result.node_labels,
             "code": node_result.code,
-            "diff_text": node_result.diff_text,
         }
 
         return return_dict

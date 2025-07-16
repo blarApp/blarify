@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from neo4j import Driver, GraphDatabase, exceptions
 import logging
 
+from blarify.db_managers.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
+
 from .dtos import NodeSearchResultDTO
 
 logger = logging.getLogger(__name__)
@@ -176,15 +178,17 @@ class Neo4jManager:
 
         if result:
             node_data = result[0]["n"]
+            print(node_data)
             # Create NodeSearchResultDTO with required fields
             # Note: You'll need to implement the logic to populate outbound_relations and inbound_relations
+            {'stats_min_indentation': 0, 'repoId': 'test', 'stats_max_indentation': 0, 'node_path': '/blarify/repo/blarify/requirements-vendor.txt', 'level': 1, 'stats_average_indentation': 0, 'entityId': 'test', 'stats_sd_indentation': 0, 'label': 'FILE', 'hashed_id': 'e0b4c6b548e0785004e664b34903e0fe', 'layer': 'code', 'path': 'file:///Users/pepemanu/Desktop/Trabajo/Blar/Dev/blarify/requirements-vendor.txt', 'diff_identifier': 'repo', 'name': 'requirements-vendor.txt', 'text': 'git+https://github.com/blarApp/multilspy.git', 'node_id': 'e0b4c6b548e0785004e664b34903e0fe'}
             return NodeSearchResultDTO(
                 node_id=node_data.get("node_id", ""),
-                node_name=node_data.get("node_name", ""),
-                node_labels=node_data.get("node_labels", []),
+                node_name=node_data.get("name", ""),
+                node_labels=[node_data.get("label", "")],
                 path=node_data.get("path", ""),
                 node_path=node_data.get("node_path", ""),
-                code=node_data.get("code", ""),
+                code=node_data.get("text", ""),
                 diff_text=node_data.get("diff_text", ""),
                 outbound_relations=[],  # TODO: Implement relationship queries
                 inbound_relations=[],  # TODO: Implement relationship queries
@@ -192,3 +196,50 @@ class Neo4jManager:
             )
         else:
             return None
+        
+
+
+    def get_node_by_name_and_type(
+        self, name: str, type: str, company_id: str, repo_id: str, diff_identifier: str
+    ) -> List[NodeFoundByNameTypeDto]:
+        query = """
+        MATCH (n:NODE {name: $name, entityId: $entity_id, environment: $environment, repoId: $repo_id})
+        WHERE (n.diff_identifier = $diff_identifier OR n.diff_identifier = "0") AND $type IN labels(n)
+        AND NOT (n)-[:DELETED]->()
+        AND NOT ()-[:MODIFIED]->(n)
+        RETURN n.node_id as node_id, n.name as name, n.label as label,
+               n.diff_text as diff_text, n.diff_identifier as diff_identifier,
+               n.node_path as node_path, n.text as text
+
+        LIMIT 100;
+        """
+        params = {
+            "name": str(name),
+            "entity_id": str(company_id),
+            "repo_id": str(repo_id),
+            "type": str(type),
+            "diff_identifier": str(diff_identifier),
+        }
+        record = self.query(
+            query,
+            parameters=params,
+            result_format="data",
+        )
+
+        if record is None:
+            return []
+
+        found_nodes = [
+            NodeFoundByNameTypeDto(
+                id=node.get("node_id"),
+                name=node.get("name"),
+                label=node.get("label"),
+                diff_text=node.get("diff_text"),
+                node_path=node.get("node_path"),
+                text=node.get("text"),
+                diff_identifier=node.get("diff_identifier"),
+            )
+            for node in record
+        ]
+
+        return found_nodes

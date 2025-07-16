@@ -44,7 +44,7 @@ class ReactAgent:
         self.tools = tools
         self.caller_specific_task = caller_specific_task
         self.tools_by_name = {tool.name: tool for tool in tools}
-
+        self.last_reasoner_message = None
         self.llm_caller = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash-preview-05-20",
         ).with_fallbacks(
@@ -111,6 +111,8 @@ class ReactAgent:
         )
         copy_messages[0].content = self.reasoner_prompt
         reasoning_response = llm_reasoning.invoke(copy_messages)
+
+        self.last_reasoner_message = reasoning_response.content
 
         return {"current_reasoning": reasoning_response.content}
 

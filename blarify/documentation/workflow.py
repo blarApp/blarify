@@ -100,43 +100,72 @@ class DocumentationWorkflow:
             return {"root_codebase_skeleton": f"Error loading codebase: {str(e)}"}
 
     def __detect_framework(self, state: DocumentationState) -> Dict[str, Any]:
-        """Detect the primary framework and technology stack."""
+        """Detect the primary framework and technology stack using CodeExplorer for focused analysis."""
         try:
-            logger.info("Detecting framework and technology stack")
+            logger.info("Detecting framework and technology stack with CodeExplorer")
 
-            skeleton = state.get("root_codebase_skeleton", "")
-            if not skeleton:
-                return {"detected_framework": {"error": "No codebase skeleton available"}}
-
-            # Generate framework detection prompt
-            prompt = get_framework_detection_prompt(skeleton)
-
-            # Get LLM response
-            response = self.__agent_caller.call_average_agent(
-                input_dict={"prompt": prompt},
-                output_schema=None,
-                system_prompt="You are a framework detection expert. Analyze the codebase structure and return a JSON response with framework information.",
-                input_prompt=prompt,
+            # Use CodeExplorer with a single focused goal for framework detection
+            from ..agents.tools.code_explorer_tool import CodeExplorerTool
+            
+            code_explorer = CodeExplorerTool(
+                company_id=self.__company_id,
+                company_graph_manager=self.__company_graph_manager,
             )
-
-            # Parse response
+            
+            explore_tool = code_explorer.get_tool()
+            
+            # Use the comprehensive exploration goal from prompt templates
+            
+            prompt = get_framework_detection_prompt()
             try:
-                import json
-
-                response_content = response.content if hasattr(response, "content") else str(response)
-                framework_info = json.loads(response_content)
-            except (json.JSONDecodeError, AttributeError):
-                response_content = response.content if hasattr(response, "content") else str(response)
+                exploration_result = explore_tool.invoke({"exploration_goal": prompt.template})
+                logger.info("CodeExplorer analysis completed successfully")
+                
+                # Parse response into structured format
+                try:
+                    import json
+                    response_content = exploration_result.content if hasattr(exploration_result, "content") else str(exploration_result)
+                    framework_info = json.loads(response_content)
+                    
+                    # Add exploration metadata
+                    framework_info["exploration_metadata"] = {
+                        "analysis_method": "code_explorer_with_structured_parsing",
+                        "exploration_successful": True
+                    }
+                    
+                except (json.JSONDecodeError, AttributeError):
+                    response_content = exploration_result.content if hasattr(exploration_result, "content") else str(exploration_result)
+                    framework_info = {
+                        "primary_language": "unknown",
+                        "framework": {"name": "unknown", "category": "unknown"},
+                        "architecture_pattern": "unknown",
+                        "project_type": "unknown",
+                        "confidence_score": 0.0,
+                        "reasoning": response_content,
+                        "exploration_metadata": {
+                            "analysis_method": "code_explorer_with_structured_parsing",
+                            "exploration_successful": True,
+                            "parse_error": "Failed to parse JSON response"
+                        }
+                    }
+                
+            except Exception as e:
+                logger.warning(f"CodeExplorer analysis failed: {e}")
                 framework_info = {
                     "primary_language": "unknown",
                     "framework": {"name": "unknown", "category": "unknown"},
                     "architecture_pattern": "unknown",
                     "project_type": "unknown",
                     "confidence_score": 0.0,
-                    "reasoning": response_content,
+                    "reasoning": f"CodeExplorer analysis failed: {str(e)}",
+                    "exploration_metadata": {
+                        "analysis_method": "code_explorer_with_structured_parsing",
+                        "exploration_successful": False,
+                        "error": str(e)
+                    }
                 }
 
-            logger.info(f"Detected framework: {framework_info.get('framework', {}).get('name', 'unknown')}")
+            logger.info(f"Detected framework: {framework_info.get('framework', {}).get('name', 'unknown')} (confidence: {framework_info.get('confidence_score', 0.0)})")
             return {"detected_framework": framework_info}
 
         except Exception as e:

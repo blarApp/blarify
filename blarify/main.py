@@ -253,7 +253,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     dotenv.load_dotenv()
     # Use current blarify repository for testing
-    root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blarify"
+    root_path = "/Users/pepemanu/Desktop/Trabajo/Blar/Dev/blarify"
     # root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blar-django-server"
     blarignore_path = os.getenv("BLARIGNORE_PATH")
     # Comment out regular main() and use documentation integration

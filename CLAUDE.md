@@ -93,3 +93,6 @@ Follow TDD approach:
 5. Move to next test/functionality
 
 This ensures code quality and prevents over-engineering.
+
+### Code Submission Best Practices
+- Always run tests before submitting a task as completed

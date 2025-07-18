@@ -1,17 +1,18 @@
 import os
-import time
 from typing import Any, List, Dict
 import logging
 
 from dotenv import load_dotenv
-from falkordb import FalkorDB, exceptions
+from falkordb import FalkorDB
+
+from blarify.db_managers.db_manager import AbstractDbManager
 
 logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 
-class FalkorDBManager:
+class FalkorDBManager(AbstractDbManager):
     entity_id: str
     repo_id: str
     db: FalkorDB
@@ -78,21 +79,21 @@ class FalkorDBManager:
     def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return the results.
-        
+
         Args:
             cypher_query: The Cypher query string to execute
             parameters: Optional dictionary of parameters for the query
-            
+
         Returns:
             List of dictionaries containing the query results
         """
         if parameters is None:
             parameters = {}
-        
+
         try:
             graph = self.db.select_graph(self.repo_id)
             result = graph.query(cypher_query, params=parameters)
-            
+
             # Convert FalkorDB result to dictionary format
             results = []
             if result.result_set:
@@ -103,7 +104,7 @@ class FalkorDBManager:
                         if i < len(row):
                             row_dict[header] = row[i]
                     results.append(row_dict)
-            
+
             return results
         except Exception as e:
             logger.error(f"Error executing FalkorDB query: {e}")

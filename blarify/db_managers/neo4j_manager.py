@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from neo4j import Driver, GraphDatabase, exceptions
 import logging
 
+from blarify.db_managers.db_manager import AbstractDbManager
 from blarify.db_managers.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
 
 from .dtos import NodeSearchResultDTO
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-class Neo4jManager:
+class Neo4jManager(AbstractDbManager):
     entity_id: str
     repo_id: str
     driver: Driver
@@ -181,7 +182,24 @@ class Neo4jManager:
             print(node_data)
             # Create NodeSearchResultDTO with required fields
             # Note: You'll need to implement the logic to populate outbound_relations and inbound_relations
-            {'stats_min_indentation': 0, 'repoId': 'test', 'stats_max_indentation': 0, 'node_path': '/blarify/repo/blarify/requirements-vendor.txt', 'level': 1, 'stats_average_indentation': 0, 'entityId': 'test', 'stats_sd_indentation': 0, 'label': 'FILE', 'hashed_id': 'e0b4c6b548e0785004e664b34903e0fe', 'layer': 'code', 'path': 'file:///Users/pepemanu/Desktop/Trabajo/Blar/Dev/blarify/requirements-vendor.txt', 'diff_identifier': 'repo', 'name': 'requirements-vendor.txt', 'text': 'git+https://github.com/blarApp/multilspy.git', 'node_id': 'e0b4c6b548e0785004e664b34903e0fe'}
+            {
+                "stats_min_indentation": 0,
+                "repoId": "test",
+                "stats_max_indentation": 0,
+                "node_path": "/blarify/repo/blarify/requirements-vendor.txt",
+                "level": 1,
+                "stats_average_indentation": 0,
+                "entityId": "test",
+                "stats_sd_indentation": 0,
+                "label": "FILE",
+                "hashed_id": "e0b4c6b548e0785004e664b34903e0fe",
+                "layer": "code",
+                "path": "file:///Users/pepemanu/Desktop/Trabajo/Blar/Dev/blarify/requirements-vendor.txt",
+                "diff_identifier": "repo",
+                "name": "requirements-vendor.txt",
+                "text": "git+https://github.com/blarApp/multilspy.git",
+                "node_id": "e0b4c6b548e0785004e664b34903e0fe",
+            }
             return NodeSearchResultDTO(
                 node_id=node_data.get("node_id", ""),
                 node_name=node_data.get("name", ""),
@@ -196,14 +214,12 @@ class Neo4jManager:
             )
         else:
             return None
-        
-
 
     def get_node_by_name_and_type(
         self, name: str, type: str, company_id: str, repo_id: str, diff_identifier: str
     ) -> List[NodeFoundByNameTypeDto]:
         query = """
-        MATCH (n:NODE {name: $name, entityId: $entity_id, environment: $environment, repoId: $repo_id})
+        MATCH (n:NODE {name: $name, entityId: $entity_id, repoId: $repo_id})
         WHERE (n.diff_identifier = $diff_identifier OR n.diff_identifier = "0") AND $type IN labels(n)
         AND NOT (n)-[:DELETED]->()
         AND NOT ()-[:MODIFIED]->(n)

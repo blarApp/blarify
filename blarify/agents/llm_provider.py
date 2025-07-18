@@ -7,8 +7,9 @@ import json_repair
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
-from langchain.agents import create_react_agent
 from pydantic import BaseModel
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain_core.prompts import PromptTemplate
 
 from .chat_fallback import ChatFallback
 
@@ -54,6 +55,7 @@ class LLMProvider:
         fallback_list: Optional[List[str]] = None,
         output_schema: Optional[BaseModel] = None,
         messages: Optional[List[BaseMessage]] = None,
+        tools: Optional[List[BaseTool]] = None,
     ) -> Any:
         if not fallback_list:
             fallback_list = self.reasoning_agent_order
@@ -61,6 +63,10 @@ class LLMProvider:
         model = ChatFallback(
             model=ai_model, fallback_list=fallback_list, output_schema=output_schema
         ).get_fallback_chat_model()
+
+        # Bind tools to model if provided
+        if tools:
+            model = model.bind_tools(tools)
 
         prompt_list = [("system", system_prompt)]
         if messages:
@@ -106,7 +112,18 @@ class LLMProvider:
         output_schema: BaseModel,
         system_prompt: str,
         input_prompt: Optional[str] = "Start",
+        tools: Optional[List[BaseTool]] = None,
     ) -> Any:
+        if tools:
+            # Use reasoning agent when tools are provided
+            return self.call_agent_with_reasoning(
+                system_prompt=system_prompt,
+                input_dict=input_dict,
+                output_schema=output_schema,
+                input_prompt=input_prompt,
+                ai_model=self.average_agent,
+                tools=tools,
+            )
         return self._invoke_agent(
             input_prompt=input_prompt,
             input_dict=input_dict,
@@ -125,8 +142,11 @@ class LLMProvider:
         input_prompt: Optional[str] = "Start",
         ai_model: Optional[str] = None,
         messages: Optional[List[BaseMessage]] = None,
+        tools: Optional[List[BaseTool]] = None,
     ) -> Any:
         model = ai_model if ai_model else self.reasoning_agent
+
+        # Use _invoke_agent with tools instead of call_react_agent
         response = self._invoke_agent(
             input_prompt=input_prompt,
             input_dict=input_dict,
@@ -135,6 +155,7 @@ class LLMProvider:
             system_prompt=system_prompt,
             messages=messages,
             fallback_list=self.reasoning_agent_order,
+            tools=tools,  # Pass tools to _invoke_agent
         )
 
         if output_schema:
@@ -148,44 +169,82 @@ class LLMProvider:
         input_dict: Dict[str, Any],
         messages: Optional[List[BaseMessage]],
         output_schema: Optional[BaseModel] = None,
-        ai_model: Optional[str] = "gpt-4.1",
+        main_model: Optional[str] = "gpt-4.1",
+        tool_model: Optional[str] = "gpt-4.1-nano",
         config: Optional[Dict[str, Any]] = None,
         name: Optional[str] = None,
     ) -> Any:
-        # Always use ChatPromptTemplate with system and human messages
-        chat_prompt_messages = ChatPromptTemplate.from_messages(
-            messages=[
-                ("system", system_prompt),
-            ]
-            + messages
-        )
-        chat_prompt_messages_formated = chat_prompt_messages.format_messages(**input_dict)
-
+        # Get the model with fallback
         model = ChatFallback(
-            model=ai_model, fallback_list=self.average_agent_order, output_schema=None
+            model=main_model or self.reasoning_agent, fallback_list=self.reasoning_agent_order
         ).get_fallback_chat_model()
 
-        if name:
-            react_agent = create_react_agent(model=model, tools=tools, name=name)
+        # Create React agent prompt template
+        # Use PromptTemplate since ChatPromptTemplate has issues with agent_scratchpad
+        react_prompt = PromptTemplate(
+            template="""You are an assistant that can use tools to accomplish tasks.
+
+{system_prompt}
+
+You have access to the following tools:
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: {input}
+{agent_scratchpad}""",
+            input_variables=["input", "agent_scratchpad", "system_prompt", "tools", "tool_names"],
+        )
+
+        # Create LangChain React agent
+        react_agent = create_react_agent(model, tools, react_prompt)
+
+        # Create agent executor
+        agent_executor = AgentExecutor(
+            agent=react_agent,
+            tools=tools,
+            verbose=True,
+            handle_parsing_errors=True,
+            max_iterations=10,
+        )
+
+        # Format the input from messages using ChatPromptTemplate for proper separation
+        if messages:
+            # Extract the human message content
+            human_message = messages[-1] if messages else None
+            if human_message and hasattr(human_message, "content"):
+                input_text = human_message.content
+            else:
+                input_text = str(human_message)
         else:
-            react_agent = create_react_agent(
-                model=model,
-                tools=tools,
-            )
+            input_text = "Complete the analysis using the available tools."
 
-        if not messages:
-            messages = [("human", "Start")]
+        # Format the input text with input_dict
+        formatted_input = input_text.format(**input_dict) if input_dict else input_text
 
-        default_config = {"recursion_limit": 50}
-        if config is not None:
-            default_config.update(config)
+        logger.info("Invoking LangChain React agent with separated system and human messages")
+        response = agent_executor.invoke({"input": formatted_input, "system_prompt": system_prompt})
 
-        logger.info("Invoking react agent with config")
-        response = react_agent.invoke({"messages": chat_prompt_messages_formated}, default_config)
+        # Extract final response
+        if response and "output" in response:
+            output_content = response["output"]
+            if output_schema:
+                return self.parse_structured_output(output_content, output_schema)
+            # Return in the expected format
+            return {"messages": [type("Message", (), {"content": output_content})()]}
 
-        if output_schema:
-            return self.parse_structured_output(response["messages"][-1].content, output_schema)
-        return response
+        return {"messages": []}
 
     def _parse_structured_output(self, content: str, output_schema: BaseModel) -> Any:
         try:

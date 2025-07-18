@@ -1,12 +1,10 @@
 import copy
 import logging
-from typing import List
+from typing import List, Optional
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
-from langgraph.prebuilt import ToolNode
+from .chat_fallback import ChatFallback
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +35,9 @@ class ReactAgent:
         stop_tools,
         tools,
         caller_specific_task: str,
+        reasoner_model: str = "gpt-4.1",
+        tool_caller_model: str = "gemini-2.5-flash-preview-05-20",
+        fallback_list: Optional[List[str]] = None,
     ):
         self.reasoner_prompt = reasoner_prompt
         self.tool_caller_prompt = tool_caller_prompt
@@ -45,15 +46,22 @@ class ReactAgent:
         self.caller_specific_task = caller_specific_task
         self.tools_by_name = {tool.name: tool for tool in tools}
         self.last_reasoner_message = None
-        self.llm_caller = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash-preview-05-20",
-        ).with_fallbacks(
-            [
-                ChatOpenAI(
-                    model_name="gpt-4.1-mini",
-                )
-            ]
-        )
+        
+        # Set default fallback list if not provided
+        if fallback_list is None:
+            fallback_list = ["gpt-4.1-mini", "claude-3-5-haiku-latest", "gemini-2.5-flash-preview-05-20"]
+        
+        # Create configurable models using ChatFallback
+        self.reasoner_model = reasoner_model
+        self.tool_caller_model = tool_caller_model
+        self.fallback_list = fallback_list
+        
+        # Create the tool caller model with fallbacks
+        self.llm_caller = ChatFallback(
+            model=tool_caller_model,
+            fallback_list=fallback_list,
+            output_schema=None
+        ).get_fallback_chat_model()
 
     def __should_continue(self, state: ReactMessagesState):
         messages = state["messages"]
@@ -97,6 +105,37 @@ class ReactAgent:
                 )
         return tool_messages
 
+    def __call_tools(self, state: ReactMessagesState):
+        """Custom tool node implementation to replace ToolNode"""
+        messages = state["messages"]
+        last_message = messages[-1]
+        tool_messages = []
+        
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            for tool_call in last_message.tool_calls:
+                tool = self.tools_by_name.get(tool_call["name"])
+                if not tool:
+                    continue
+                try:
+                    observation = tool.invoke(tool_call["args"])
+                    tool_messages.append(
+                        ToolMessage(
+                            content=str(observation),
+                            tool_call_id=tool_call["id"],
+                            name=tool_call["name"],
+                        )
+                    )
+                except Exception as e:
+                    tool_messages.append(
+                        ToolMessage(
+                            content=f"Error running tool {tool_call['name']}: {e}",
+                            tool_call_id=tool_call["id"],
+                            name=tool_call["name"],
+                        )
+                    )
+        
+        return {"messages": tool_messages}
+
     def __call_finish(self, state: ReactMessagesState):
         messages = state["messages"]
         last_message = messages[-1]
@@ -106,9 +145,14 @@ class ReactAgent:
     def __call_reasoner(self, state: ReactMessagesState):
         messages = state["messages"]
         copy_messages = copy.deepcopy(messages)
-        llm_reasoning = ChatOpenAI(
-            model_name="gpt-4.1",
-        )
+        
+        # Use configurable reasoner model with fallbacks
+        llm_reasoning = ChatFallback(
+            model=self.reasoner_model,
+            fallback_list=self.fallback_list,
+            output_schema=None
+        ).get_fallback_chat_model()
+        
         copy_messages[0].content = self.reasoner_prompt
         reasoning_response = llm_reasoning.invoke(copy_messages)
 
@@ -142,14 +186,19 @@ class ReactAgent:
         Gemini 2.5 flash and pro sometimes return empty message
         https://discuss.ai.google.dev/t/gemini-2-5-pro-with-empty-response-text/81175/43
         """
-        logger.info("Gemini returned an empty message in tool caller, switching to gpt")
+        logger.info("Primary model returned an empty message in tool caller, switching to backup")
         copy_messages.append(
             HumanMessage(content="Please provide an answer to the given question, by using the corresponding tool")
         )
-        llm_reasoning = ChatOpenAI(
-            model_name="gpt-4.1",
-        )
-        llm_caller_w_tools = llm_reasoning.bind_tools(self.tools)
+        
+        # Use configurable backup model (fallback to reasoner model)
+        llm_backup = ChatFallback(
+            model=self.reasoner_model,
+            fallback_list=self.fallback_list,
+            output_schema=None
+        ).get_fallback_chat_model()
+        
+        llm_caller_w_tools = llm_backup.bind_tools(self.tools)
         tool_call_response = llm_caller_w_tools.invoke(copy_messages)
         return tool_call_response
 
@@ -158,7 +207,7 @@ class ReactAgent:
 
         workflow.add_node("reasoner", self.__call_reasoner)
         workflow.add_node("tool_caller", self.__call_tool_caller)
-        workflow.add_node("tools", ToolNode(tools=self.tools))
+        workflow.add_node("tools", self.__call_tools)
         workflow.add_node("finish", self.__call_finish)
 
         workflow.add_edge(START, "reasoner")

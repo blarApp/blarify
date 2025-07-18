@@ -11,8 +11,16 @@ import logging
 
 from langgraph.graph import START, StateGraph
 
+from blarify.agents.prompt_templates.component_analysis import COMPONENT_ANALYSIS_TEMPLATE
+
 from ..agents.llm_provider import LLMProvider
-from ..agents.prompt_templates import get_framework_detection_prompt, get_system_overview_prompt
+from ..agents.prompt_templates import (
+    FRAMEWORK_DETECTION_TEMPLATE,
+    SYSTEM_OVERVIEW_TEMPLATE,
+    CROSS_COMPONENT_ANALYSIS_TEMPLATE,
+    COMPONENT_IDENTIFICATION_TEMPLATE,
+    RELATIONSHIP_EXTRACTION_TEMPLATE,
+)
 from ..db_managers.db_manager import AbstractDbManager
 from ..db_managers.queries import get_codebase_skeleton
 
@@ -39,16 +47,23 @@ class DocumentationWorkflow:
     Analyzes a particular branch using the AST code graph to understand codebase structure.
     """
 
+    __company_id: str
+    __company_graph_manager: AbstractDbManager
+    __repo_id: str
+    __agent_caller: LLMProvider
+    __agent_type: str
+    __compiled_graph: Optional[Any]
+
     def __init__(
         self,
         company_id: str,
         company_graph_manager: AbstractDbManager,
-        environment: str = "default",
+        repo_id: str,
         agent_caller: Optional[LLMProvider] = None,
-    ):
+    ) -> None:
         self.__company_id = company_id
         self.__company_graph_manager = company_graph_manager
-        self.__environment = environment
+        self.__repo_id = repo_id
         self.__agent_caller = agent_caller if agent_caller else LLMProvider()
         self.__agent_type = "documentation_generator"
         self.__compiled_graph = None
@@ -89,7 +104,7 @@ class DocumentationWorkflow:
             logger.info(f"Loading codebase skeleton for company_id: {self.__company_id}")
 
             root_skeleton = get_codebase_skeleton(
-                db_manager=self.__company_graph_manager, entity_id=self.__company_id, environment=self.__environment
+                db_manager=self.__company_graph_manager, entity_id=self.__company_id, repo_id=self.__repo_id
             )
 
             logger.info(f"Successfully loaded codebase skeleton ({len(root_skeleton)} characters)")
@@ -100,73 +115,56 @@ class DocumentationWorkflow:
             return {"root_codebase_skeleton": f"Error loading codebase: {str(e)}"}
 
     def __detect_framework(self, state: DocumentationState) -> Dict[str, Any]:
-        """Detect the primary framework and technology stack using CodeExplorer for focused analysis."""
+        """Detect the primary framework and technology stack using LLM provider with strategic analysis."""
         try:
-            logger.info("Detecting framework and technology stack with CodeExplorer")
+            logger.info("Detecting framework and technology stack with LLM provider")
 
-            # Use CodeExplorer with a single focused goal for framework detection
-            from ..agents.tools.code_explorer_tool import CodeExplorerTool
-            
-            code_explorer = CodeExplorerTool(
-                company_id=self.__company_id,
-                company_graph_manager=self.__company_graph_manager,
+            # Get the codebase structure from the state (loaded in previous node)
+            codebase_structure = state.get("root_codebase_skeleton", "")
+
+            if not codebase_structure:
+                return {"detected_framework": {"error": "No codebase structure available"}}
+
+            # Use the updated prompt template that provides text output with strategic insights
+            system_prompt, input_prompt = FRAMEWORK_DETECTION_TEMPLATE.get_prompts(
+                codebase_structure=codebase_structure
             )
-            
-            explore_tool = code_explorer.get_tool()
-            
-            # Use the comprehensive exploration goal from prompt templates
-            
-            prompt = get_framework_detection_prompt()
-            try:
-                exploration_result = explore_tool.invoke({"exploration_goal": prompt.template})
-                logger.info("CodeExplorer analysis completed successfully")
-                
-                # Parse response into structured format
-                try:
-                    import json
-                    response_content = exploration_result.content if hasattr(exploration_result, "content") else str(exploration_result)
-                    framework_info = json.loads(response_content)
-                    
-                    # Add exploration metadata
-                    framework_info["exploration_metadata"] = {
-                        "analysis_method": "code_explorer_with_structured_parsing",
-                        "exploration_successful": True
-                    }
-                    
-                except (json.JSONDecodeError, AttributeError):
-                    response_content = exploration_result.content if hasattr(exploration_result, "content") else str(exploration_result)
-                    framework_info = {
-                        "primary_language": "unknown",
-                        "framework": {"name": "unknown", "category": "unknown"},
-                        "architecture_pattern": "unknown",
-                        "project_type": "unknown",
-                        "confidence_score": 0.0,
-                        "reasoning": response_content,
-                        "exploration_metadata": {
-                            "analysis_method": "code_explorer_with_structured_parsing",
-                            "exploration_successful": True,
-                            "parse_error": "Failed to parse JSON response"
-                        }
-                    }
-                
-            except Exception as e:
-                logger.warning(f"CodeExplorer analysis failed: {e}")
-                framework_info = {
-                    "primary_language": "unknown",
-                    "framework": {"name": "unknown", "category": "unknown"},
-                    "architecture_pattern": "unknown",
-                    "project_type": "unknown",
-                    "confidence_score": 0.0,
-                    "reasoning": f"CodeExplorer analysis failed: {str(e)}",
-                    "exploration_metadata": {
-                        "analysis_method": "code_explorer_with_structured_parsing",
-                        "exploration_successful": False,
-                        "error": str(e)
-                    }
-                }
 
-            logger.info(f"Detected framework: {framework_info.get('framework', {}).get('name', 'unknown')} (confidence: {framework_info.get('confidence_score', 0.0)})")
-            return {"detected_framework": framework_info}
+            # Initialize only GetCodeByIdTool for config file reading
+            tools = None
+            try:
+                from ..agents.tools import GetCodeByIdTool
+
+                # Create code reader tool instance
+                code_reader = GetCodeByIdTool(self.__company_graph_manager, self.__company_id)
+
+                # Only provide the code reader tool
+                tools = [code_reader]
+
+                logger.info("GetCodeByIdTool initialized for config file reading")
+            except Exception as e:
+                logger.warning(f"Could not initialize GetCodeByIdTool: {e}. Running without tools.")
+                tools = None
+
+            # Use custom ReactAgent for strategic framework detection
+            response = self.__agent_caller.call_react_agent(
+                system_prompt=system_prompt,
+                tools=tools,
+                input_dict={"codebase_structure": codebase_structure},
+                messages=[("human", input_prompt)],
+                output_schema=None,
+            )
+
+            # Extract the response content from custom ReactAgent
+            if isinstance(response, dict) and "messages" in response:
+                final_message = response["messages"][-1]
+                response_content = final_message.content if hasattr(final_message, "content") else str(final_message)
+            else:
+                response_content = response.content if hasattr(response, "content") else str(response)
+            logger.info("LLM framework detection completed successfully")
+
+            # Return the LLM response directly as the framework detection result
+            return {"detected_framework": response_content}
 
         except Exception as e:
             logger.error(f"Error detecting framework: {e}")
@@ -183,20 +181,24 @@ class DocumentationWorkflow:
             if not skeleton:
                 return {"system_overview": {"error": "No codebase skeleton available"}}
 
-            # Convert framework info to string for prompt
+            # Convert framework info to string for prompt and escape curly braces
             import json
 
             framework_str = json.dumps(framework_info, indent=2)
+            # Escape curly braces to prevent LangChain from interpreting them as template variables
+            framework_str = framework_str.replace("{", "{{").replace("}", "}}")
 
             # Generate system overview prompt
-            prompt = get_system_overview_prompt(skeleton, framework_str)
+            system_prompt, input_prompt = SYSTEM_OVERVIEW_TEMPLATE.get_prompts(
+                codebase_skeleton=skeleton, framework_info=framework_str
+            )
 
             # Get LLM response
             response = self.__agent_caller.call_agent_with_reasoning(
-                input_dict={"prompt": prompt},
+                input_dict={"codebase_skeleton": skeleton, "framework_info": framework_str},
                 output_schema=None,
-                system_prompt="You are a system architecture expert. Analyze the codebase and framework information to generate a comprehensive system overview.",
-                input_prompt=prompt,
+                system_prompt=system_prompt,
+                input_prompt=input_prompt,
             )
 
             # Parse response
@@ -278,27 +280,26 @@ class DocumentationWorkflow:
             if not skeleton:
                 return {"key_components": []}
 
-            # Create prompt for component identification
-            prompt = f"""
-            Analyze the codebase structure and identify the key components that should be documented.
-            
-            Framework: {framework_info.get('framework', {}).get('name', 'unknown')}
-            System Overview: {system_overview.get('executive_summary', '')}
-            
-            Codebase Structure:
-            {skeleton}
-            
-            Identify the 5-10 most important components that would help an LLM agent understand this codebase.
-            Focus on entry points, main business logic, and core architectural components.
-            
-            Return a JSON array of components with their importance and reasoning.
-            """
+            # Convert data to safe string format and escape curly braces
+            import json
+
+            framework_str = json.dumps(framework_info, indent=2).replace("{", "{{").replace("}", "}}")
+            system_overview_str = json.dumps(system_overview, indent=2).replace("{", "{{").replace("}", "}}")
+
+            # Use the new prompt template system
+            system_prompt, input_prompt = COMPONENT_IDENTIFICATION_TEMPLATE.get_prompts(
+                codebase_structure=skeleton, framework_info=framework_str, system_overview=system_overview_str
+            )
 
             response = self.__agent_caller.call_agent_with_reasoning(
-                input_dict={"prompt": prompt},
+                input_dict={
+                    "codebase_structure": skeleton,
+                    "framework_info": framework_info,
+                    "system_overview": system_overview,
+                },
                 output_schema=None,
-                system_prompt="You are a code architecture expert. Identify the most important components in the codebase for documentation.",
-                input_prompt=prompt,
+                system_prompt=system_prompt,
+                input_prompt=input_prompt,
             )
 
             # Parse response
@@ -331,29 +332,21 @@ class DocumentationWorkflow:
 
             for component in key_components:
                 try:
-                    # Create detailed analysis prompt for each component
-                    prompt = f"""
-                    Analyze this component in detail:
-                    Component: {component}
-                    
-                    Context from codebase:
-                    {skeleton}
-                    
-                    Provide detailed analysis including:
-                    - Purpose and responsibility
-                    - Key methods/functions
-                    - Dependencies and relationships
-                    - Usage patterns
-                    - Important implementation details
-                    
-                    Return structured analysis as JSON.
-                    """
+                    # Convert component to safe string format
+                    import json
+
+                    component_str = json.dumps(component, indent=2).replace("{", "{{").replace("}", "}}")
+
+                    # Use the new prompt template system
+                    system_prompt, input_prompt = COMPONENT_ANALYSIS_TEMPLATE.get_prompts(
+                        component_code=component_str, context=skeleton
+                    )
 
                     response = self.__agent_caller.call_agent_with_reasoning(
-                        input_dict={"prompt": prompt},
+                        input_dict={"component_code": component, "context": skeleton},
                         output_schema=None,
-                        system_prompt="You are a code analysis expert. Provide detailed component analysis.",
-                        input_prompt=prompt,
+                        system_prompt=system_prompt,
+                        input_prompt=input_prompt,
                     )
 
                     # Parse and store analysis
@@ -390,32 +383,27 @@ class DocumentationWorkflow:
             analyzed_nodes = state.get("analyzed_nodes", [])
             skeleton = state.get("root_codebase_skeleton", "")
 
-            # Create prompt for relationship extraction
-            prompt = f"""
-            Analyze the relationships and dependencies between these components:
-            
-            Components: {[node.get('component') for node in analyzed_nodes]}
-            
-            Codebase Structure:
-            {skeleton}
-            
-            Component Analyses:
-            {analyzed_nodes}
-            
-            Extract:
-            - Direct dependencies between components
-            - Data flow patterns
-            - Communication patterns
-            - Architectural relationships
-            
-            Return structured dependency information as JSON.
-            """
+            # Convert data to safe string format and escape curly braces
+            import json
+
+            components_list = [node.get("component") for node in analyzed_nodes]
+            components_str = json.dumps(components_list, indent=2).replace("{", "{{").replace("}", "}}")
+            analyses_str = json.dumps(analyzed_nodes, indent=2).replace("{", "{{").replace("}", "}}")
+
+            # Use the new prompt template system
+            system_prompt, input_prompt = RELATIONSHIP_EXTRACTION_TEMPLATE.get_prompts(
+                components=components_str, codebase_structure=skeleton, component_analyses=analyses_str
+            )
 
             response = self.__agent_caller.call_agent_with_reasoning(
-                input_dict={"prompt": prompt},
+                input_dict={
+                    "components": components_list,
+                    "codebase_structure": skeleton,
+                    "component_analyses": analyzed_nodes,
+                },
                 output_schema=None,
-                system_prompt="You are a system architecture expert. Extract relationships and dependencies between components.",
-                input_prompt=prompt,
+                system_prompt=system_prompt,
+                input_prompt=input_prompt,
             )
 
             # Parse response
@@ -510,29 +498,38 @@ class DocumentationWorkflow:
             dependencies = state.get("dependencies", {})
             system_overview = state.get("system_overview", {})
 
-            # Create prompt for cross-component analysis
-            prompt = f"""
-            Analyze the cross-component patterns and system-wide interactions:
-            
-            System Overview: {system_overview}
-            Components: {analyzed_nodes}
-            Dependencies: {dependencies}
-            
-            Identify:
-            - Common patterns across components
-            - System-wide architecture principles
-            - Integration patterns
-            - Data flow through the system
-            - Configuration and deployment patterns
-            
-            Return structured analysis as JSON.
-            """
+            # Convert data to safe string format to avoid JSON curly brace issues
+            import json
+
+            try:
+                system_overview_str = json.dumps(system_overview, indent=2)
+                analyzed_nodes_str = json.dumps(analyzed_nodes, indent=2)
+                dependencies_str = json.dumps(dependencies, indent=2)
+
+                # Escape curly braces to prevent LangChain from interpreting them as template variables
+                system_overview_str = system_overview_str.replace("{", "{{").replace("}", "}}")
+                analyzed_nodes_str = analyzed_nodes_str.replace("{", "{{").replace("}", "}}")
+                dependencies_str = dependencies_str.replace("{", "{{").replace("}", "}}")
+            except (TypeError, ValueError):
+                # Fallback to string representation if JSON serialization fails
+                system_overview_str = str(system_overview).replace("{", "{{").replace("}", "}}")
+                analyzed_nodes_str = str(analyzed_nodes).replace("{", "{{").replace("}", "}}")
+                dependencies_str = str(dependencies).replace("{", "{{").replace("}", "}}")
+
+            # Use the new prompt template system
+            system_prompt, input_prompt = CROSS_COMPONENT_ANALYSIS_TEMPLATE.get_prompts(
+                system_overview=system_overview_str, analyzed_nodes=analyzed_nodes_str, dependencies=dependencies_str
+            )
 
             response = self.__agent_caller.call_agent_with_reasoning(
-                input_dict={"prompt": prompt},
+                input_dict={
+                    "system_overview": system_overview,
+                    "analyzed_nodes": analyzed_nodes,
+                    "dependencies": dependencies,
+                },
                 output_schema=None,
-                system_prompt="You are a system architecture expert. Analyze cross-component patterns and system-wide interactions.",
-                input_prompt=prompt,
+                system_prompt=system_prompt,
+                input_prompt=input_prompt,
             )
 
             # Parse response

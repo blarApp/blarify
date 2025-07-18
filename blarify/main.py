@@ -57,7 +57,7 @@ def main_with_documentation(root_path: str = None, blarignore_path: str = None):
         # Initialize the documentation workflow
         llm_provider = LLMProvider()
         documentation_workflow = DocumentationWorkflow(
-            company_id=entity_id, company_graph_manager=graph_manager, environment="default", agent_caller=llm_provider
+            company_id=entity_id, company_graph_manager=graph_manager, repo_id=repoId, agent_caller=llm_provider
         )
 
         print("📝 Starting documentation generation workflow...")
@@ -83,7 +83,7 @@ def main_with_documentation(root_path: str = None, blarignore_path: str = None):
             for i, doc in enumerate(generated_docs[:2]):  # Show first 2 docs
                 doc_type = doc.get("type", "unknown")
                 content = doc.get("content", doc.get("documentation", ""))[:200]
-                print(f"   {i+1}. [{doc_type}] {content}...")
+                print(f"   {i + 1}. [{doc_type}] {content}...")
 
         return result
 
@@ -98,6 +98,63 @@ def main_with_documentation(root_path: str = None, blarignore_path: str = None):
         # Clean up resources
         graph_manager.close()
         lsp_query_helper.shutdown_exit_close()
+
+
+def test_documentation_only(root_path: str = None):
+    """Test only the documentation workflow, assuming the graph already exists in the database."""
+    print("📚 Testing documentation generation workflow only...")
+
+    repoId = "test"
+    entity_id = "test"
+    graph_manager = Neo4jManager(repoId, entity_id)
+
+    try:
+        # Initialize the documentation workflow
+        llm_provider = LLMProvider()
+        documentation_workflow = DocumentationWorkflow(
+            company_id=entity_id, company_graph_manager=graph_manager, repo_id=repoId, agent_caller=llm_provider
+        )
+
+        print("📝 Compiling do        cumentation workflow...")
+        documentation_workflow.compile_graph()
+
+        print("🔄 Starting documentation generation...")
+
+        # Run the workflow
+        result = documentation_workflow.run()
+
+        print("✅ Documentation generation completed successfully!")
+
+        # Print results summary
+        generated_docs = result.get("generated_docs", [])
+        print("\n📋 Documentation Results:")
+        print(f"   - Generated docs: {len(generated_docs)}")
+        print(
+            f"   - Framework detected: {result.get('detected_framework', {}).get('framework', {}).get('name', 'unknown')}"
+        )
+        print(f"   - Key components: {len(result.get('key_components', []))}")
+        print(f"   - Analyzed nodes: {len(result.get('analyzed_nodes', []))}")
+
+        # Print sample documentation
+        if generated_docs:
+            print("\n📄 Sample Documentation:")
+            for i, doc in enumerate(generated_docs[:2]):  # Show first 2 docs
+                doc_type = doc.get("type", "unknown")
+                content = doc.get("content", doc.get("documentation", ""))[:200]
+                print(f"   {i + 1}. [{doc_type}] {content}...")
+
+        return result
+
+    except Exception as e:
+        print(f"❌ Documentation generation failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+    finally:
+        # Clean up resources
+        graph_manager.close()
 
 
 def main(
@@ -253,72 +310,14 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     dotenv.load_dotenv()
     # Use current blarify repository for testing
-    root_path = "/Users/pepemanu/Desktop/Trabajo/Blar/Dev/blarify"
+    root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blarify"
     # root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blar-django-server"
     blarignore_path = os.getenv("BLARIGNORE_PATH")
     # Comment out regular main() and use documentation integration
     # main(root_path=root_path, blarignore_path=blarignore_path)
 
-    # Test the documentation layer integration
-    main_with_documentation(root_path=root_path, blarignore_path=blarignore_path)
-    # main_diff(
-    #     file_diffs=[
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/lsp-poc/blarify/graph/node/utils/node_factory.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.ADDED,
-    #         ),
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/lsp-poc/blarify/graph/relationship/relationship_type.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.ADDED,
-    #         ),
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/lsp-poc/blarify/graph/relationship/relationship_creator.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.DELETED,
-    #         ),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    # )
+    # Test the documentation layer only (assuming graph exists)
+    test_documentation_only(root_path=root_path)
 
-    print("Updating")
-    # main_update(
-    #     updated_files=[
-    #         # UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/schemas.py"),
-    #         # UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/models.py"),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    # )
-    # main_update(
-    #     updated_files=[
-    #         UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/schemas.py"),
-    #         UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/models.py"),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    # )
-
-    # main_diff_with_previous(
-    #     file_diffs=[
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/blar-qa/blar/agents/tasks.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.MODIFIED,
-    #         ),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    #     previous_node_states=[
-    #         PreviousNodeState(
-    #             "/dev/MAIN/blar-qa/blar/agents/tasks.py.execute_pr_report_agent_task",
-    #             open("/home/juan/devel/blar/lsp-poc/blarify/example", "r").read(),
-    #         ),
-    #         PreviousNodeState(
-    #             "/dev/MAIN/blar-qa/blar/agents/tasks.py.execute_pr_report_agent_taski",
-    #             open("/home/juan/devel/blar/lsp-poc/blarify/example", "r").read(),
-    #         ),
-    #     ],
-    # )
+    # Run the full workflow with documentation generation
+    # main_with_documentation(root_path=root_path, blarignore_path=blarignore_path)

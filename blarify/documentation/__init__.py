@@ -17,10 +17,10 @@ from ..agents.llm_provider import LLMProvider
 from ..agents.prompt_templates import (
     PromptTemplate,
     PromptTemplateManager,
-    get_framework_detection_prompt,
-    get_system_overview_prompt,
-    get_component_analysis_prompt,
-    get_api_documentation_prompt,
+    FRAMEWORK_DETECTION_TEMPLATE,
+    SYSTEM_OVERVIEW_TEMPLATE,
+    COMPONENT_ANALYSIS_TEMPLATE,
+    API_DOCUMENTATION_TEMPLATE,
 )
 
 __all__ = [
@@ -37,8 +37,8 @@ __all__ = [
     # Prompt templates
     "PromptTemplate",
     "PromptTemplateManager",
-    "get_framework_detection_prompt",
-    "get_system_overview_prompt",
-    "get_component_analysis_prompt",
-    "get_api_documentation_prompt",
+    "FRAMEWORK_DETECTION_TEMPLATE",
+    "SYSTEM_OVERVIEW_TEMPLATE",
+    "COMPONENT_ANALYSIS_TEMPLATE",
+    "API_DOCUMENTATION_TEMPLATE",
 ]

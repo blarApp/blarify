@@ -162,46 +162,164 @@ generate_information_nodes → analyze_cross_component → consolidate_semantic_
   - Create system overview generation prompts
   - Add template management system with `blarify/documentation/prompt_templates.py`
 
-### Phase 3: Component Analysis Nodes
-**Priority**: Medium | **Estimated Effort**: 4-5 days
+### Phase 3: Individual Workflow Node Implementation & Testing
+**Priority**: High | **Estimated Effort**: 6-7 days
 
-#### Tasks
-- [ ] **Implement Analysis Nodes**
-  - `create_doc_skeleton` - Generate documentation structure
-  - `identify_key_components` - Prioritize important components
-  - `analyze_component` - Deep dive into individual components
-  - `extract_relationships` - Map component interactions
+#### Overview
+Phase 3 focuses on implementing and testing each individual workflow node in the DocumentationWorkflow class. The current workflow.py has placeholder implementations for most nodes. We need to complete each node with proper LLM integration and validate that the LLM responses meet quality standards for semantic documentation generation.
 
-- [ ] **Neo4j Query Integration**
-  - Add specialized Cypher queries for component analysis
-  - Implement relationship traversal for dependency mapping
-  - Add performance optimizations for large codebases
+#### Current Node Status Analysis
+- ✅ `__load_codebase` - **COMPLETED** - Loads complete codebase file tree with enhanced formatting
+- ✅ `__detect_framework` - **COMPLETED** - Simplified to use only GetCodeByIdTool with ReactAgent
+- ⚠️ `__generate_overview` - **NEEDS TESTING** - Implemented but requires LLM response validation
+- ❌ `__create_doc_skeleton` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration
+- ❌ `__identify_key_components` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
+- ❌ `__analyze_component` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
+- ❌ `__extract_relationships` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
+- ❌ `__generate_component_docs` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
+- ❌ `__analyze_cross_component` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
+- ❌ `__consolidate_with_skeleton` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
 
-- [ ] **Component Prioritization Logic**
-  - Framework-specific component identification
-  - Business logic detection algorithms
-  - Entry point and critical path analysis
+#### Framework Detection Simplification (COMPLETED)
 
-### Phase 4: Documentation Generation
-**Priority**: Medium | **Estimated Effort**: 3-4 days
+The `__detect_framework` node has been simplified based on user feedback about tool usage with certain models:
 
-#### Tasks
-- [ ] **Final Generation Nodes**
-  - `generate_information_nodes` - Create InformationNode objects from analysis
-  - `analyze_cross_component` - System-wide pattern analysis
-  - `consolidate_semantic_layer` - Final semantic node and relationship creation
+**Final Implementation:**
+1. **Complete File Tree Analysis**: Receives full codebase structure from `__load_codebase`
+2. **Single Tool Usage**: Uses only `GetCodeByIdTool` to read configuration files
+3. **ReactAgent Architecture**: Continues using ReactAgent for better tool handling
+4. **Focused Analysis**: LLM analyzes tree structure and reads config files to determine stack
 
-- [ ] **Information Node Creation**
-  - Convert LLM analysis into InformationNode objects
-  - Create relationships between semantic and code nodes
-  - Add metadata and tagging for efficient retrieval
+**Key Benefits:**
+- Simplified tool usage improves compatibility with models like O4
+- Complete file tree eliminates need for directory exploration
+- Config file reading provides concrete framework confirmation
+- ReactAgent handles tool execution more reliably than direct binding
 
-- [ ] **Quality Assurance**
-  - Add validation for generated content
-  - Implement deduplication logic
-  - Add content quality scoring
+#### Implementation Tasks
 
-### Phase 5: Database Integration
+##### Task 1: Create LLM Response Validation Testing Framework
+- [ ] **Add test_node method to DocumentationWorkflow class**
+  - Enable individual node testing with custom state
+  - Add debugging and logging for LLM interactions
+  - Create state validation helpers
+
+- [ ] **Implement Progressive State Validation**
+  - Test each node with realistic state progression
+  - Validate LLM responses contain expected semantic content
+  - Create quality assessment metrics for each node type
+
+- [ ] **Create Real Codebase Testing Setup**
+  - Use blarify codebase as known test case
+  - Define expected outcomes for each node
+  - Validate LLM responses against known characteristics
+
+##### Task 2: Complete Node Implementations with Testing
+- [ ] **Enhance and Test `__detect_framework` with Strategic Analysis**
+  - **Strategic Analysis Approach**: Efficient codebase reconnaissance to guide next steps
+  - **Implementation Strategy**:
+    1. Analyze root structure from `__load_codebase` for initial framework clues
+    2. Use `DirectoryExplorerTool` to explore 2-3 key directories (src/, app/, components/)
+    3. Use `GetCodeByIdTool` to read 2-3 strategic files (config files + key source files)
+    4. Provide strategic framework information to guide `__generate_overview`
+  - **Expected Output**: Clear text response covering:
+    - Primary language and framework
+    - Project type (frontend/backend/fullstack/library)
+    - Key directories for deeper analysis
+    - Architecture style hints
+    - Important files for next analysis step
+  - **Implementation Details**: 
+    - Initialize agent tools in `__detect_framework` method
+    - Use tools programmatically to gather strategic information
+    - Pass collected information to LLM provider for analysis
+    - Update framework detection prompt to guide strategic analysis
+  - **Testing**: Validate with multiple codebase types and ensure strategic information quality
+
+- [ ] **Refine and Test `__generate_overview`**
+  - Validate LLM generates business context understanding
+  - Test system overview includes purpose and domain
+  - Ensure response is structured and comprehensive
+
+- [ ] **Implement and Test `__create_doc_skeleton`**
+  - Create documentation structure based on detected framework
+  - Generate section templates appropriate for project type
+  - Validate skeleton is logical and well-organized
+
+- [ ] **Implement and Test `__identify_key_components`**
+  - Use LLM to analyze codebase and identify critical components
+  - Prioritize components based on importance and usage
+  - Validate component identification is accurate and complete
+
+##### Task 3: Advanced Analysis Node Implementation
+- [ ] **Implement and Test `__analyze_component`**
+  - Deep semantic analysis of individual components
+  - Extract component purpose, responsibilities, and usage patterns
+  - Generate detailed component documentation
+
+- [ ] **Implement and Test `__extract_relationships`**
+  - Map relationships and dependencies between components
+  - Create semantic relationship graph
+  - Validate relationship extraction is accurate
+
+- [ ] **Implement and Test `__generate_component_docs`**
+  - Transform component analysis into structured documentation
+  - Create examples and usage patterns
+  - Generate API documentation for key components
+
+##### Task 4: Final Integration and Consolidation
+- [ ] **Implement and Test `__analyze_cross_component`**
+  - Analyze system-wide patterns and interactions
+  - Identify architectural patterns and design principles
+  - Create high-level system understanding
+
+- [ ] **Implement and Test `__consolidate_with_skeleton`**
+  - Merge all generated documentation into final structure
+  - Ensure consistency and completeness
+  - Create final semantic documentation layer
+
+#### Testing Strategy
+
+##### LLM Response Quality Validation
+```python
+def assess_llm_output_quality(node_name: str, result: dict):
+    """Quality checks for each node type"""
+    quality_checks = {
+        "detect_framework": [
+            lambda r: "framework" in str(r).lower(),
+            lambda r: any(fw in str(r).lower() for fw in ["django", "react", "next", "flask", "vue", "python"])
+        ],
+        "generate_overview": [
+            lambda r: "business" in str(r).lower() or "purpose" in str(r).lower(),
+            lambda r: len(str(r)) > 100,  # Substantial content
+            lambda r: "overview" in str(r).lower() or "system" in str(r).lower()
+        ],
+        "identify_key_components": [
+            lambda r: isinstance(r.get("key_components"), list),
+            lambda r: len(r.get("key_components", [])) > 0,
+            lambda r: all("path" in str(comp) for comp in r.get("key_components", []))
+        ]
+    }
+```
+
+##### Progressive State Testing
+- Test nodes sequentially with realistic state progression
+- Validate each node's contribution to overall workflow
+- Ensure state consistency and data flow between nodes
+
+##### Real Codebase Validation
+- Test with blarify codebase as known baseline
+- Validate expected outcomes for each node
+- Ensure LLM responses are semantically correct
+
+#### Success Criteria
+- [ ] All 10 workflow nodes implemented and tested
+- [ ] LLM responses pass quality validation checks
+- [ ] Progressive state testing shows proper data flow
+- [ ] Real codebase testing produces expected semantic documentation
+- [ ] Error handling and recovery mechanisms in place
+- [ ] Performance acceptable for medium-sized codebases
+
+### Phase 4: Database Integration
 **Priority**: Medium | **Estimated Effort**: 2-3 days
 
 #### Tasks
@@ -220,7 +338,7 @@ generate_information_nodes → analyze_cross_component → consolidate_semantic_
   - Create backward compatibility layer
   - Add data validation and integrity checks
 
-### Phase 6: Main Integration
+### Phase 5: Main Integration
 **Priority**: Low | **Estimated Effort**: 2-3 days
 
 #### Tasks
@@ -256,20 +374,45 @@ Use this section to track progress across work sessions:
 - ✅ Completed: Created get_root_codebase_skeleton_tool.py in blarify/agents/tools/
 - ✅ Completed: Updated tool exports in blarify/agents/tools/__init__.py and blarify/agents/__init__.py
 - ✅ Completed: Complete replacement of workflow.py with DocumentationGeneratorWorkflow
-- ✅ Completed: Implemented all 10 workflow nodes (load_codebase, detect_framework, generate_overview, create_doc_skeleton, identify_key_components, analyze_component, extract_relationships, generate_component_docs, analyze_cross_component, consolidate_with_skeleton)
+- ✅ Completed: Basic structure for all 10 workflow nodes (load_codebase, detect_framework, generate_overview, create_doc_skeleton, identify_key_components, analyze_component, extract_relationships, generate_component_docs, analyze_cross_component, consolidate_with_skeleton)
 - ✅ Completed: Fixed import dependencies and tested workflow compilation
 - ✅ Completed: Updated DocumentationState schema to focus on generated_docs output
-- 📋 Next Session: Integration with main GraphBuilder and database persistence
+- 📋 Next Session: Individual node implementation with LLM response validation testing
+
+**Session 3 (Date: 2024-07-18)**
+- ✅ Completed: Analyzed current workflow implementation status
+- ✅ Completed: Identified that only __load_codebase is fully implemented
+- ✅ Completed: Redesigned Phase 3 to focus on individual node implementation and testing
+- ✅ Completed: Created LLM response validation testing strategy
+- ✅ Completed: Designed strategic framework detection approach using agent tools
+- ✅ Completed: Updated implementation plan with framework detection enhancement strategy
+- ✅ Completed: Implemented enhanced __detect_framework node with agent tools integration
+- ✅ Completed: Integrated custom ReactAgent with configurable LLM providers
+- ✅ Completed: Fixed ReactAgent dependencies and custom tool node implementation
+- 📋 Next Session: Enhance file tree format for better framework detection context
+
+**Session 4 (Date: 2024-07-18)**
+- ✅ Completed: Enhanced database query to retrieve complete file tree (removed maxLevel limitation)
+- ✅ Completed: Updated file tree formatting to use FOLDER/FILE labels with node IDs
+- ✅ Completed: Updated framework detection prompt to emphasize complete tree analysis
+- ✅ Completed: Maintained ReactAgent and tools for selective deeper exploration
+- 📋 Next Session: Continue with remaining workflow node implementations
+
+**Session 5 (Date: 2024-07-18)**
+- ✅ Completed: Simplified __detect_framework by removing DirectoryExplorerTool
+- ✅ Completed: Updated framework detection prompt to focus on file tree + GetCodeByIdTool only
+- ✅ Completed: Maintained ReactAgent usage for better tool handling with models like O4
+- ✅ Completed: Created test scripts to validate simplified framework detection
+- 📋 Next Session: Continue with __generate_overview node implementation and testing
 
 ### Overall Progress
 - ✅ Phase 1: Core Infrastructure (4/4 tasks completed)
 - ✅ Phase 2: LangGraph Workflow Core (4/4 tasks completed)
-- ✅ Phase 3: Component Analysis Nodes (4/4 tasks completed)
-- ✅ Phase 4: Documentation Generation (3/3 tasks completed)
-- [ ] Phase 5: Database Integration (0/3 tasks)
-- [ ] Phase 6: Main Integration (0/3 tasks)
+- 🔄 Phase 3: Individual Node Implementation & Testing (2/10 nodes completed - __load_codebase and __detect_framework)
+- ⏳ Phase 4: Database Integration (0/3 tasks)
+- ⏳ Phase 5: Main Integration (0/3 tasks)
 
-**Total Progress: 15/19 tasks completed**
+**Total Progress: 10/20 tasks completed (revised count)**
 
 ## Technical Specifications
 
@@ -416,15 +559,14 @@ def workflow_node(state: DocumentationState) -> Dict[str, Any]:
 ## Next Steps
 
 **Priority for next session:**
-1. **Phase 3: Component Analysis Nodes** - Implement `identify_key_components`, `analyze_component`, `extract_relationships`
-2. **Complete remaining 7 workflow nodes** - Focus on semantic relationship extraction
-3. **Test workflow integration** - Validate with sample codebases
-4. **Database schema design** - Plan semantic relationship storage
+1. **Phase 3: Individual Node Implementation & Testing** - Create testing framework and implement nodes sequentially
+2. **LLM Response Validation** - Focus on quality assessment and semantic correctness
+3. **Progressive State Testing** - Validate data flow between nodes
+4. **Real Codebase Testing** - Use blarify as baseline for validation
 
 **Longer-term priorities:**
-- Phase 4: Documentation Generation (3 nodes)
-- Phase 5: Database Integration (semantic storage)
-- Phase 6: Main Integration (GraphBuilder integration)
+- Phase 4: Database Integration (semantic storage)
+- Phase 5: Main Integration (GraphBuilder integration)
 
 ## Implementation Notes
 

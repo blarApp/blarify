@@ -2,32 +2,55 @@
 
 ## Overview
 
-This document serves as a comprehensive implementation plan for adding a semantic documentation layer to Blarify. The semantic layer will create information nodes and relationships that help LLMs retrieve exact context needed for coding tasks, using LangGraph to orchestrate LLM agents that analyze codebases and generate semantic understanding.
+This document serves as a comprehensive implementation plan for adding a semantic documentation layer to Blarify. The semantic layer creates **dual-format documentation** optimized for different LLM agent consumption patterns:
+
+1. **Fine-grained InformationNodes**: Atomic, searchable pieces stored in the graph database for precise retrieval
+2. **Comprehensive Markdown Files**: Complete, narrative documentation for full-context consumption
+
+The system uses LangGraph to orchestrate LLM agents that analyze codebases and generate semantic understanding optimized for both search and comprehensive understanding.
 
 ## Feature Description
 
 ### What is the Semantic Documentation Layer?
 
-The semantic documentation layer is a new component that sits on top of Blarify's existing code graph structure. It analyzes the codebase using LLM agents to create semantic InformationNode objects stored in the database that describe:
+The semantic documentation layer is a new component that sits on top of Blarify's existing code graph structure. It analyzes the codebase using LLM agents to create **dual-format semantic documentation**:
 
+#### **Format 1: Fine-Grained InformationNodes** (Graph Database)
+Atomic, searchable pieces optimized for two search modes:
+- **Located Search**: Standing at specific code points, traverse hierarchically up the graph
+- **General Search**: Vector/semantic search across all information using RAG or BM25
+
+Content includes:
 - **System Overview**: Business context, purpose, and high-level architecture
 - **Component Documentation**: Detailed analysis of key components and their responsibilities  
 - **API Documentation**: Function/class usage patterns and examples
 - **Relationship Mapping**: Inter-component dependencies and data flow patterns
 
+#### **Format 2: Comprehensive Markdown Files** (File System)
+Complete, narrative documentation optimized for full-context consumption:
+- **Complete Stories**: Integrated explanations across multiple components
+- **Code-Grounded**: Every statement backed by specific file paths and line numbers
+- **Self-Contained**: No database dependencies, pure code references
+- **Agent-Optimized**: Sized appropriately for LLM context windows
+
 ### How it Works
 
 1. **Input**: Existing code graph with files, classes, functions, and relationships
 2. **Process**: LangGraph workflow with LLM agents analyzes the code structure
-3. **Output**: InformationNode objects and semantic relationships created in memory
-4. **Storage**: InformationNode objects stored in the same graph database as code nodes
+3. **Output**: 
+   - Fine-grained InformationNode objects with precise code references
+   - Comprehensive markdown files with complete context and direct code links
+4. **Storage**: 
+   - InformationNodes stored in graph database with code node relationships
+   - Markdown files saved to filesystem with embedded code references
 
 ### Benefits
 
-- **Precise Context Retrieval**: LLMs can get exactly the right context for coding tasks
-- **Semantic Understanding**: Business logic and architecture patterns are captured
-- **Efficient Navigation**: Complex codebases become more understandable
-- **Agent-Friendly**: Optimized for LLM agent consumption
+- **Dual Search Capabilities**: Both precise hierarchical search and general semantic search
+- **Complete Context**: Full narrative documentation for comprehensive understanding
+- **Code Grounding**: All information traceable to specific code locations
+- **Format Flexibility**: Choose InformationNodes for search, markdown for complete context
+- **Agent-Friendly**: Optimized for different LLM agent consumption patterns
 
 ## Technical Architecture
 
@@ -76,8 +99,17 @@ blarify/
 #### DocumentationState TypedDict
 ```python
 class DocumentationState(TypedDict):
-    information_nodes: Annotated[list, add]        # InformationNode objects to create
+    # Fine-grained InformationNode data (for graph database)
+    information_nodes: Annotated[list, add]        # Atomic InformationNode objects
     semantic_relationships: Annotated[list, add]   # Relationships between nodes
+    code_references: Annotated[list, add]          # Precise code location mappings
+    
+    # Comprehensive markdown data (for file system)
+    markdown_sections: Annotated[list, add]        # Narrative markdown content
+    markdown_groupings: dict                       # Logical groupings for .md files
+    markdown_files: dict                           # Final .md file contents
+    
+    # Shared analysis data
     analyzed_nodes: Annotated[list, add]           # Analyzed code components
     repo_structure: dict                           # Repository structure info
     dependencies: dict                             # Component relationships
@@ -88,25 +120,83 @@ class DocumentationState(TypedDict):
     key_components: list                           # Priority components to analyze
 ```
 
-#### Workflow Flow
+#### Workflow Flow (Updated for Framework-Guided Bottoms-Up)
 ```
-load_codebase → detect_framework → generate_overview → create_doc_skeleton → 
-identify_key_components → analyze_component → extract_relationships → 
-generate_information_nodes → analyze_cross_component → consolidate_semantic_layer
+// Parallel execution:
+Branch A: load_codebase → detect_framework
+Branch B: analyze_all_leaf_nodes (using dumb agent)
+
+// Sequential execution after parallel completion:
+identify_main_folders_by_framework → 
+loop_per_main_folder: 
+    iterate_directory_hierarchy_bottoms_up → 
+    group_related_knowledge → 
+    compact_to_markdown_per_folder →
+consolidate_final_markdown
 ```
+
+**Framework-Guided Bottoms-Up Logic:**
+1. **Parallel Processing**: 
+   - **Branch A**: Load codebase structure and detect framework
+   - **Branch B**: Use dumb agent to create initial descriptions for ALL leaf nodes (functions, classes)
+2. **Framework-Based Folder Identification**: Use framework information to identify main folders to analyze (e.g., models/, views/, components/, etc.)
+3. **Focused Bottoms-Up Processing**: For each main folder, perform bottoms-up hierarchical analysis using the pre-generated leaf descriptions
+4. **Knowledge Grouping**: Group related InformationNodes within each folder's hierarchy
+5. **Per-Folder Markdown**: Generate markdown sections for each main folder
+6. **Final Consolidation**: Combine all folder-based markdown into comprehensive documentation
 
 ### Database Schema
 
-#### Information Nodes
+#### Enhanced Information Nodes (Optimized for Dual Search)
 - **Node Type**: `INFORMATION`
-- **Properties**: `title`, `content`, `info_type`, `source_type`, `source_path`, `examples`
-- **Labels**: Framework-specific labels (e.g., `DJANGO_COMPONENT`, `REACT_COMPONENT`)
+- **Core Properties**: 
+  - `title`: Human-readable title
+  - `content`: Main semantic content
+  - `info_type`: Type (concept, api, pattern, architecture, etc.)
+  - `examples`: JSON string of code examples and usage patterns
+- **Search Optimization Properties**:
+  - `search_keywords`: Array of keywords for vector search
+  - `hierarchical_context`: Context description for located search
+- **Standard Properties**:
+  - `layer`: Always 'documentation'
 
 #### Semantic Relationships
-- **DESCRIBES**: Information node describes a code node
-- **RELATED_TO**: Information nodes are related to each other
-- **DEPENDS_ON**: Semantic dependencies between concepts
-- **EXEMPLIFIES**: Information node provides examples for code patterns
+- **DESCRIBES**: InformationNode → CodeNode (precise semantic description)
+- **Agent-Determined Relationships**: Other relationships are dynamically determined by LLM agents based on semantic analysis (e.g., RELATED_TO, DEPENDS_ON, EXEMPLIFIES, etc.)
+
+## Dual-Format Consumption Patterns
+
+### InformationNode Search Modes (Graph Database)
+
+#### **1. Located Search Pattern**
+**Use Case**: Standing at a specific code location and asking questions
+**Query Flow**: 
+```
+code_node → DESCRIBES relationships → related_information_nodes → 
+hierarchical_parent_nodes → their_information_nodes
+```
+**Optimization**: Fine-grained, atomic InformationNodes with precise code node relationships
+
+#### **2. General Search Pattern**  
+**Use Case**: Making general questions about the codebase
+**Query Flow**:
+```
+question → vector_similarity_search → ranked_information_nodes
+OR
+question → BM25_search → ranked_information_nodes
+```
+**Optimization**: Rich `search_keywords` and `hierarchical_context` for semantic matching
+
+### Markdown File Consumption (File System)
+
+#### **Complete Context Pattern**
+**Use Case**: LLM agents consuming entire documentation files for comprehensive understanding
+**Consumption**: Full file read with complete narrative context
+**Optimization**: 
+- Self-contained stories with integrated explanations
+- Direct code references (`file_path:line_start-line_end`)
+- No database dependencies
+- Sized for LLM context windows (3000-8000 tokens per file)
 
 ## Implementation Phases
 
@@ -162,23 +252,21 @@ generate_information_nodes → analyze_cross_component → consolidate_semantic_
   - Create system overview generation prompts
   - Add template management system with `blarify/documentation/prompt_templates.py`
 
-### Phase 3: Individual Workflow Node Implementation & Testing
-**Priority**: High | **Estimated Effort**: 6-7 days
+### Phase 3: Framework-Guided Bottoms-Up Workflow Implementation
+**Priority**: High | **Estimated Effort**: 4-5 days
 
 #### Overview
-Phase 3 focuses on implementing and testing each individual workflow node in the DocumentationWorkflow class. The current workflow.py has placeholder implementations for most nodes. We need to complete each node with proper LLM integration and validate that the LLM responses meet quality standards for semantic documentation generation.
+Phase 3 focuses on implementing the new framework-guided bottoms-up workflow. This approach uses parallel processing to efficiently analyze leaf nodes while detecting the framework, then performs focused hierarchical analysis based on framework-specific folder structures.
 
-#### Current Node Status Analysis
+#### New Workflow Node Status Analysis
 - ✅ `__load_codebase` - **COMPLETED** - Loads complete codebase file tree with enhanced formatting
 - ✅ `__detect_framework` - **COMPLETED** - Simplified to use only GetCodeByIdTool with ReactAgent
-- ⚠️ `__generate_overview` - **NEEDS TESTING** - Implemented but requires LLM response validation
-- ❌ `__create_doc_skeleton` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration
-- ❌ `__identify_key_components` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
-- ❌ `__analyze_component` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
-- ❌ `__extract_relationships` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
-- ❌ `__generate_component_docs` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
-- ❌ `__analyze_cross_component` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
-- ❌ `__consolidate_with_skeleton` - **NEEDS IMPLEMENTATION** - Basic structure exists, needs LLM integration refinement
+- ❌ `__analyze_all_leaf_nodes` - **NEEDS IMPLEMENTATION** - Use dumb agent to create initial descriptions for ALL leaf nodes (functions, classes)
+- ❌ `__identify_main_folders_by_framework` - **NEEDS IMPLEMENTATION** - Use framework info to identify main folders to analyze
+- ❌ `__iterate_directory_hierarchy_bottoms_up` - **NEEDS IMPLEMENTATION** - Per-folder hierarchical analysis from leaves up
+- ❌ `__group_related_knowledge` - **NEEDS IMPLEMENTATION** - Group related InformationNodes within each folder hierarchy
+- ❌ `__compact_to_markdown_per_folder` - **NEEDS IMPLEMENTATION** - Generate markdown sections for each main folder
+- ❌ `__consolidate_final_markdown` - **NEEDS IMPLEMENTATION** - Combine all folder-based markdown into comprehensive documentation
 
 #### Framework Detection Simplification (COMPLETED)
 
@@ -198,126 +286,63 @@ The `__detect_framework` node has been simplified based on user feedback about t
 
 #### Implementation Tasks
 
-##### Task 1: Create LLM Response Validation Testing Framework
-- [ ] **Add test_node method to DocumentationWorkflow class**
-  - Enable individual node testing with custom state
-  - Add debugging and logging for LLM interactions
-  - Create state validation helpers
+##### Task 1: Complete Node Implementations
+- [ ] **Refine `__generate_overview`**
+  - Improve system overview generation with better business context understanding
+  - Ensure comprehensive coverage of system purpose and domain
+  - Enhance JSON structure output for semantic documentation
 
-- [ ] **Implement Progressive State Validation**
-  - Test each node with realistic state progression
-  - Validate LLM responses contain expected semantic content
-  - Create quality assessment metrics for each node type
-
-- [ ] **Create Real Codebase Testing Setup**
-  - Use blarify codebase as known test case
-  - Define expected outcomes for each node
-  - Validate LLM responses against known characteristics
-
-##### Task 2: Complete Node Implementations with Testing
-- [ ] **Enhance and Test `__detect_framework` with Strategic Analysis**
-  - **Strategic Analysis Approach**: Efficient codebase reconnaissance to guide next steps
-  - **Implementation Strategy**:
-    1. Analyze root structure from `__load_codebase` for initial framework clues
-    2. Use `DirectoryExplorerTool` to explore 2-3 key directories (src/, app/, components/)
-    3. Use `GetCodeByIdTool` to read 2-3 strategic files (config files + key source files)
-    4. Provide strategic framework information to guide `__generate_overview`
-  - **Expected Output**: Clear text response covering:
-    - Primary language and framework
-    - Project type (frontend/backend/fullstack/library)
-    - Key directories for deeper analysis
-    - Architecture style hints
-    - Important files for next analysis step
-  - **Implementation Details**: 
-    - Initialize agent tools in `__detect_framework` method
-    - Use tools programmatically to gather strategic information
-    - Pass collected information to LLM provider for analysis
-    - Update framework detection prompt to guide strategic analysis
-  - **Testing**: Validate with multiple codebase types and ensure strategic information quality
-
-- [ ] **Refine and Test `__generate_overview`**
-  - Validate LLM generates business context understanding
-  - Test system overview includes purpose and domain
-  - Ensure response is structured and comprehensive
-
-- [ ] **Implement and Test `__create_doc_skeleton`**
+- [ ] **Implement `__create_doc_skeleton`**
   - Create documentation structure based on detected framework
   - Generate section templates appropriate for project type
-  - Validate skeleton is logical and well-organized
+  - Build logical and well-organized documentation skeleton
 
-- [ ] **Implement and Test `__identify_key_components`**
+- [ ] **Implement `__identify_key_components`**
   - Use LLM to analyze codebase and identify critical components
-  - Prioritize components based on importance and usage
-  - Validate component identification is accurate and complete
+  - Prioritize components based on importance and usage patterns
+  - Generate structured list of key components for further analysis
 
-##### Task 3: Advanced Analysis Node Implementation
-- [ ] **Implement and Test `__analyze_component`**
+##### Task 2: Advanced Analysis Node Implementation
+- [ ] **Implement `__analyze_component`**
   - Deep semantic analysis of individual components
   - Extract component purpose, responsibilities, and usage patterns
   - Generate detailed component documentation
 
-- [ ] **Implement and Test `__extract_relationships`**
+- [ ] **Implement `__extract_relationships`**
   - Map relationships and dependencies between components
   - Create semantic relationship graph
-  - Validate relationship extraction is accurate
+  - Identify cross-component interactions and data flow
 
-- [ ] **Implement and Test `__generate_component_docs`**
+- [ ] **Implement `__generate_component_docs`**
   - Transform component analysis into structured documentation
   - Create examples and usage patterns
   - Generate API documentation for key components
 
-##### Task 4: Final Integration and Consolidation
-- [ ] **Implement and Test `__analyze_cross_component`**
+##### Task 3: Final Integration and Consolidation
+- [ ] **Implement `__analyze_cross_component`**
   - Analyze system-wide patterns and interactions
   - Identify architectural patterns and design principles
   - Create high-level system understanding
 
-- [ ] **Implement and Test `__consolidate_with_skeleton`**
+- [ ] **Implement `__consolidate_with_skeleton`**
   - Merge all generated documentation into final structure
   - Ensure consistency and completeness
   - Create final semantic documentation layer
 
-#### Testing Strategy
-
-##### LLM Response Quality Validation
-```python
-def assess_llm_output_quality(node_name: str, result: dict):
-    """Quality checks for each node type"""
-    quality_checks = {
-        "detect_framework": [
-            lambda r: "framework" in str(r).lower(),
-            lambda r: any(fw in str(r).lower() for fw in ["django", "react", "next", "flask", "vue", "python"])
-        ],
-        "generate_overview": [
-            lambda r: "business" in str(r).lower() or "purpose" in str(r).lower(),
-            lambda r: len(str(r)) > 100,  # Substantial content
-            lambda r: "overview" in str(r).lower() or "system" in str(r).lower()
-        ],
-        "identify_key_components": [
-            lambda r: isinstance(r.get("key_components"), list),
-            lambda r: len(r.get("key_components", [])) > 0,
-            lambda r: all("path" in str(comp) for comp in r.get("key_components", []))
-        ]
-    }
-```
-
-##### Progressive State Testing
-- Test nodes sequentially with realistic state progression
-- Validate each node's contribution to overall workflow
-- Ensure state consistency and data flow between nodes
-
-##### Real Codebase Validation
-- Test with blarify codebase as known baseline
-- Validate expected outcomes for each node
-- Ensure LLM responses are semantically correct
+#### Implementation Approach
+The implementation will follow a straightforward approach:
+1. Focus on completing each node's core functionality
+2. Use existing prompt templates and LLM provider infrastructure
+3. Implement robust error handling and logging
+4. Ensure proper state management between nodes
+5. Skip complex testing frameworks in favor of direct implementation
 
 #### Success Criteria
-- [ ] All 10 workflow nodes implemented and tested
-- [ ] LLM responses pass quality validation checks
-- [ ] Progressive state testing shows proper data flow
-- [ ] Real codebase testing produces expected semantic documentation
-- [ ] Error handling and recovery mechanisms in place
-- [ ] Performance acceptable for medium-sized codebases
+- [ ] All 10 workflow nodes implemented with core functionality
+- [ ] Proper error handling and recovery mechanisms in place
+- [ ] State management working correctly between nodes
+- [ ] LLM integration functioning for semantic analysis
+- [ ] Documentation generation produces meaningful output
 
 ### Phase 4: Database Integration
 **Priority**: Medium | **Estimated Effort**: 2-3 days
@@ -405,14 +430,24 @@ Use this section to track progress across work sessions:
 - ✅ Completed: Created test scripts to validate simplified framework detection
 - 📋 Next Session: Continue with __generate_overview node implementation and testing
 
+**Session 6 (Date: 2024-07-18)**
+- ✅ Completed: Analyzed dual-format documentation requirements based on consumption patterns
+- ✅ Completed: Designed InformationNode structure for hierarchical and vector search optimization
+- ✅ Completed: Designed comprehensive markdown files for complete context consumption
+- ✅ Completed: Updated implementation plan with dual-granularity approach
+- ✅ Completed: Enhanced DocumentationState to support both InformationNodes and markdown generation
+- ✅ Completed: Updated workflow flow to include markdown generation nodes
+- ✅ Completed: Simplified database schema focusing on core properties and agent-determined relationships
+- 📋 Next Session: Implement enhanced InformationNode structure and continue with workflow nodes
+
 ### Overall Progress
 - ✅ Phase 1: Core Infrastructure (4/4 tasks completed)
 - ✅ Phase 2: LangGraph Workflow Core (4/4 tasks completed)
-- 🔄 Phase 3: Individual Node Implementation & Testing (2/10 nodes completed - __load_codebase and __detect_framework)
+- 🔄 Phase 3: Framework-Guided Bottoms-Up Workflow (2/6 nodes completed - __load_codebase and __detect_framework)
 - ⏳ Phase 4: Database Integration (0/3 tasks)
 - ⏳ Phase 5: Main Integration (0/3 tasks)
 
-**Total Progress: 10/20 tasks completed (revised count)**
+**Total Progress: 10/17 tasks completed (updated for new workflow)**
 
 ## Technical Specifications
 

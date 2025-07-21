@@ -16,8 +16,10 @@ from ..agents.prompt_templates import (
     FRAMEWORK_DETECTION_TEMPLATE,
     SYSTEM_OVERVIEW_TEMPLATE,
 )
+from ..agents.prompt_templates.leaf_node_analysis import LEAF_NODE_ANALYSIS_TEMPLATE
+from ..agents.schemas import FrameworkAnalysisResponse
 from ..db_managers.db_manager import AbstractDbManager
-from ..db_managers.queries import get_codebase_skeleton
+from ..db_managers.queries import get_codebase_skeleton, get_all_leaf_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +87,6 @@ class DocumentationWorkflow:
         workflow.add_node("load_codebase", self.__load_codebase)
         workflow.add_node("detect_framework", self.__detect_framework)
         workflow.add_node("analyze_all_leaf_nodes", self.__analyze_all_leaf_nodes)
-        workflow.add_node("identify_main_folders_by_framework", self.__identify_main_folders_by_framework)
         workflow.add_node("iterate_directory_hierarchy_bottoms_up", self.__iterate_directory_hierarchy_bottoms_up)
         workflow.add_node("group_related_knowledge", self.__group_related_knowledge)
         workflow.add_node("compact_to_markdown_per_folder", self.__compact_to_markdown_per_folder)
@@ -98,9 +99,8 @@ class DocumentationWorkflow:
         
         # Sequential execution after parallel completion
         workflow.add_edge("load_codebase", "detect_framework")
-        workflow.add_edge("detect_framework", "identify_main_folders_by_framework")
-        workflow.add_edge("analyze_all_leaf_nodes", "identify_main_folders_by_framework")
-        workflow.add_edge("identify_main_folders_by_framework", "iterate_directory_hierarchy_bottoms_up")
+        workflow.add_edge("detect_framework", "iterate_directory_hierarchy_bottoms_up")
+        workflow.add_edge("analyze_all_leaf_nodes", "iterate_directory_hierarchy_bottoms_up")
         workflow.add_edge("iterate_directory_hierarchy_bottoms_up", "group_related_knowledge")
         workflow.add_edge("group_related_knowledge", "compact_to_markdown_per_folder")
         workflow.add_edge("compact_to_markdown_per_folder", "consolidate_final_markdown")
@@ -124,17 +124,18 @@ class DocumentationWorkflow:
             return {"root_codebase_skeleton": f"Error loading codebase: {str(e)}"}
 
     def __detect_framework(self, state: DocumentationState) -> Dict[str, Any]:
-        """Detect the primary framework and technology stack using LLM provider with strategic analysis."""
+        """Detect the primary framework, technology stack, and identify main architectural folders using structured output."""
         try:
-            logger.info("Detecting framework and technology stack with LLM provider")
+            logger.info("Detecting framework and main folders with structured output")
 
             # Get the codebase structure from the state (loaded in previous node)
             codebase_structure = state.get("root_codebase_skeleton", "")
 
             if not codebase_structure:
-                return {"detected_framework": {"error": "No codebase structure available"}}
+                logger.error("No codebase structure available - stopping workflow")
+                raise ValueError("No codebase structure available")
 
-            # Use the updated prompt template that provides text output with strategic insights
+            # Use the updated prompt template for combined framework detection and main folder identification
             system_prompt, input_prompt = FRAMEWORK_DETECTION_TEMPLATE.get_prompts(
                 codebase_structure=codebase_structure
             )
@@ -155,37 +156,150 @@ class DocumentationWorkflow:
                 logger.warning(f"Could not initialize GetCodeByIdTool: {e}. Running without tools.")
                 tools = None
 
-            # Use custom ReactAgent for strategic framework detection
+            # Use ReactAgent with structured output for framework detection and main folder identification
             response = self.__agent_caller.call_react_agent(
                 system_prompt=system_prompt,
                 tools=tools,
                 input_dict={"codebase_structure": codebase_structure},
                 messages=[("human", input_prompt)],
-                output_schema=None,
+                output_schema=FrameworkAnalysisResponse,
             )
 
-            # Extract the response content from custom ReactAgent
-            if isinstance(response, dict) and "messages" in response:
-                final_message = response["messages"][-1]
-                response_content = final_message.content if hasattr(final_message, "content") else str(final_message)
+            # Extract structured response
+            if hasattr(response, 'framework') and hasattr(response, 'main_folders'):
+                # Direct structured output
+                framework_analysis = response.framework
+                main_folders = response.main_folders
+            elif isinstance(response, dict) and "framework" in response and "main_folders" in response:
+                # Dictionary response
+                framework_analysis = response["framework"]
+                main_folders = response["main_folders"]
             else:
+                # Fallback: try to parse response content
+                logger.warning("Unexpected response format, attempting to parse...")
                 response_content = response.content if hasattr(response, "content") else str(response)
-            logger.info("LLM framework detection completed successfully")
+                
+                # Parse JSON response manually if structured output failed
+                import json
+                try:
+                    parsed_response = json.loads(response_content)
+                    framework_analysis = parsed_response.get("framework", response_content)
+                    main_folders = parsed_response.get("main_folders", [])
+                except (json.JSONDecodeError, AttributeError):
+                    logger.error("Failed to parse framework detection response - stopping workflow")
+                    raise ValueError(f"Invalid framework detection response format: {response_content}")
 
-            # Return the LLM response directly as the framework detection result
-            return {"detected_framework": response_content}
+            logger.info(f"Framework detection completed: {len(main_folders)} main folders identified")
+
+            # Return both framework analysis and main folders
+            return {
+                "detected_framework": framework_analysis,
+                "main_folders": main_folders
+            }
 
         except Exception as e:
             logger.error(f"Error detecting framework: {e}")
-            return {"detected_framework": {"error": str(e)}}
+            raise  # Re-raise exception to stop workflow
 
     def __analyze_all_leaf_nodes(self, state: DocumentationState) -> Dict[str, Any]:
         """Use dumb agent to create initial descriptions for ALL leaf nodes (functions, classes)."""
-        raise NotImplementedError("analyze_all_leaf_nodes node needs to be implemented")
-        
-    def __identify_main_folders_by_framework(self, state: DocumentationState) -> Dict[str, Any]:
-        """Use framework info to identify main folders to analyze (e.g., models/, views/, components/)."""
-        raise NotImplementedError("identify_main_folders_by_framework node needs to be implemented")
+        try:
+            logger.info("Starting analysis of all leaf nodes")
+
+            # Get all leaf nodes from the database
+            leaf_nodes = get_all_leaf_nodes(
+                db_manager=self.__company_graph_manager,
+                entity_id=self.__company_id,
+                repo_id=self.__repo_id
+            )
+
+            if not leaf_nodes:
+                logger.warning("No leaf nodes found in the codebase")
+                return {"leaf_node_descriptions": []}
+
+            logger.info(f"Found {len(leaf_nodes)} leaf nodes to analyze")
+
+            # Process leaf nodes in batches for efficiency
+            batch_size = 10  # Process 10 nodes at a time
+            leaf_descriptions = []
+
+            for i in range(0, len(leaf_nodes), batch_size):
+                batch = leaf_nodes[i:i + batch_size]
+                batch_results = self._process_leaf_node_batch(batch, i // batch_size + 1, (len(leaf_nodes) + batch_size - 1) // batch_size)
+                leaf_descriptions.extend(batch_results)
+
+            logger.info(f"Successfully analyzed {len(leaf_descriptions)} leaf nodes")
+            return {"leaf_node_descriptions": leaf_descriptions}
+
+        except Exception as e:
+            logger.error(f"Error analyzing leaf nodes: {e}")
+            return {"leaf_node_descriptions": []}
+
+    def _process_leaf_node_batch(self, batch: list, batch_num: int, total_batches: int) -> list:
+        """Process a batch of leaf nodes using the dumb agent."""
+        batch_results = []
+
+        logger.info(f"Processing batch {batch_num}/{total_batches} with {len(batch)} nodes")
+
+        for node in batch:
+            try:
+                # Create the analysis prompt
+                system_prompt, input_prompt = LEAF_NODE_ANALYSIS_TEMPLATE.get_prompts(
+                    node_name=node.name,
+                    node_labels=" | ".join(node.labels) if node.labels else "UNKNOWN",
+                    node_path=node.path,
+                    node_content=node.content[:2000] if node.content else "No content available"  # Limit content size
+                )
+
+                # Use call_dumb_agent for simple, fast processing
+                response = self.__agent_caller.call_dumb_agent(
+                    system_prompt=system_prompt,
+                    input_dict={
+                        "node_name": node.name,
+                        "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
+                        "node_path": node.path,
+                        "node_content": node.content[:2000] if node.content else "No content available"
+                    },
+                    output_schema=None,
+                    input_prompt=input_prompt
+                )
+
+                # Extract response content
+                response_content = response.content if hasattr(response, "content") else str(response)
+
+                # Create InformationNode description
+                info_node_description = {
+                    "node_id": f"info_{node.id}",
+                    "title": f"Description of {node.name}",
+                    "content": response_content,
+                    "info_type": "node_description",
+                    "source_node_id": node.id,
+                    "source_path": node.path,
+                    "source_labels": node.labels,
+                    "source_type": "leaf_analysis",
+                    "layer": "documentation"
+                }
+
+                batch_results.append(info_node_description)
+                logger.debug(f"Successfully analyzed node: {node.name} ({node.id})")
+
+            except Exception as e:
+                logger.error(f"Error analyzing leaf node {node.name} ({node.id}): {e}")
+                # Create a fallback description
+                fallback_description = {
+                    "node_id": f"info_{node.id}",
+                    "title": f"Description of {node.name}",
+                    "content": f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}",
+                    "info_type": "node_description",
+                    "source_node_id": node.id,
+                    "source_path": node.path,
+                    "source_labels": node.labels,
+                    "source_type": "error_fallback",
+                    "layer": "documentation"
+                }
+                batch_results.append(fallback_description)
+
+        return batch_results
         
     def __iterate_directory_hierarchy_bottoms_up(self, state: DocumentationState) -> Dict[str, Any]:
         """Per-folder hierarchical analysis from leaves up, grouping related knowledge."""

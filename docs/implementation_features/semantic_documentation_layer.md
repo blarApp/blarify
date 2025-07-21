@@ -120,26 +120,24 @@ class DocumentationState(TypedDict):
     key_components: list                           # Priority components to analyze
 ```
 
-#### Workflow Flow (Updated for Framework-Guided Bottoms-Up)
+#### Workflow Flow (Updated for Consolidated Framework-Guided Bottoms-Up)
 ```
 // Parallel execution:
-Branch A: load_codebase → detect_framework
+Branch A: load_codebase → detect_framework (NOW OUTPUTS: framework + main_folders)
 Branch B: analyze_all_leaf_nodes (using dumb agent)
 
 // Sequential execution after parallel completion:
-identify_main_folders_by_framework → 
-loop_per_main_folder: 
-    iterate_directory_hierarchy_bottoms_up → 
-    group_related_knowledge → 
-    compact_to_markdown_per_folder →
+iterate_directory_hierarchy_bottoms_up → 
+group_related_knowledge → 
+compact_to_markdown_per_folder →
 consolidate_final_markdown
 ```
 
-**Framework-Guided Bottoms-Up Logic:**
+**Consolidated Framework-Guided Bottoms-Up Logic:**
 1. **Parallel Processing**: 
-   - **Branch A**: Load codebase structure and detect framework
+   - **Branch A**: Load codebase structure and detect framework WITH main folder identification (single LLM call with structured output)
    - **Branch B**: Use dumb agent to create initial descriptions for ALL leaf nodes (functions, classes)
-2. **Framework-Based Folder Identification**: Use framework information to identify main folders to analyze (e.g., models/, views/, components/, etc.)
+2. **Framework-Based Analysis**: Single node outputs both framework analysis and main folders list using structured JSON output
 3. **Focused Bottoms-Up Processing**: For each main folder, perform bottoms-up hierarchical analysis using the pre-generated leaf descriptions
 4. **Knowledge Grouping**: Group related InformationNodes within each folder's hierarchy
 5. **Per-Folder Markdown**: Generate markdown sections for each main folder
@@ -258,76 +256,118 @@ question → BM25_search → ranked_information_nodes
 #### Overview
 Phase 3 focuses on implementing the new framework-guided bottoms-up workflow. This approach uses parallel processing to efficiently analyze leaf nodes while detecting the framework, then performs focused hierarchical analysis based on framework-specific folder structures.
 
-#### New Workflow Node Status Analysis
+#### New Workflow Node Status Analysis  
 - ✅ `__load_codebase` - **COMPLETED** - Loads complete codebase file tree with enhanced formatting
-- ✅ `__detect_framework` - **COMPLETED** - Simplified to use only GetCodeByIdTool with ReactAgent
-- ❌ `__analyze_all_leaf_nodes` - **NEEDS IMPLEMENTATION** - Use dumb agent to create initial descriptions for ALL leaf nodes (functions, classes)
-- ❌ `__identify_main_folders_by_framework` - **NEEDS IMPLEMENTATION** - Use framework info to identify main folders to analyze
+- ✅ `__detect_framework` - **COMPLETED** - Enhanced with structured output for both framework analysis AND main folder identification  
+- ✅ `__analyze_all_leaf_nodes` - **COMPLETED** - Use dumb agent to create initial descriptions for ALL leaf nodes (functions, classes, files)
+- ✅ ~~`__identify_main_folders_by_framework`~~ - **REMOVED** - Consolidated into `__detect_framework` for efficiency
 - ❌ `__iterate_directory_hierarchy_bottoms_up` - **NEEDS IMPLEMENTATION** - Per-folder hierarchical analysis from leaves up
 - ❌ `__group_related_knowledge` - **NEEDS IMPLEMENTATION** - Group related InformationNodes within each folder hierarchy
 - ❌ `__compact_to_markdown_per_folder` - **NEEDS IMPLEMENTATION** - Generate markdown sections for each main folder
 - ❌ `__consolidate_final_markdown` - **NEEDS IMPLEMENTATION** - Combine all folder-based markdown into comprehensive documentation
 
-#### Framework Detection Simplification (COMPLETED)
+#### Framework Detection Enhancement (COMPLETED)
 
-The `__detect_framework` node has been simplified based on user feedback about tool usage with certain models:
+The `__detect_framework` node has been enhanced with structured output consolidation:
 
-**Final Implementation:**
+**Enhanced Implementation:**
 1. **Complete File Tree Analysis**: Receives full codebase structure from `__load_codebase`
 2. **Single Tool Usage**: Uses only `GetCodeByIdTool` to read configuration files
 3. **ReactAgent Architecture**: Continues using ReactAgent for better tool handling
-4. **Focused Analysis**: LLM analyzes tree structure and reads config files to determine stack
+4. **Structured Output**: Single LLM call returns both framework analysis AND main folders using JSON schema
+5. **Main Folder Identification**: Identifies 3-10 key architectural folders based on detected framework
 
 **Key Benefits:**
-- Simplified tool usage improves compatibility with models like O4
-- Complete file tree eliminates need for directory exploration
-- Config file reading provides concrete framework confirmation
-- ReactAgent handles tool execution more reliably than direct binding
+- **Single LLM Call**: Maximum efficiency by combining framework detection and folder identification
+- **Structured Output**: Guaranteed consistent format using Pydantic schema validation
+- **Workflow Simplification**: Removes separate node, reducing complexity and potential failure points
+- **Better Context**: Framework analysis directly informs folder identification in same context
+- **Cost Optimization**: Reduces API costs compared to separate LLM calls
+
+#### Leaf Node Analysis Implementation (COMPLETED)
+
+The `__analyze_all_leaf_nodes` node has been successfully implemented with the following architecture:
+
+**Leaf Node Identification Logic:**
+- **Hierarchical vs LSP Relationships**: Distinguishes between hierarchical relationships (CONTAINS, FUNCTION_DEFINITION, CLASS_DEFINITION) and LSP/semantic relationships (CALLS, IMPORTS, INHERITS, etc.)
+- **Leaf Node Definition**: Nodes with no outgoing hierarchical relationships, regardless of their label (can be FUNCTION, CLASS, METHOD, FILE, etc.)
+- **Query Pattern**: `WHERE NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()`
+
+**Database Infrastructure:**
+- **LeafNodeDto**: Pydantic model with fields: `id`, `name`, `labels`, `path`, `start_line`, `end_line`, `content`
+- **Query Functions**: `get_all_leaf_nodes_query()`, `format_leaf_nodes_result()`, `get_all_leaf_nodes()`
+- **Relationship Awareness**: Correctly filters out nodes that define/contain other nodes while allowing semantic connections
+
+**LLM Processing:**
+- **Batch Processing**: Processes nodes in batches of 10 for efficiency
+- **Dumb Agent Usage**: Uses `call_dumb_agent()` method for simple, fast processing
+- **Content Limiting**: Truncates node content to 2000 characters to avoid LLM context issues
+- **Error Handling**: Creates fallback descriptions for nodes that fail analysis
+
+**Output Structure:**
+```python
+info_node_description = {
+    "node_id": f"info_{node.id}",
+    "title": f"Description of {node.name}",
+    "content": response_content,  # LLM-generated description
+    "info_type": "node_description",
+    "source_node_id": node.id,
+    "source_path": node.path,
+    "source_labels": node.labels,
+    "source_type": "leaf_analysis",
+    "layer": "documentation"
+}
+```
+
+**Prompt Template:**
+- **LEAF_NODE_ANALYSIS_TEMPLATE**: Focused on basic purpose and functionality
+- **Node Type Handling**: Adapts analysis for different node types (FUNCTION, CLASS, METHOD, FILE)
+- **Atomic Descriptions**: Generates independent descriptions without relationships to other components
 
 #### Implementation Tasks
 
-##### Task 1: Complete Node Implementations
-- [ ] **Refine `__generate_overview`**
-  - Improve system overview generation with better business context understanding
-  - Ensure comprehensive coverage of system purpose and domain
-  - Enhance JSON structure output for semantic documentation
+##### Task 1: Core Framework-Guided Bottoms-Up Nodes ✅ COMPLETED
+- [x] **Implement `__analyze_all_leaf_nodes`** ✅ COMPLETED
+  - ✅ Created LeafNodeDto with proper Pydantic structure following existing patterns
+  - ✅ Implemented leaf node database queries with hierarchical relationship filtering
+  - ✅ Added LEAF_NODE_ANALYSIS_TEMPLATE for atomic node descriptions
+  - ✅ Integrated with LLM provider using `call_dumb_agent` for efficient processing
+  - ✅ Implemented batch processing with error handling and fallback descriptions
+  - ✅ Store results in `leaf_node_descriptions` state field
 
-- [ ] **Implement `__create_doc_skeleton`**
-  - Create documentation structure based on detected framework
-  - Generate section templates appropriate for project type
-  - Build logical and well-organized documentation skeleton
+- [x] **Enhanced `__detect_framework` with Main Folder Identification** ✅ COMPLETED
+  - ✅ Created FrameworkAnalysisResponse Pydantic schema for structured output
+  - ✅ Enhanced framework detection prompt to include main folder identification
+  - ✅ Updated `__detect_framework` to use structured output with ReactAgent
+  - ✅ Consolidated framework detection and main folder identification into single LLM call
+  - ✅ Removed separate `__identify_main_folders_by_framework` node for efficiency
+  - ✅ Updated workflow edges to reflect consolidated approach
 
-- [ ] **Implement `__identify_key_components`**
-  - Use LLM to analyze codebase and identify critical components
-  - Prioritize components based on importance and usage patterns
-  - Generate structured list of key components for further analysis
+##### Task 2: Hierarchical Analysis and Knowledge Grouping
+- [ ] **Implement `__iterate_directory_hierarchy_bottoms_up`**
+  - For each main folder, perform hierarchical analysis from leaves up
+  - Use pre-generated leaf descriptions to build folder-level understanding
+  - Create InformationNodes for directory-level concepts and patterns
+  - Group related leaf nodes into meaningful semantic clusters
 
-##### Task 2: Advanced Analysis Node Implementation
-- [ ] **Implement `__analyze_component`**
-  - Deep semantic analysis of individual components
-  - Extract component purpose, responsibilities, and usage patterns
-  - Generate detailed component documentation
+- [ ] **Implement `__group_related_knowledge`**
+  - Group related InformationNodes within each folder hierarchy
+  - Identify semantic relationships between nodes (RELATED_TO, DEPENDS_ON, etc.)
+  - Create relationship mappings for graph database storage
+  - Organize knowledge for markdown generation
 
-- [ ] **Implement `__extract_relationships`**
-  - Map relationships and dependencies between components
-  - Create semantic relationship graph
-  - Identify cross-component interactions and data flow
+##### Task 3: Markdown Generation and Final Consolidation
+- [ ] **Implement `__compact_to_markdown_per_folder`**
+  - Generate comprehensive markdown sections for each main folder
+  - Create narrative documentation with code references (file_path:line_number)
+  - Ensure self-contained stories with integrated explanations
+  - Size appropriately for LLM context windows (3000-8000 tokens per section)
 
-- [ ] **Implement `__generate_component_docs`**
-  - Transform component analysis into structured documentation
-  - Create examples and usage patterns
-  - Generate API documentation for key components
-
-##### Task 3: Final Integration and Consolidation
-- [ ] **Implement `__analyze_cross_component`**
-  - Analyze system-wide patterns and interactions
-  - Identify architectural patterns and design principles
-  - Create high-level system understanding
-
-- [ ] **Implement `__consolidate_with_skeleton`**
-  - Merge all generated documentation into final structure
-  - Ensure consistency and completeness
-  - Create final semantic documentation layer
+- [ ] **Implement `__consolidate_final_markdown`**
+  - Combine all folder-based markdown into comprehensive documentation files
+  - Create logical groupings and cross-references between sections
+  - Generate final markdown files for filesystem storage
+  - Ensure complete coverage and consistency across all folders
 
 #### Implementation Approach
 The implementation will follow a straightforward approach:
@@ -443,11 +483,11 @@ Use this section to track progress across work sessions:
 ### Overall Progress
 - ✅ Phase 1: Core Infrastructure (4/4 tasks completed)
 - ✅ Phase 2: LangGraph Workflow Core (4/4 tasks completed)
-- 🔄 Phase 3: Framework-Guided Bottoms-Up Workflow (2/6 nodes completed - __load_codebase and __detect_framework)
+- 🔄 Phase 3: Framework-Guided Bottoms-Up Workflow (3/6 nodes completed - __load_codebase, __detect_framework, __analyze_all_leaf_nodes)
 - ⏳ Phase 4: Database Integration (0/3 tasks)
 - ⏳ Phase 5: Main Integration (0/3 tasks)
 
-**Total Progress: 10/17 tasks completed (updated for new workflow)**
+**Total Progress: 11/17 tasks completed (updated for new workflow)**
 
 ## Technical Specifications
 

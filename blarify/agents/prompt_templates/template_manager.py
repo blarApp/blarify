@@ -13,6 +13,7 @@ from .framework_detection import FRAMEWORK_DETECTION_TEMPLATE
 from .system_overview import SYSTEM_OVERVIEW_TEMPLATE
 from .component_analysis import COMPONENT_ANALYSIS_TEMPLATE
 from .api_documentation import API_DOCUMENTATION_TEMPLATE
+from .leaf_node_analysis import LEAF_NODE_ANALYSIS_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,8 @@ class PromptTemplateManager:
             FRAMEWORK_DETECTION_TEMPLATE,
             SYSTEM_OVERVIEW_TEMPLATE,
             COMPONENT_ANALYSIS_TEMPLATE,
-            API_DOCUMENTATION_TEMPLATE
+            API_DOCUMENTATION_TEMPLATE,
+            LEAF_NODE_ANALYSIS_TEMPLATE
         ]
         
         for template in templates:
@@ -108,6 +110,17 @@ def get_api_documentation_prompt(api_code: str, framework_info: str) -> str:
         "api_documentation", 
         api_code=api_code, 
         framework_info=framework_info
+    )
+
+
+def get_leaf_node_analysis_prompt(node_name: str, node_labels: list, node_path: str, node_content: str) -> str:
+    """Get formatted leaf node analysis prompt."""
+    return template_manager.format_template(
+        "leaf_node_analysis",
+        node_name=node_name,
+        node_labels=node_labels,
+        node_path=node_path,
+        node_content=node_content
     )
 
 

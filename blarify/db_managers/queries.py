@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional
 import logging
 
 from blarify.db_managers.db_manager import AbstractDbManager
+from blarify.db_managers.dtos.leaf_node_dto import LeafNodeDto
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +62,11 @@ def format_codebase_skeleton_result(query_result: List[Dict[str, Any]]) -> Dict[
         # Collect all nodes and relationships from all records
         all_nodes = []
         all_relationships = []
-        
+
         for record in query_result:
             # Extract node information from this record
             node_info = record.get("node_info", {})
-            
+
             # Add the node (already filtered to FILE/FOLDER by query)
             if node_info:
                 formatted_node = {
@@ -75,7 +76,7 @@ def format_codebase_skeleton_result(query_result: List[Dict[str, Any]]) -> Dict[
                     "path": node_info.get("path", ""),
                 }
                 all_nodes.append(formatted_node)
-            
+
             # Add relationships from this record
             relationships = record.get("relationships", [])
             for rel in relationships:
@@ -318,11 +319,11 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
 
         # Format node information
         name = node.get("name", "")
-        
+
         # Determine if this is a file or folder based on node labels
         children = hierarchy["children"].get(node_id, [])
         has_children = len(children) > 0
-        
+
         # Use actual node labels from database instead of guessing from name
         node_labels = node.get("type", [])
         if "FILE" in node_labels:
@@ -331,7 +332,7 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
             type_str = "FOLDER"
         else:
             # Fallback to old logic only if no type information is available
-            has_extension = name and '.' in name.split('/')[-1]
+            has_extension = name and "." in name.split("/")[-1]
             if has_children or not has_extension:
                 type_str = "FOLDER"
             else:
@@ -339,7 +340,7 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
 
         # Create display name (without path) and include node_id
         display_name = name if name else node_id
-        
+
         # Choose the appropriate tree symbol and format
         if level == 0:
             prefix = ""
@@ -349,7 +350,9 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
             current_prefix = parent_prefix + ("    " if is_last else "│   ")
 
         # Format with FOLDER/FILE labels and node IDs in brackets
-        lines = [f"{prefix}{display_name}{'/' if type_str == 'FOLDER' else ''}                     # {type_str} [ID: {node_id}]"]
+        lines = [
+            f"{prefix}{display_name}{'/' if type_str == 'FOLDER' else ''}                     # {type_str} [ID: {node_id}]"
+        ]
 
         # Add children
         children = hierarchy["children"].get(node_id, [])
@@ -365,3 +368,89 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
         output.extend(format_node(root_id, 0, is_last_root, ""))
 
     return output
+
+
+def get_all_leaf_nodes_query() -> str:
+    """
+    Returns a Cypher query for retrieving all leaf nodes in the codebase hierarchy.
+
+    Leaf nodes are defined as nodes with no outgoing hierarchical relationships
+    (CONTAINS, FUNCTION_DEFINITION, CLASS_DEFINITION). They can still have LSP/semantic
+    relationships like CALLS, IMPORTS, etc.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id, diff_identifier: 0})
+    WHERE NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()
+    RETURN n.node_id as id,
+           n.name as name,
+           labels(n) as labels,
+           n.path as path,
+           n.start_line as start_line,
+           n.end_line as end_line,
+           coalesce(n.text, '') as content
+    ORDER BY n.path, coalesce(n.start_line, 0)
+    """
+
+
+def format_leaf_nodes_result(query_result: List[Dict[str, Any]]) -> List[LeafNodeDto]:
+    """
+    Formats the result of the leaf nodes query into LeafNodeDto objects.
+
+    Args:
+        query_result: Raw result from the database query
+
+    Returns:
+        List of LeafNodeDto objects
+    """
+    if not query_result:
+        return []
+
+    try:
+        leaf_nodes = []
+        for record in query_result:
+            leaf_node = LeafNodeDto(
+                id=record.get("id", ""),
+                name=record.get("name", ""),
+                labels=record.get("labels", []),
+                path=record.get("path", ""),
+                start_line=record.get("start_line"),
+                end_line=record.get("end_line"),
+                content=record.get("content", ""),
+            )
+            leaf_nodes.append(leaf_node)
+
+        return leaf_nodes
+
+    except Exception as e:
+        logger.error(f"Error formatting leaf nodes result: {e}")
+        return []
+
+
+def get_all_leaf_nodes(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[LeafNodeDto]:
+    """
+    Retrieves all leaf nodes from the codebase hierarchy.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+
+    Returns:
+        List of LeafNodeDto objects representing all leaf nodes
+    """
+    try:
+        # Get the query and execute it
+        query = get_all_leaf_nodes_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id}
+
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+        # Format the result into DTOs
+        return format_leaf_nodes_result(query_result)
+
+    except Exception as e:
+        logger.error(f"Error retrieving leaf nodes: {e}")
+        return []

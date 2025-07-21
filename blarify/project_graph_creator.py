@@ -14,7 +14,7 @@ from blarify.code_hierarchy.languages import (
     FallbackDefinitions,
     RubyDefinitions,
     CsharpDefinitions,
-    JavaDefinitions
+    JavaDefinitions,
 )
 from typing import List, TYPE_CHECKING
 from blarify.logger import Logger
@@ -59,7 +59,7 @@ class ProjectGraphCreator:
         self.root_path = root_path
         self.lsp_query_helper = lsp_query_helper
         self.project_files_iterator = project_files_iterator
-        self.graph_environment = graph_environment or GraphEnvironment("blarify", "repo", self.root_path)
+        self.graph_environment = graph_environment or GraphEnvironment("blarify", "0", self.root_path)
 
         self.graph = Graph()
 

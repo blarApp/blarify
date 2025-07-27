@@ -8,6 +8,10 @@ skeleton comment replacement.
 
 import re
 import logging
+import concurrent.futures
+import contextvars
+import functools
+import threading
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 
@@ -50,6 +54,7 @@ class RecursiveDFSProcessor:
         company_id: str,
         repo_id: str,
         graph_environment: GraphEnvironment,
+        max_workers: int = 3,
     ):
         """
         Initialize the recursive DFS processor.
@@ -60,15 +65,18 @@ class RecursiveDFSProcessor:
             company_id: Company/entity ID for database queries
             repo_id: Repository ID for database queries
             graph_environment: Graph environment for node ID generation
+            max_workers: Maximum number of threads for parallel child processing
         """
         self.db_manager = db_manager
         self.agent_caller = agent_caller
         self.company_id = company_id
         self.repo_id = repo_id
         self.graph_environment = graph_environment
+        self.max_workers = max_workers
         self.node_descriptions: Dict[str, InformationNode] = {}  # Cache processed nodes
         self.node_source_mapping: Dict[str, str] = {}  # Maps info_node_id -> source_node_id
         self.source_to_description: Dict[str, str] = {}  # Maps source_node_id -> description content
+        self._cache_lock = threading.Lock()  # Thread-safe cache access
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
@@ -122,9 +130,10 @@ class RecursiveDFSProcessor:
         Returns:
             InformationNodeDescription for this node
         """
-        # Check cache to avoid reprocessing
-        if node.id in self.node_descriptions:
-            return self.node_descriptions[node.id]
+        # Check cache to avoid reprocessing (thread-safe)
+        with self._cache_lock:
+            if node.id in self.node_descriptions:
+                return self.node_descriptions[node.id]
 
         logger.debug(f"Processing node: {node.name} ({node.id})")
 
@@ -137,18 +146,88 @@ class RecursiveDFSProcessor:
         else:  # PARENT NODE
             logger.debug(f"Processing parent node: {node.name} with {len(children)} children")
 
-            # Process ALL children first (recursive calls)
-            child_descriptions = []
-            for child in children:
-                child_desc = self._process_node_recursive(child)  # RECURSION
-                child_descriptions.append(child_desc)
+            # Process ALL children in parallel (recursive calls)
+            child_descriptions = self._process_children_parallel(children)
 
             # Process parent with complete child context
             description = self._process_parent_node(node, child_descriptions)
 
-        # Cache the result
-        self.node_descriptions[node.id] = description
+        # Cache the result (thread-safe)
+        with self._cache_lock:
+            self.node_descriptions[node.id] = description
         return description
+
+    def _process_children_parallel(self, children: List[NodeWithContentDto]) -> List[InformationNode]:
+        """
+        Process child nodes in parallel while preserving LangSmith traces.
+
+        Args:
+            children: List of child nodes to process
+
+        Returns:
+            List of processed child descriptions
+        """
+        if not children:
+            return []
+
+        child_descriptions: List[InformationNode] = []
+        
+        if len(children) == 1 or self.max_workers == 1:
+            # Single child or single thread - process sequentially
+            for child in children:
+                child_desc = self._process_node_recursive(child)
+                child_descriptions.append(child_desc)
+        else:
+            # Multiple children - process in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit all children with context preservation
+                futures = []
+                for child in children:
+                    ctx = contextvars.copy_context()
+                    future = executor.submit(ctx.run, functools.partial(self._process_node_recursive, child))
+                    futures.append((future, child))
+
+                # Collect results as they complete
+                for future, child in futures:
+                    try:
+                        child_desc = future.result()
+                        child_descriptions.append(child_desc)
+                    except Exception as e:
+                        logger.exception(f"Error processing child node {child.name} ({child.id}): {e}")
+                        # Create fallback description for failed child
+                        fallback_desc = self._create_fallback_description(child, str(e))
+                        child_descriptions.append(fallback_desc)
+
+        return child_descriptions
+
+    def _create_fallback_description(self, node: NodeWithContentDto, error_msg: str) -> InformationNode:
+        """
+        Create a fallback description for nodes that failed to process.
+
+        Args:
+            node: The node that failed to process
+            error_msg: Error message describing the failure
+
+        Returns:
+            Fallback InformationNode
+        """
+        info_node = InformationNode(
+            title=f"Description of {node.name}",
+            content=f"Error processing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}",
+            info_type="error_fallback",
+            source_path=node.path,
+            source_name=node.name,
+            source_labels=node.labels,
+            source_type="parallel_processing_error",
+            graph_environment=self.graph_environment,
+        )
+
+        # Thread-safe cache updates
+        with self._cache_lock:
+            self.node_source_mapping[info_node.hashed_id] = node.id
+            self.source_to_description[node.id] = info_node.content
+
+        return info_node
 
     def _process_leaf_node(self, node: NodeWithContentDto) -> InformationNode:
         """
@@ -195,10 +274,11 @@ class RecursiveDFSProcessor:
                 graph_environment=self.graph_environment,
             )
 
-            # Track mapping using the node's hashed_id
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            # Also track for efficient child lookup during skeleton replacement
-            self.source_to_description[node.id] = response_content
+            # Track mapping using the node's hashed_id (thread-safe)
+            with self._cache_lock:
+                self.node_source_mapping[info_node.hashed_id] = node.id
+                # Also track for efficient child lookup during skeleton replacement
+                self.source_to_description[node.id] = response_content
 
             return info_node
 
@@ -216,12 +296,13 @@ class RecursiveDFSProcessor:
                 graph_environment=self.graph_environment,
             )
 
-            # Track mapping using the node's hashed_id
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            # Also track for efficient child lookup during skeleton replacement
-            self.source_to_description[node.id] = (
-                f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
-            )
+            # Track mapping using the node's hashed_id (thread-safe)
+            with self._cache_lock:
+                self.node_source_mapping[info_node.hashed_id] = node.id
+                # Also track for efficient child lookup during skeleton replacement
+                self.source_to_description[node.id] = (
+                    f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
+                )
 
             return info_node
 
@@ -282,10 +363,11 @@ class RecursiveDFSProcessor:
                 graph_environment=self.graph_environment,
             )
 
-            # Track mapping using the node's hashed_id
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            # Also track for efficient child lookup during skeleton replacement
-            self.source_to_description[node.id] = response_content
+            # Track mapping using the node's hashed_id (thread-safe)
+            with self._cache_lock:
+                self.node_source_mapping[info_node.hashed_id] = node.id
+                # Also track for efficient child lookup during skeleton replacement
+                self.source_to_description[node.id] = response_content
 
             return info_node
 
@@ -304,12 +386,13 @@ class RecursiveDFSProcessor:
                 graph_environment=self.graph_environment,
             )
 
-            # Track mapping using the node's hashed_id
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            # Also track for efficient child lookup during skeleton replacement
-            self.source_to_description[node.id] = (
-                f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
-            )
+            # Track mapping using the node's hashed_id (thread-safe)
+            with self._cache_lock:
+                self.node_source_mapping[info_node.hashed_id] = node.id
+                # Also track for efficient child lookup during skeleton replacement
+                self.source_to_description[node.id] = (
+                    f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
+                )
 
             return info_node
 
@@ -331,8 +414,9 @@ class RecursiveDFSProcessor:
 
         enhanced_content = parent_content
 
-        # Use the pre-built source_to_description mapping for efficient lookup
-        child_lookup = self.source_to_description
+        # Use the pre-built source_to_description mapping for efficient lookup (thread-safe)
+        with self._cache_lock:
+            child_lookup = self.source_to_description.copy()
 
         # Pattern to match skeleton comments
         # Example: # Code replaced for brevity, see node: 6fd101f9571073a44fed7c085c94eec2

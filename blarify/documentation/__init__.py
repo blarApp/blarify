@@ -9,6 +9,7 @@ Phase 2 adds LangGraph workflow capabilities for semantic analysis.
 
 # Phase 2 components
 from .workflow import DocumentationWorkflow, DocumentationState
+from .root_file_folder_processing_workflow import RooFileFolderProcessingWorkflow, RootFileFolderProcessingState
 from ..agents.llm_provider import LLMProvider
 from ..agents.prompt_templates import (
     PromptTemplate,
@@ -23,6 +24,8 @@ __all__ = [
     # Phase 2 workflow components
     "DocumentationWorkflow",
     "DocumentationState",
+    "RooFileFolderProcessingWorkflow",
+    "RootFileFolderProcessingState",
     # LLM providers
     "LLMProvider",
     # Prompt templates

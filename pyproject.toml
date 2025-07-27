@@ -39,6 +39,10 @@ langchain-google-genai = "^2.1.7"
 
 
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+ruff = "^0.12.5"
+
 [tool.vendoring]
 destination = "blarify/vendor"
 namespace = "blarify.vendor"

@@ -8,7 +8,6 @@ for LLM agents by analyzing codebase structure and creating structured documenta
 from operator import add
 from typing import Annotated, TypedDict, Dict, Any, Optional, List
 import logging
-from pathlib import Path
 
 from langgraph.graph import START, StateGraph
 
@@ -184,8 +183,6 @@ class DocumentationWorkflow:
             if not root_paths:
                 logger.warning("No root folders and files found - skipping analysis")
                 return {"information_nodes": []}
-
-            logger.info(f"Starting parallel root processing workflow for {len(root_paths)} root items: {root_paths}")
 
             # Create single workflow instance that will handle all root items in parallel
             parallel_workflow = RooFileFolderProcessingWorkflow(

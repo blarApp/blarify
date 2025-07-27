@@ -1,17 +1,15 @@
 """
 Folder Processing Workflow for analyzing individual folders with recursive DFS.
 
-This module provides a dedicated LangGraph workflow for processing a single folder,
-making it easier to track individual folder processing in LangSmith and enabling
-parallel processing of multiple folders.
+This module provides a dedicated LangGraph workflow for processing multiple root paths
+using the existing RecursiveDFSProcessor for each root, providing better LangSmith tracking.
 """
 
-from operator import add
-from typing import TypedDict, Dict, Any, Optional, List, Annotated
+from typing import TypedDict, Dict, Any, Optional, List, Literal
 import logging
-from pathlib import Path
 
-from langgraph.graph import START, StateGraph
+from langgraph.graph import START, END, StateGraph
+from langgraph.types import Command
 
 from ..agents.llm_provider import LLMProvider
 from ..db_managers.db_manager import AbstractDbManager
@@ -22,20 +20,26 @@ logger = logging.getLogger(__name__)
 
 
 class RootFileFolderProcessingState(TypedDict):
-    """State management for parallel root item processing workflow."""
+    """State for processing multiple root paths sequentially."""
 
-    root_paths: List[str]  # All root paths to process
-    information_nodes: Annotated[List[Dict[str, Any]], add]  # Aggregated information nodes
+    # Sequential root processing
+    current_root_index: int
+    root_paths: List[str]
+    
+    # Results aggregation
+    all_information_nodes: List[Dict[str, Any]]
+    
+    # Control flow
     error: Optional[str]
-    save_status: Dict[str, Any]  # Status of database save operations
+    complete: bool
 
 
 class RooFileFolderProcessingWorkflow:
     """
-    Dedicated workflow for processing multiple root folders with parallel DFS analysis.
-
-    This workflow creates individual RecursiveDFSProcessor nodes for each root path,
-    providing better LangSmith tracking and parallel execution.
+    Simplified workflow for processing multiple root folders using RecursiveDFSProcessor.
+    
+    This workflow processes each root path using the existing RecursiveDFSProcessor,
+    providing better LangSmith tracking and avoiding workflow recursion limits.
     """
 
     def __init__(
@@ -55,7 +59,7 @@ class RooFileFolderProcessingWorkflow:
             agent_caller: LLM provider for generating descriptions
             company_id: Company/entity ID for database queries
             repo_id: Repository ID for database queries
-            root_paths: List of root paths to process in parallel
+            root_paths: List of root paths to process sequentially
             graph_environment: Graph environment for node ID generation
         """
         self.db_manager = db_manager
@@ -67,68 +71,87 @@ class RooFileFolderProcessingWorkflow:
         self._compiled_graph = None
 
     def compile_graph(self):
-        """Compile the parallel root processing workflow graph."""
+        """Compile simple workflow for sequential root processing."""
         workflow = StateGraph(RootFileFolderProcessingState)
 
-        # Create one processing node per root path for individual LangSmith tracking
-        for i, root_path in enumerate(self.root_paths):
-            node_name = f"process_root_{i}_{Path(root_path).name}"
-            workflow.add_node(node_name, self._create_processor_node(root_path))
-            workflow.add_edge(START, node_name)  # Fan-out
+        # Simple workflow nodes
+        workflow.add_node("process_next_root", self.process_next_root)
+        workflow.add_node("save_final_results", self.save_final_results)
 
-        # Add aggregation node if we have multiple roots
-        if len(self.root_paths) > 1:
-            workflow.add_node("aggregate_results", self._aggregate_information_nodes)
-            
-            # Fan-in: all processor nodes to aggregator
-            for i, root_path in enumerate(self.root_paths):
-                node_name = f"process_root_{i}_{Path(root_path).name}"
-                workflow.add_edge(node_name, "aggregate_results")
-        
+        # Entry point
+        workflow.add_edge(START, "process_next_root")
+
+        # All routing handled by Command/goto
         self._compiled_graph = workflow.compile()
 
-    def _create_processor_node(self, root_path: str):
-        """Create a dedicated node function for processing a specific root path."""
-        def process_single_root(state: RootFileFolderProcessingState) -> Dict[str, Any]:
-            logger.info(f"Processing root item: {root_path}")
-            
-            try:
-                # Create RecursiveDFSProcessor for this specific root
-                processor = RecursiveDFSProcessor(
-                    db_manager=self.db_manager,
-                    agent_caller=self.agent_caller,
-                    company_id=self.company_id,
-                    repo_id=self.repo_id,
-                    graph_environment=self.graph_environment,
-                )
-                
-                # Process this root item
-                result = processor.process_node(root_path)
-                
-                if result.error:
-                    logger.error(f"Error processing {root_path}: {result.error}")
-                    return {"information_nodes": []}
-                
-                # Save to database immediately
-                save_status = self._save_information_nodes(
-                    result.information_nodes, 
-                    result.node_source_mapping
-                )
-                
-                logger.info(f"Completed {root_path}: {len(result.information_nodes)} nodes, save status: {save_status}")
-                return {"information_nodes": result.information_nodes}
-                
-            except Exception as e:
-                logger.exception(f"Error in processor node for {root_path}: {e}")
-                return {"information_nodes": []}
-        
-        return process_single_root
+    def process_next_root(
+        self, state: RootFileFolderProcessingState
+    ) -> Command[Literal["process_next_root", "save_final_results"]]:
+        """Process roots sequentially using RecursiveDFSProcessor."""
+        current_index = state.get("current_root_index", 0)
 
-    def _aggregate_information_nodes(self, state: RootFileFolderProcessingState) -> Dict[str, Any]:
-        """Aggregate results from all parallel root processing nodes."""
-        all_info_nodes = state.get("information_nodes", [])
-        logger.info(f"Aggregated {len(all_info_nodes)} total information nodes from all parallel root processors")
-        return {"information_nodes": all_info_nodes}
+        if current_index >= len(self.root_paths):
+            return Command(update={"complete": True}, goto="save_final_results")
+
+        root_path = self.root_paths[current_index]
+        logger.info(f"Starting processing for root: {root_path}")
+
+        try:
+            # Use RecursiveDFSProcessor for this root
+            processor = RecursiveDFSProcessor(
+                db_manager=self.db_manager,
+                agent_caller=self.agent_caller,
+                company_id=self.company_id,
+                repo_id=self.repo_id,
+                graph_environment=self.graph_environment,
+            )
+            
+            # Process the root path
+            result = processor.process_node(root_path)
+            
+            if result.error:
+                logger.error(f"Error processing root {root_path}: {result.error}")
+                # Continue to next root despite error
+                return Command(
+                    update={"current_root_index": current_index + 1},
+                    goto="process_next_root"
+                )
+            
+            # Save results to database immediately
+            if result.information_nodes:
+                logger.info(f"Saving {len(result.information_nodes)} nodes for root: {root_path}")
+                self._save_information_nodes(result.information_nodes, result.node_source_mapping)
+                
+            # Aggregate results
+            current_nodes = state.get("all_information_nodes", [])
+            updated_nodes = current_nodes + result.information_nodes
+            
+            logger.info(f"Completed processing for root: {root_path} ({len(result.information_nodes)} nodes)")
+            
+            return Command(
+                update={
+                    "current_root_index": current_index + 1,
+                    "all_information_nodes": updated_nodes,
+                },
+                goto="process_next_root"
+            )
+            
+        except Exception as e:
+            logger.exception(f"Error processing root {root_path}: {e}")
+            return Command(
+                update={
+                    "current_root_index": current_index + 1,
+                    "error": str(e)
+                },
+                goto="process_next_root"
+            )
+
+    def save_final_results(self, state: RootFileFolderProcessingState) -> Command[None]:
+        """Complete the workflow - all roots have been processed and saved."""
+        all_nodes = state.get("all_information_nodes", [])
+        logger.info(f"All root paths processed. Total nodes: {len(all_nodes)}")
+        
+        return Command(update={"complete": True}, goto=END)
 
     def _save_information_nodes(
         self, information_nodes: List[Dict[str, Any]], node_source_mapping: Dict[str, str]
@@ -146,48 +169,24 @@ class RooFileFolderProcessingWorkflow:
         save_status = {"nodes_saved": 0, "relationships_created": 0, "errors": [], "success": False}
 
         try:
-            # The information_nodes are already in the correct format from InformationNode.as_object()
-            info_node_objects = information_nodes
-
             # Save nodes to database
-            if info_node_objects:
-                logger.info(f"Saving {len(info_node_objects)} information nodes to database")
-                self.db_manager.create_nodes(info_node_objects)
-                save_status["nodes_saved"] = len(info_node_objects)
+            if information_nodes:
+                logger.info(f"Saving {len(information_nodes)} information nodes to database")
+                self.db_manager.create_nodes(information_nodes)
+                save_status["nodes_saved"] = len(information_nodes)
 
-                # Only create relationships for successfully converted nodes
                 # Create DESCRIBES relationships
                 edges_list = []
                 for node_dict in information_nodes:
                     node_id = node_dict.get("attributes", {}).get("node_id")
-                    if node_id:
-                        # Only create edge if node was successfully converted
-                        if any(obj["attributes"]["node_id"] == node_id for obj in info_node_objects):
-                            if node_id in node_source_mapping:
-                                edge = {
-                                    "sourceId": node_id,  # Information node
-                                    "targetId": node_source_mapping[node_id],  # Target code node
-                                    "type": "DESCRIBES",
-                                    "scopeText": "semantic_documentation",
-                                }
-                                edges_list.append(edge)
-
-                if edges_list:
-                    logger.info(f"Creating {len(edges_list)} DESCRIBES relationships")
-                    self.db_manager.create_edges(edges_list)
-                    save_status["relationships_created"] = len(edges_list)
-            else:
-                # If no nodes were converted, still try to create relationships from mapping
-                # This handles the case where all mappings should be created regardless
-                edges_list = []
-                for info_node_id, source_node_id in node_source_mapping.items():
-                    edge = {
-                        "sourceId": info_node_id,  # Information node
-                        "targetId": source_node_id,  # Target code node
-                        "type": "DESCRIBES",
-                        "scopeText": "semantic_documentation",
-                    }
-                    edges_list.append(edge)
+                    if node_id and node_id in node_source_mapping:
+                        edge = {
+                            "sourceId": node_id,  # Information node
+                            "targetId": node_source_mapping[node_id],  # Target code node
+                            "type": "DESCRIBES",
+                            "scopeText": "semantic_documentation",
+                        }
+                        edges_list.append(edge)
 
                 if edges_list:
                     logger.info(f"Creating {len(edges_list)} DESCRIBES relationships")
@@ -208,13 +207,15 @@ class RooFileFolderProcessingWorkflow:
 
     def run(self) -> ProcessingResult:
         """
-        Execute the parallel root processing workflow.
+        Execute the root processing workflow.
 
         Returns:
             ProcessingResult with combined analysis results from all root paths
         """
         try:
-            logger.info(f"Starting parallel root processing workflow for {len(self.root_paths)} root paths: {self.root_paths}")
+            logger.info(
+                f"Starting root processing workflow for {len(self.root_paths)} root paths: {self.root_paths}"
+            )
 
             if not self.root_paths:
                 logger.warning("No root paths provided for processing")
@@ -226,40 +227,40 @@ class RooFileFolderProcessingWorkflow:
 
             # Initialize state
             initial_state = RootFileFolderProcessingState(
+                current_root_index=0,
                 root_paths=self.root_paths,
-                information_nodes=[],
+                all_information_nodes=[],
                 error=None,
-                save_status={}
+                complete=False,
             )
 
             # Execute workflow
-            runnable_config = {"run_name": f"parallel_root_processing_{len(self.root_paths)}_paths"}
+            runnable_config = {"run_name": f"RootFolderProcessing_{len(self.root_paths)}_roots"}
             response = self._compiled_graph.invoke(input=initial_state, config=runnable_config)
 
             # Check for errors
             if response.get("error"):
-                return ProcessingResult(node_path="parallel_processing", error=response["error"])
+                return ProcessingResult(node_path="root_processing", error=response["error"])
 
             # Get aggregated information nodes
-            all_information_nodes = response.get("information_nodes", [])
-            
-            logger.info(f"Parallel root processing completed: {len(all_information_nodes)} total information nodes from {len(self.root_paths)} root paths")
+            all_information_nodes = response.get("all_information_nodes", [])
+
+            logger.info(
+                f"Root processing completed: {len(all_information_nodes)} total information nodes from {len(self.root_paths)} root paths"
+            )
 
             # Create combined result
             result = ProcessingResult(
-                node_path="parallel_root_processing",
+                node_path="root_processing",
                 node_relationships=[],  # Not tracked at this level
-                hierarchical_analysis={},  # Not tracked at this level  
+                hierarchical_analysis={},  # Not tracked at this level
                 error=None,
                 node_source_mapping={},  # Not aggregated at this level
                 information_nodes=all_information_nodes,
             )
 
-            # Add save status from response
-            result.save_status = response.get("save_status", {"success": True})
-
             return result
 
         except Exception as e:
-            logger.exception(f"Error running parallel root processing workflow: {e}")
-            return ProcessingResult(node_path="parallel_processing", error=str(e))
+            logger.exception(f"Error running root processing workflow: {e}")
+            return ProcessingResult(node_path="root_processing", error=str(e))

@@ -50,7 +50,7 @@ class DirectoryExplorerTool:
                 return self._format_directory_listing(contents, node_id)
 
             except Exception as e:
-                logger.error(f"Error listing directory contents: {e}")
+                logger.exception(f"Error listing directory contents: {e}")
                 return f"Error listing directory: {str(e)}"
 
         return list_directory_contents
@@ -72,7 +72,7 @@ class DirectoryExplorerTool:
                 else:
                     return "Repository root not found"
             except Exception as e:
-                logger.error(f"Error finding repo root: {e}")
+                logger.exception(f"Error finding repo root: {e}")
                 return f"Error finding repository root: {str(e)}"
 
         return find_repo_root
@@ -108,7 +108,7 @@ class DirectoryExplorerTool:
             return None
 
         except Exception as e:
-            logger.error(f"Error finding repo root: {e}")
+            logger.exception(f"Error finding repo root: {e}")
             return None
 
     def _list_directory_children(self, node_id: str) -> List[Dict]:
@@ -134,7 +134,7 @@ class DirectoryExplorerTool:
             return result if result else []
 
         except Exception as e:
-            logger.error(f"Error listing directory children for {node_id}: {e}")
+            logger.exception(f"Error listing directory children for {node_id}: {e}")
             return []
 
     def _get_node_info(self, node_id: str) -> Dict:
@@ -152,7 +152,7 @@ class DirectoryExplorerTool:
             return result[0] if result and len(result) > 0 else {}
 
         except Exception as e:
-            logger.error(f"Error getting node info for {node_id}: {e}")
+            logger.exception(f"Error getting node info for {node_id}: {e}")
             return {}
 
     def _format_directory_listing(self, contents: List[Dict], parent_node_id: str) -> str:
@@ -204,7 +204,7 @@ class DirectoryExplorerTool:
             return output
 
         except Exception as e:
-            logger.error(f"Error formatting directory listing: {e}")
+            logger.exception(f"Error formatting directory listing: {e}")
             return f"Error formatting directory listing: {str(e)}"
 
     def get_navigation_tool(self) -> BaseTool:
@@ -230,7 +230,7 @@ class DirectoryExplorerTool:
                 return self._format_directory_listing(contents, node_id)
 
             except Exception as e:
-                logger.error(f"Error navigating to path {path}: {e}")
+                logger.exception(f"Error navigating to path {path}: {e}")
                 return f"Error navigating to path '{path}': {str(e)}"
 
         return navigate_to_path
@@ -255,5 +255,5 @@ class DirectoryExplorerTool:
             return result[0]["node_id"] if result and len(result) > 0 else None
 
         except Exception as e:
-            logger.error(f"Error finding node by path {path}: {e}")
+            logger.exception(f"Error finding node by path {path}: {e}")
             return None

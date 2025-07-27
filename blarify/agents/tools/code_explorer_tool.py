@@ -47,7 +47,7 @@ class CodeExplorerTool:
                     company_id=self.company_id,
                     company_graph_manager=self.company_graph_manager,
                     initial_node_info=None,  # No initial node context
-                    messages=None  # No prior conversation history
+                    messages=None,  # No prior conversation history
                 )
 
                 # Run the exploration
@@ -60,14 +60,12 @@ class CodeExplorerTool:
                     summary=summary,
                 )
 
-                logger.info(
-                    f"Code exploration completed. Found {len(snippets)} relevant snippets."
-                )
+                logger.info(f"Code exploration completed. Found {len(snippets)} relevant snippets.")
                 return result
 
             except Exception as e:
                 error_msg = f"Error during code exploration: {str(e)}"
-                logger.error(error_msg)
+                logger.exception(error_msg)
                 return error_msg
 
         return explore_codebase

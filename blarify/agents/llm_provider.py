@@ -56,12 +56,14 @@ class LLMProvider:
         output_schema: Optional[BaseModel] = None,
         messages: Optional[List[BaseMessage]] = None,
         tools: Optional[List[BaseTool]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
     ) -> Any:
         if not fallback_list:
             fallback_list = self.reasoning_agent_order
 
         model = ChatFallback(
-            model=ai_model, fallback_list=fallback_list, output_schema=output_schema
+            model=ai_model, fallback_list=fallback_list, output_schema=output_schema, timeout=timeout
         ).get_fallback_chat_model()
 
         # Bind tools to model if provided
@@ -76,7 +78,7 @@ class LLMProvider:
 
         chat_prompt = ChatPromptTemplate.from_messages(prompt_list)
         chain = chat_prompt | model
-        response = chain.invoke(input_dict)
+        response = chain.invoke(input_dict, config=config)
 
         return response
 
@@ -87,6 +89,8 @@ class LLMProvider:
         output_schema: Optional[BaseModel] = None,
         ai_model: Optional[str] = None,
         input_prompt: Optional[str] = "Start",
+        config: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
     ) -> Any:
         if ai_model:
             return self._invoke_agent(
@@ -96,6 +100,8 @@ class LLMProvider:
                 output_schema=output_schema,
                 system_prompt=system_prompt,
                 fallback_list=self.dumb_agent_order,
+                config=config,
+                timeout=timeout,
             )
         return self._invoke_agent(
             input_prompt=input_prompt,
@@ -104,6 +110,8 @@ class LLMProvider:
             output_schema=output_schema,
             system_prompt=system_prompt,
             fallback_list=self.dumb_agent_order,
+            config=config,
+            timeout=timeout,
         )
 
     def call_average_agent(
@@ -113,6 +121,8 @@ class LLMProvider:
         system_prompt: str,
         input_prompt: Optional[str] = "Start",
         tools: Optional[List[BaseTool]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
     ) -> Any:
         if tools:
             # Use reasoning agent when tools are provided
@@ -123,6 +133,8 @@ class LLMProvider:
                 input_prompt=input_prompt,
                 ai_model=self.average_agent,
                 tools=tools,
+                config=config,
+                timeout=timeout,
             )
         return self._invoke_agent(
             input_prompt=input_prompt,
@@ -132,6 +144,8 @@ class LLMProvider:
             system_prompt=system_prompt,
             fallback_list=self.average_agent_order,
             messages=None,  # Explicitly pass None or rely on default
+            config=config,
+            timeout=timeout,
         )
 
     def call_agent_with_reasoning(
@@ -143,6 +157,8 @@ class LLMProvider:
         ai_model: Optional[str] = None,
         messages: Optional[List[BaseMessage]] = None,
         tools: Optional[List[BaseTool]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        timeout: Optional[int] = None,
     ) -> Any:
         model = ai_model if ai_model else self.reasoning_agent
 
@@ -156,6 +172,8 @@ class LLMProvider:
             messages=messages,
             fallback_list=self.reasoning_agent_order,
             tools=tools,  # Pass tools to _invoke_agent
+            config=config,
+            timeout=timeout,
         )
 
         if output_schema:
@@ -167,16 +185,13 @@ class LLMProvider:
         system_prompt: str,
         tools: List[BaseTool],
         input_dict: Dict[str, Any],
-        messages: Optional[List[BaseMessage]],
+        input_prompt: Optional[str],
         output_schema: Optional[BaseModel] = None,
         main_model: Optional[str] = "gpt-4.1",
-        tool_model: Optional[str] = "gpt-4.1-nano",
-        config: Optional[Dict[str, Any]] = None,
-        name: Optional[str] = None,
     ) -> Any:
         # Get the model with fallback
         model = ChatFallback(
-            model=main_model or self.reasoning_agent, fallback_list=self.reasoning_agent_order
+            model=main_model or self.reasoning_agent, fallback_list=self.reasoning_agent_order, timeout=None
         ).get_fallback_chat_model()
 
         # Create React agent prompt template
@@ -219,19 +234,8 @@ Question: {input}
             max_iterations=10,
         )
 
-        # Format the input from messages using ChatPromptTemplate for proper separation
-        if messages:
-            # Extract the human message content
-            human_message = messages[-1] if messages else None
-            if human_message and hasattr(human_message, "content"):
-                input_text = human_message.content
-            else:
-                input_text = str(human_message)
-        else:
-            input_text = "Complete the analysis using the available tools."
-
         # Format the input text with input_dict
-        formatted_input = input_text.format(**input_dict) if input_dict else input_text
+        formatted_input = input_prompt.format(**input_dict) if input_dict else input_prompt
 
         logger.info("Invoking LangChain React agent with separated system and human messages")
         response = agent_executor.invoke({"input": formatted_input, "system_prompt": system_prompt})
@@ -239,8 +243,19 @@ Question: {input}
         # Extract final response
         if response and "output" in response:
             output_content = response["output"]
-            if output_schema:
+
+            # Extract content after "Final Answer:" for structured parsing
+            if output_schema and "Final Answer:" in output_content:
+                # Find the "Final Answer:" marker and extract everything after it
+                final_answer_index = output_content.find("Final Answer:")
+                if final_answer_index != -1:
+                    # Extract content after "Final Answer:" and strip whitespace
+                    final_answer_content = output_content[final_answer_index + len("Final Answer:") :].strip()
+                    return self.parse_structured_output(final_answer_content, output_schema)
+            elif output_schema:
+                # If no "Final Answer:" marker found, use the full content
                 return self.parse_structured_output(output_content, output_schema)
+
             # Return in the expected format
             return {"messages": [type("Message", (), {"content": output_content})()]}
 

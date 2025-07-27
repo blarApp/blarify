@@ -27,12 +27,13 @@ MODEL_PROVIDER_DICT = {
 
 
 class ChatFallback:
-    def __init__(self, *, model: str, fallback_list: list[str], output_schema: Optional[BaseModel] = None):
+    def __init__(self, *, model: str, fallback_list: list[str], output_schema: Optional[BaseModel] = None, timeout: Optional[int] = None):
         self.model = model
         self.fallback_list = fallback_list
         self.output_schema = output_schema
+        self.timeout = timeout
 
-    def get_chat_model(self, model: str) -> Runnable:
+    def get_chat_model(self, model: str, timeout: Optional[int] = None) -> Runnable:
         """
         Get the chat model class for the given model.
         If the model is not found in the MODEL_PROVIDER_DICT, raise a ValueError.
@@ -41,15 +42,27 @@ class ChatFallback:
         try:
             chat_model_class: Type[ChatGoogleGenerativeAI | ChatAnthropic | ChatOpenAI] = MODEL_PROVIDER_DICT[model]
         except KeyError:
-            logger.error(f"Model {model} not found in MODEL_PROVIDER_DICT")
+            logger.exception(f"Model {model} not found in MODEL_PROVIDER_DICT")
             raise ValueError(f"Model {model} not found in MODEL_PROVIDER_DICT")
 
+        # Use provided timeout or instance timeout
+        model_timeout = timeout or self.timeout
+        
         if issubclass(chat_model_class, ChatGoogleGenerativeAI):
-            chat_model = ChatGoogleGenerativeAI(model=model)
+            chat_model = ChatGoogleGenerativeAI(
+                model=model,
+                timeout=model_timeout
+            ) if model_timeout else ChatGoogleGenerativeAI(model=model)
         elif issubclass(chat_model_class, ChatAnthropic):
-            chat_model = ChatAnthropic(model=model)
+            chat_model = ChatAnthropic(
+                model=model,
+                timeout=model_timeout
+            ) if model_timeout else ChatAnthropic(model=model)
         elif issubclass(chat_model_class, ChatOpenAI):
-            chat_model = ChatOpenAI(model_name=model)
+            chat_model = ChatOpenAI(
+                model_name=model,
+                timeout=model_timeout
+            ) if model_timeout else ChatOpenAI(model_name=model)
 
         if self.output_schema:
             chat_model = chat_model.with_structured_output(self.output_schema)
@@ -64,7 +77,7 @@ class ChatFallback:
         fallback_list: list[Runnable] = []
         for fallback_model in self.fallback_list:
             if fallback_model in MODEL_PROVIDER_DICT and fallback_model != self.model:
-                fallback_list.append(self.get_chat_model(fallback_model))
-        model: Runnable = self.get_chat_model(self.model)
+                fallback_list.append(self.get_chat_model(fallback_model, self.timeout))
+        model: Runnable = self.get_chat_model(self.model, self.timeout)
         model: RunnableWithFallbacks = model.with_fallbacks(fallback_list)
         return model

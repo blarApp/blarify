@@ -12,38 +12,38 @@ LEAF_NODE_ANALYSIS_TEMPLATE = PromptTemplate(
     name="leaf_node_analysis",
     description="Analyzes individual leaf nodes (functions, classes, files) for basic semantic description",
     variables=["node_name", "node_labels", "node_path", "node_content"],
-    system_prompt="""You are a code analysis expert. Your task is to create basic, atomic descriptions for individual code elements (leaf nodes in the codebase hierarchy).
+    system_prompt="""You are a code analysis expert. Create precise, atomic descriptions for code elements that will be retrieved in groups for search.
 
-For each code element, provide:
-- A clear, concise purpose statement
-- What the element does (functionality)  
-- Basic information about its role
+Requirements:
+- ONE sentence describing the primary function/purpose
+- Avoid redundant explanations (no "This method/class/function...")
+- Focus on WHAT it does, not HOW it's implemented
+- Use active voice and specific verbs
+- Avoid generic phrases like "provides", "enables", "allows"
 
-Keep descriptions:
-- Simple and atomic (focused on this single element)
-- Factual and based on the code content
-- Brief but informative (2-4 sentences)
+Response format: Single precise sentence starting with an action verb.
 
-Handle different node types appropriately:
-- FUNCTION/METHOD: What it does, key parameters, return purpose
-- CLASS: Main responsibility, what it represents
-- FILE: Primary purpose if it's a complete file (unsupported language)
-- Other node types: Basic purpose and functionality
+Examples:
+- "Validates user authentication tokens and returns boolean status"
+- "Manages database connection pooling for PostgreSQL instances" 
+- "Transforms raw JSON data into User model objects"
+- "Configures HTTP middleware for request authentication"
 
 Do NOT include:
+- Obvious details (e.g., "__str__ returns string representation")
+- Implementation specifics
 - Relationships to other components
-- Complex architectural analysis  
-- Implementation details beyond basic purpose""",
-    input_prompt="""Analyze this code element and provide a basic semantic description:
+- Multiple sentences or explanatory text""",
+    input_prompt="""Analyze this code element:
 
-**Element Name**: {node_name}
-**Node Type**: {node_labels}
-**File Path**: {node_path}
+**Element**: {node_name}
+**Type**: {node_labels}
+**Path**: {node_path}
 
-**Code Content**:
+**Code**:
 ```
 {node_content}
 ```
 
-Provide a concise description of this element's purpose and basic functionality."""
+Provide one precise sentence describing its primary function."""
 )

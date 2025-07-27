@@ -5,8 +5,9 @@ This package provides structured output schemas for various LLM tasks
 to ensure consistent, validated responses from language model calls.
 """
 
-from .framework_analysis_schema import FrameworkAnalysisResponse
+from .workflow_discovery_schema import WorkflowDefinition, WorkflowDiscoveryResponse
 
 __all__ = [
-    "FrameworkAnalysisResponse"
+    "WorkflowDefinition", 
+    "WorkflowDiscoveryResponse"
 ]

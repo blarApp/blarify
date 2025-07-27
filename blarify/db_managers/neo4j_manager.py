@@ -152,9 +152,9 @@ class Neo4jManager(AbstractDbManager):
                 result = session.run(cypher_query, parameters)
                 return [record.data() for record in result]
         except Exception as e:
-            logger.error(f"Error executing Neo4j query: {e}")
-            logger.error(f"Query: {cypher_query}")
-            logger.error(f"Parameters: {parameters}")
+            logger.exception(f"Error executing Neo4j query: {e}")
+            logger.exception(f"Query: {cypher_query}")
+            logger.exception(f"Parameters: {parameters}")
             raise
 
     def get_node_by_id_v2(

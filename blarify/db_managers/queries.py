@@ -10,6 +10,7 @@ import logging
 
 from blarify.db_managers.db_manager import AbstractDbManager
 from blarify.db_managers.dtos.leaf_node_dto import LeafNodeDto
+from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def format_codebase_skeleton_result(query_result: List[Dict[str, Any]]) -> Dict[
         return {"nodes": all_nodes, "relationships": all_relationships}
 
     except (KeyError, IndexError) as e:
-        logger.error(f"Error formatting codebase skeleton result: {e}")
+        logger.exception(f"Error formatting codebase skeleton result: {e}")
         return {"nodes": [], "relationships": []}
 
 
@@ -167,7 +168,7 @@ def format_node_details_result(query_result: List[Dict[str, Any]]) -> Optional[D
             "content": record.get("content", ""),
         }
     except (KeyError, IndexError) as e:
-        logger.error(f"Error formatting node details result: {e}")
+        logger.exception(f"Error formatting node details result: {e}")
         return None
 
 
@@ -201,7 +202,7 @@ def format_node_relationships_result(query_result: List[Dict[str, Any]]) -> List
         return formatted_relationships
 
     except (KeyError, IndexError) as e:
-        logger.error(f"Error formatting node relationships result: {e}")
+        logger.exception(f"Error formatting node relationships result: {e}")
         return []
 
 
@@ -231,7 +232,7 @@ def get_codebase_skeleton(db_manager: AbstractDbManager, entity_id: str, repo_id
         return format_skeleton_as_string(formatted_result)
 
     except Exception as e:
-        logger.error(f"Error retrieving codebase skeleton: {e}")
+        logger.exception(f"Error retrieving codebase skeleton: {e}")
         return f"Error retrieving codebase skeleton: {str(e)}"
 
 
@@ -382,8 +383,37 @@ def get_all_leaf_nodes_query() -> str:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id, diff_identifier: 0})
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id, diff_identifier: '0'})
     WHERE NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()
+    RETURN n.node_id as id,
+           n.name as name,
+           labels(n) as labels,
+           n.path as path,
+           n.start_line as start_line,
+           n.end_line as end_line,
+           coalesce(n.text, '') as content
+    ORDER BY n.path, coalesce(n.start_line, 0)
+    """
+
+
+def get_folder_leaf_nodes_query() -> str:
+    """
+    Returns a Cypher query for retrieving leaf nodes under a specific folder path.
+
+    Leaf nodes are defined as nodes with no outgoing hierarchical relationships
+    (CONTAINS, FUNCTION_DEFINITION, CLASS_DEFINITION). This query filters by folder path
+    at the database level for efficient per-folder processing.
+
+    Uses CONTAINS to match folder paths within the full database path structure,
+    since database paths include full prefixes like /env/repo/folder_path.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id, diff_identifier: '0'})
+    WHERE NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()
+      AND n.path CONTAINS $folder_path
     RETURN n.node_id as id,
            n.name as name,
            labels(n) as labels,
@@ -425,7 +455,7 @@ def format_leaf_nodes_result(query_result: List[Dict[str, Any]]) -> List[LeafNod
         return leaf_nodes
 
     except Exception as e:
-        logger.error(f"Error formatting leaf nodes result: {e}")
+        logger.exception(f"Error formatting leaf nodes result: {e}")
         return []
 
 
@@ -452,5 +482,432 @@ def get_all_leaf_nodes(db_manager: AbstractDbManager, entity_id: str, repo_id: s
         return format_leaf_nodes_result(query_result)
 
     except Exception as e:
-        logger.error(f"Error retrieving leaf nodes: {e}")
+        logger.exception(f"Error retrieving leaf nodes: {e}")
+        return []
+
+
+def get_folder_leaf_nodes(
+    db_manager: AbstractDbManager, entity_id: str, repo_id: str, folder_path: str
+) -> List[LeafNodeDto]:
+    """
+    Retrieves leaf nodes under a specific folder path.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+        folder_path: The folder path to filter by (e.g., "src/", "components/")
+
+    Returns:
+        List of LeafNodeDto objects representing leaf nodes under the specified folder
+    """
+    try:
+        # Get the query and execute it
+        query = get_folder_leaf_nodes_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id, "folder_path": folder_path}
+
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+        # Format the result into DTOs
+        return format_leaf_nodes_result(query_result)
+
+    except Exception as e:
+        logger.exception(f"Error retrieving folder leaf nodes for path '{folder_path}': {e}")
+        return []
+
+
+def get_node_by_path_query() -> str:
+    """
+    Returns a Cypher query for retrieving a node (folder or file) by its path.
+
+    This query finds the specific folder or file node that matches the given path.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    WHERE n.path CONTAINS $folder_path AND (n:FOLDER OR n:FILE)
+    RETURN n.node_id as id,
+           n.name as name,
+           labels(n) as labels,
+           n.path as path,
+           n.start_line as start_line,
+           n.end_line as end_line,
+           coalesce(n.text, '') as content
+    ORDER BY size(n.path)
+    LIMIT 1
+    """
+
+
+def get_direct_children_query() -> str:
+    """
+    Returns a Cypher query for retrieving immediate children of a node.
+
+    Gets direct children through hierarchical relationships (CONTAINS, FUNCTION_DEFINITION, CLASS_DEFINITION).
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+    -[r:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->(child:NODE)
+    RETURN child.node_id as id,
+           child.name as name,
+           labels(child) as labels,
+           child.path as path,
+           child.start_line as start_line,
+           child.end_line as end_line,
+           coalesce(child.text, '') as content,
+           type(r) as relationship_type
+    ORDER BY child.path, coalesce(child.start_line, 0)
+    """
+
+
+def format_node_with_content_result(query_result: List[Dict[str, Any]]) -> Optional[NodeWithContentDto]:
+    """
+    Formats the result of a single node query into a NodeWithContentDto.
+
+    Args:
+        query_result: Raw result from the database query
+
+    Returns:
+        NodeWithContentDto object or None if not found
+    """
+    if not query_result:
+        return None
+
+    try:
+        record = query_result[0]
+        return NodeWithContentDto(
+            id=record.get("id", ""),
+            name=record.get("name", ""),
+            labels=record.get("labels", []),
+            path=record.get("path", ""),
+            start_line=record.get("start_line"),
+            end_line=record.get("end_line"),
+            content=record.get("content", ""),
+        )
+    except Exception as e:
+        logger.exception(f"Error formatting node with content result: {e}")
+        return None
+
+
+def format_children_with_content_result(query_result: List[Dict[str, Any]]) -> List[NodeWithContentDto]:
+    """
+    Formats the result of a children query into NodeWithContentDto objects.
+
+    Args:
+        query_result: Raw result from the database query
+
+    Returns:
+        List of NodeWithContentDto objects
+    """
+    if not query_result:
+        return []
+
+    try:
+        children = []
+        for record in query_result:
+            child = NodeWithContentDto(
+                id=record.get("id", ""),
+                name=record.get("name", ""),
+                labels=record.get("labels", []),
+                path=record.get("path", ""),
+                start_line=record.get("start_line"),
+                end_line=record.get("end_line"),
+                content=record.get("content", ""),
+                relationship_type=record.get("relationship_type"),
+            )
+            children.append(child)
+
+        return children
+
+    except Exception as e:
+        logger.exception(f"Error formatting children with content result: {e}")
+        return []
+
+
+def get_node_by_path(
+    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_path: str
+) -> Optional[NodeWithContentDto]:
+    """
+    Retrieves a node (folder or file) by its path.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+        node_path: The node path to find
+
+    Returns:
+        NodeWithContentDto object or None if not found
+    """
+    try:
+        # Strip trailing slash to match nodes properly
+        # This handles cases where paths may have trailing slashes
+        normalized_path = node_path.rstrip("/")
+
+        query = get_node_by_path_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id, "folder_path": normalized_path}
+
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+        return format_node_with_content_result(query_result)
+
+    except Exception as e:
+        logger.exception(f"Error retrieving node for path '{node_path}': {e}")
+        return None
+
+
+# Keep the old function name for backward compatibility
+def get_folder_node_by_path(
+    db_manager: AbstractDbManager, entity_id: str, repo_id: str, folder_path: str
+) -> Optional[NodeWithContentDto]:
+    """
+    Retrieves a folder node by its path.
+    
+    DEPRECATED: Use get_node_by_path instead. This function is kept for backward compatibility.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+        folder_path: The folder path to find
+
+    Returns:
+        NodeWithContentDto object or None if not found
+    """
+    return get_node_by_path(db_manager, entity_id, repo_id, folder_path)
+
+
+def get_direct_children(
+    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_id: str
+) -> List[NodeWithContentDto]:
+    """
+    Retrieves immediate children of a node.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+        node_id: The parent node ID
+
+    Returns:
+        List of NodeWithContentDto objects
+    """
+    try:
+        query = get_direct_children_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
+
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+        return format_children_with_content_result(query_result)
+
+    except Exception as e:
+        logger.exception(f"Error retrieving children for node '{node_id}': {e}")
+        return []
+
+
+def get_information_nodes_by_folder_query() -> str:
+    """
+    Returns a Cypher query for retrieving the information node for a specific folder.
+
+    Filters information nodes by source_path using ENDS WITH to match the exact folder path.
+    This returns only the InformationNode that describes the folder itself.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (info:INFORMATION {entityId: $entity_id, repoId: $repo_id, layer: 'documentation'})
+    WHERE info.source_path ENDS WITH $folder_path
+    RETURN info.node_id as node_id,
+           info.title as title,
+           info.content as content,
+           info.info_type as info_type,
+           info.source_path as source_path,
+           info.source_labels as source_labels,  
+           info.source_type as source_type,
+           info.layer as layer
+    ORDER BY info.source_path, info.title
+    """
+
+
+def format_information_nodes_result(query_result: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Formats the result of information nodes query into standardized dictionaries.
+
+    Returns the same format used by InformationNode.as_object() for consistency.
+
+    Args:
+        query_result: Raw result from the database query
+
+    Returns:
+        List of information node dictionaries
+    """
+    if not query_result:
+        return []
+
+    try:
+        information_nodes = []
+        for record in query_result:
+            # Format as dictionary matching InformationNode.as_object() structure
+            info_node = {
+                "labels": ["INFORMATION"],
+                "attributes": {
+                    "node_id": record.get("node_id", ""),
+                    "title": record.get("title", ""),
+                    "content": record.get("content", ""),
+                    "info_type": record.get("info_type", ""),
+                    "source_path": record.get("source_path", ""),
+                    "source_labels": record.get("source_labels", []),
+                    "source_type": record.get("source_type", ""),
+                    "layer": record.get("layer", "documentation"),
+                    "entityId": record.get("entity_id", ""),
+                    "repoId": record.get("repo_id", ""),
+                },
+            }
+            information_nodes.append(info_node)
+
+        return information_nodes
+
+    except Exception as e:
+        logger.exception(f"Error formatting information nodes result: {e}")
+        return []
+
+
+def get_information_nodes_by_folder(
+    db_manager: AbstractDbManager, entity_id: str, repo_id: str, folder_path: str
+) -> List[Dict[str, Any]]:
+    """
+    Retrieves information nodes from a specific folder path.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+        folder_path: The folder path to filter by (e.g., "src", "components")
+
+    Returns:
+        List of information node dictionaries from the specified folder
+    """
+    try:
+        # For folder "src", we want to match the exact folder path ending with "/src"
+        # This returns only the InformationNode that describes the folder itself
+        normalized_path = folder_path.strip("/")
+        folder_path_match = f"/{normalized_path}"
+
+        query = get_information_nodes_by_folder_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id, "folder_path": folder_path_match}
+
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+        return format_information_nodes_result(query_result)
+
+    except Exception as e:
+        logger.exception(f"Error retrieving information nodes for folder '{folder_path}': {e}")
+        return []
+
+
+def get_root_information_nodes_query() -> str:
+    """
+    Returns a Cypher query for retrieving information nodes for root-level code nodes.
+
+    Queries code nodes at level 1 (root level) and traverses to their information nodes
+    through DESCRIBES relationships.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (code:NODE {entityId: $entity_id, repoId: $repo_id, level: 1})
+    WHERE (code:FILE OR code:FOLDER)
+    MATCH (info:INFORMATION)-[:DESCRIBES]->(code)
+    WHERE info.layer = 'documentation'
+    RETURN info.node_id as node_id,
+           info.title as title,
+           info.content as content,
+           info.info_type as info_type,
+           info.source_path as source_path,
+           info.source_labels as source_labels,  
+           info.source_type as source_type,
+           info.layer as layer
+    ORDER BY info.source_path, info.title
+    """
+
+
+def get_root_information_nodes(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[Dict[str, Any]]:
+    """
+    Retrieves information nodes for all root-level code nodes.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+
+    Returns:
+        List of information node dictionaries for root-level code nodes
+    """
+    try:
+        query = get_root_information_nodes_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id}
+
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+        return format_information_nodes_result(query_result)
+
+    except Exception as e:
+        logger.exception(f"Error retrieving root information nodes: {e}")
+        return []
+
+
+def get_root_folders_and_files_query() -> str:
+    """
+    Returns a Cypher query for retrieving root-level folders and files.
+
+    Queries code nodes at level 1 (root level) and returns their paths.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (code:NODE {entityId: $entity_id, repoId: $repo_id, level: 1})
+    WHERE (code:FILE OR code:FOLDER)
+    RETURN code.path as path,
+           code.name as name,
+           labels(code) as labels
+    ORDER BY code.path
+    """
+
+
+def get_root_folders_and_files(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[str]:
+    """
+    Retrieves paths of all root-level folders and files.
+
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+
+    Returns:
+        List of root-level folder and file paths
+    """
+    try:
+        query = get_root_folders_and_files_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id}
+
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+        # Extract paths from the query result
+        root_paths = []
+        for record in query_result:
+            path = record.get("path", "")
+            if path:
+                root_paths.append(path)
+
+        return root_paths
+
+    except Exception as e:
+        logger.exception(f"Error retrieving root folders and files: {e}")
         return []

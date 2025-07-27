@@ -126,7 +126,7 @@ class LspQueryHelper:
                 self._restart_lsp_for_extension(extension=node.extension)
                 lsp = self._get_or_create_lsp_server(extension=node.extension, timeout=timeout)
 
-        logger.error("Failed to get references, returning empty list")
+        logger.exception("Failed to get references, returning empty list")
         return []
 
     def _restart_lsp_for_extension(self, extension):
@@ -141,7 +141,7 @@ class LspQueryHelper:
             self.language_to_lsp_server[language_name] = new_lsp
             logger.warning("LSP server restarted")
         except ConnectionResetError:
-            logger.error("Connection reset error")
+            logger.exception("Connection reset error")
 
     def exit_lsp_server(self, language) -> None:
         # First try to properly exit the context manager if it exists
@@ -190,7 +190,7 @@ class LspQueryHelper:
                     child.terminate()
                 process.terminate()
         except Exception as e:
-            logger.error(f"Error killing process: {e}")
+            logger.exception(f"Error killing process: {e}")
 
         # Cancel all tasks in the loop
         loop = self.language_to_lsp_server[language].loop
@@ -216,7 +216,7 @@ class LspQueryHelper:
 
             logger.info("Tasks cancelled")
         except Exception as e:
-            logger.error(f"Error cancelling tasks: {e}")
+            logger.exception(f"Error cancelling tasks: {e}")
 
         # Stop the loop
         # It is important to stop the loop before exiting the context otherwise there will be threads running indefinitely
@@ -251,7 +251,7 @@ class LspQueryHelper:
                 self._restart_lsp_for_extension(extension)
                 lsp = self._get_or_create_lsp_server(extension=extension, timeout=timeout)
 
-        logger.error("Failed to get references, returning empty list")
+        logger.exception("Failed to get references, returning empty list")
         return []
 
     def shutdown_exit_close(self) -> None:
@@ -261,7 +261,7 @@ class LspQueryHelper:
             try:
                 self.exit_lsp_server(language)
             except Exception as e:
-                logger.error(f"Error shutting down LSP server for {language}: {e}")
+                logger.exception(f"Error shutting down LSP server for {language}: {e}")
 
         # Ensure all dictionaries are cleared
         self.entered_lsp_servers.clear()

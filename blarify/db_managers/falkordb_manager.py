@@ -107,7 +107,7 @@ class FalkorDBManager(AbstractDbManager):
 
             return results
         except Exception as e:
-            logger.error(f"Error executing FalkorDB query: {e}")
-            logger.error(f"Query: {cypher_query}")
-            logger.error(f"Parameters: {parameters}")
+            logger.exception(f"Error executing FalkorDB query: {e}")
+            logger.exception(f"Query: {cypher_query}")
+            logger.exception(f"Parameters: {parameters}")
             raise

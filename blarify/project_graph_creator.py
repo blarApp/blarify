@@ -2,6 +2,7 @@ import time
 from blarify.code_hierarchy.languages.go_definitions import GoDefinitions
 from blarify.code_hierarchy.languages.php_definitions import PhpDefinitions
 from blarify.code_references import LspQueryHelper, FileExtensionNotSupported
+from blarify.code_references.types.Reference import Reference
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.graph.node import NodeLabels, NodeFactory
 from blarify.graph.relationship import RelationshipCreator
@@ -160,44 +161,74 @@ class ProjectGraphCreator:
         return document_symbols
 
     def _create_relationships_from_references_for_files(self) -> None:
+        start_time = time.time()
+
         file_nodes = self.graph.get_nodes_by_label(NodeLabels.FILE)
-        self._create_relationship_from_references(file_nodes)
+        logger.info(f"Processing {len(file_nodes)} files for reference relationships")
 
-    def _create_relationship_from_references(self, file_nodes: List["Node"]) -> None:
         references_relationships = []
-
         total_files = len(file_nodes)
         log_interval = max(1, total_files // 10)
 
+        # Collect all nodes that need reference processing
+        all_nodes_to_process = []
+        nodes_by_file = {}  # Track which file each node belongs to for logging
+
         for index, file_node in enumerate(file_nodes):
-            start_time = time.time()
             self._log_if_multiple_of_x(
                 index=index,
                 x=log_interval,
-                text=f"Processing file {file_node.name}: {index + 1}/{total_files} -- {100 * index / total_files:.2f}%",
+                text=f"Collecting nodes from file {file_node.name}: {index + 1}/{total_files} -- {100 * index / total_files:.2f}%",
             )
 
             nodes = self.graph.get_nodes_by_path(file_node.path)
             for node in nodes:
                 if node.label == NodeLabels.FILE:
                     continue
+                
+                all_nodes_to_process.append(node)
+                nodes_by_file[node] = file_node
 
-                logger.debug(f"Processing node {node.name}")
+        logger.info(f"Collected {len(all_nodes_to_process)} nodes for batch processing")
 
-                tree_sitter_helper = self._get_tree_sitter_for_file_extension(node.extension)
-                references_relationships.extend(
-                    self._create_node_relationships(node=node, tree_sitter_helper=tree_sitter_helper)
+        # Batch process all reference requests
+        batch_start_time = time.time()
+        batch_results = self.lsp_query_helper.get_paths_where_nodes_are_referenced_batch(all_nodes_to_process)
+        batch_end_time = time.time()
+        
+        logger.info(f"Batch LSP queries completed in {batch_end_time - batch_start_time:.2f} seconds")
+
+        # Process the results and create relationships
+        processed_files = set()
+        for node, references in batch_results.items():
+            file_node = nodes_by_file[node]
+            
+            # Log progress per file (only once per file)
+            if file_node not in processed_files:
+                processed_files.add(file_node)
+                file_index = list(file_nodes).index(file_node)
+                self._log_if_multiple_of_x(
+                    index=file_index,
+                    x=log_interval,
+                    text=f"Processing relationships for {file_node.name}: {file_index + 1}/{total_files} -- {100 * file_index / total_files:.2f}%",
                 )
-            end_time = time.time()
 
-            execution_time = end_time - start_time
-            self._log_if_multiple_of_x(
-                index=index,
-                x=log_interval,
-                text=f"Execution time for {file_node.name}: {execution_time:.2f} seconds, relationship count: {len(references_relationships)}",
+            logger.debug(f"Processing node {node.name}")
+
+            tree_sitter_helper = self._get_tree_sitter_for_file_extension(node.extension)
+            relationships = self._create_node_relationships_from_references(
+                node=node, 
+                references=references,
+                tree_sitter_helper=tree_sitter_helper
             )
+            references_relationships.extend(relationships)
 
         self.graph.add_references_relationships(references_relationships=references_relationships)
+
+        end_time = time.time()
+        execution_time = end_time - start_time
+        logger.info(f"Total execution time for _create_relationships_from_references_for_files: {execution_time:.2f} seconds")
+        logger.info(f"Created {len(references_relationships)} reference relationships")
 
     def _log_if_multiple_of_x(self, index: int, x: int, text: str) -> None:
         if index % x == 0:
@@ -210,6 +241,22 @@ class ProjectGraphCreator:
     ) -> List["Relationship"]:
         references = self.lsp_query_helper.get_paths_where_node_is_referenced(node)
 
+        relationships = RelationshipCreator.create_relationships_from_paths_where_node_is_referenced(
+            references=references, node=node, graph=self.graph, tree_sitter_helper=tree_sitter_helper
+        )
+
+        return relationships
+
+    def _create_node_relationships_from_references(
+        self,
+        node: "Node",
+        references: List[Reference],
+        tree_sitter_helper: TreeSitterHelper,
+    ) -> List["Relationship"]:
+        """
+        Create relationships for a node using pre-fetched references.
+        This is used by the batch processing method.
+        """
         relationships = RelationshipCreator.create_relationships_from_paths_where_node_is_referenced(
             references=references, node=node, graph=self.graph, tree_sitter_helper=tree_sitter_helper
         )

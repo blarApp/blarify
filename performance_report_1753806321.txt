@@ -1,0 +1,23 @@
+BLARIFY PERFORMANCE REPORT
+============================================================
+Project Path: /Users/pepemanu/Desktop/Trabajo/Blar/Dev/blarify
+Timestamp: 2025-07-29 09:25:21
+
+Benchmark Results:
+  Total Time: 56.14s
+  Peak Memory: 34.16 MB
+  Current Memory: 32.62 MB
+  CPU Usage: 2.0%
+  Node Count: 1,291
+  Relationship Count: 3,024
+  File Count: 0
+
+
+TIMING BREAKDOWN:
+lsp_setup: 0.00s (0.0%)
+file_iterator: 0.08s (0.1%)
+db_setup: 0.00s (0.0%)
+graph_creation: 54.49s (97.1%)
+data_extraction: 0.31s (0.6%)
+db_save: 0.00s (0.0%)
+lsp_shutdown: 1.26s (2.3%)

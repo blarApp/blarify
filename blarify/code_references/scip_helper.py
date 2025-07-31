@@ -177,13 +177,13 @@ class ScipReferenceResolver:
                 "--quiet"
             ]
             
-            result = subprocess.run(cmd, cwd=self.root_path, capture_output=True, text=True)
+            result = subprocess.run(cmd, cwd=self.root_path, capture_output=True, text=True, timeout=300)
             
             if result.returncode == 0:
                 logger.info(f"✅ Generated SCIP index at {self.scip_index_path}")
                 return True
             else:
-                logger.error(f"Failed to generate SCIP index: {result.stderr}")
+                logger.error(f"Failed to generate SCIP index: {result.stderr.strip()}")
                 return False
                 
         except Exception as e:

@@ -20,6 +20,21 @@ Get started with blarify by following our quickstart guide:
 
 [➡️ Quickstart Guide](https://github.com/blarApp/blarify/blob/main/docs/quickstart.md)
 
+## Dependencies
+
+### SCIP Support (Optional, for faster reference resolution)
+
+For enhanced performance, blarify supports SCIP (Source Code Intelligence Protocol) which provides up to 330x faster reference resolution compared to LSP.
+
+Install the SCIP Python indexer:
+
+```bash
+# Install scip-python globally via npm
+npm install -g @sourcegraph/scip-python
+```
+
+**Note**: SCIP provides identical accuracy to LSP but with dramatically better performance. When available, blarify will automatically use SCIP for reference resolution.
+
 # Article
 
 Read our article on Medium to learn more about the motivation behind this project:

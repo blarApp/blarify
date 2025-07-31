@@ -580,16 +580,12 @@ class LspQueryHelper:
     def _request_references_with_exponential_backoff(self, node, lsp):
         timeout = 10
         for _ in range(1, 3):
-            try:
-                print(f"requesting references for {node.path}")
-                start_time = time.time()
-                
+            try:                
                 references = lsp.request_references(
                     file_path=PathCalculator.get_relative_path_from_uri(root_uri=self.root_uri, uri=node.path),
                     line=node.definition_range.start_dict["line"],
                     column=node.definition_range.start_dict["character"],
                 )
-                print(f"references received for {node.path} in {time.time() - start_time} seconds")
                 return references
 
             except (TimeoutError, ConnectionResetError, Error):

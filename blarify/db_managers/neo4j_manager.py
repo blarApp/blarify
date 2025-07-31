@@ -61,7 +61,7 @@ class Neo4jManager:
     def create_edges(self, edgesList: List[Any]):
         # Function to create edges between nodes in the Neo4j database
         with self.driver.session() as session:
-            session.write_transaction(self._create_edges_txn, edgesList, 100, entityId=self.entity_id)
+            session.write_transaction(self._create_edges_txn, edgesList, 100, entityId=self.entity_id, repoId=self.repo_id)
 
     @staticmethod
     def _create_nodes_txn(tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
@@ -89,13 +89,13 @@ class Neo4jManager:
             print(record)
 
     @staticmethod
-    def _create_edges_txn(tx, edgesList: List[Any], batch_size: int, entityId: str):
+    def _create_edges_txn(tx, edgesList: List[Any], batch_size: int, entityId: str, repoId: str):
         # Cypher query using apoc.periodic.iterate for creating edges
         edge_creation_query = """
         CALL apoc.periodic.iterate(
             'WITH $edgesList AS edges UNWIND edges AS edgeObject RETURN edgeObject',
-            'MATCH (node1:NODE {node_id: edgeObject.sourceId}) 
-            MATCH (node2:NODE {node_id: edgeObject.targetId}) 
+            'MATCH (node1:NODE {node_id: edgeObject.sourceId, repoId: $repoId, entityId: $entityId}) 
+            MATCH (node2:NODE {node_id: edgeObject.targetId, repoId: $repoId, entityId: $entityId}) 
             CALL apoc.merge.relationship(
             node1, 
             edgeObject.type, 
@@ -105,7 +105,7 @@ class Neo4jManager:
             {}
             ) 
             YIELD rel RETURN rel',
-            {batchSize:$batchSize, parallel:false, iterateList: true, params:{edgesList: $edgesList, entityId: $entityId}}
+            {batchSize:$batchSize, parallel:false, iterateList: true, params:{edgesList: $edgesList, entityId: $entityId, repoId: $repoId}}
         )
         YIELD batches, total, errorMessages, updateStatistics
         RETURN batches, total, errorMessages, updateStatistics

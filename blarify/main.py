@@ -5,6 +5,7 @@ from blarify.project_graph_updater import ProjectGraphUpdater
 from blarify.project_graph_diff_creator import PreviousNodeState, ProjectGraphDiffCreator
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from blarify.code_references import LspQueryHelper
+from blarify.code_references.hybrid_resolver import HybridReferenceResolver, ResolverMode
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.utils.file_remover import FileRemover
 
@@ -131,13 +132,29 @@ def main_with_profiling(root_path: str = None, blarignore_path: str = None):
     step_times = {}
     
     with profiler.profile():
-        # LSP Setup
-        print("⏱️  Setting up LSP Query Helper...")
+        # Reference Resolver Setup (SCIP + LSP Hybrid)
+        print("⏱️  Setting up Hybrid Reference Resolver (SCIP + LSP)...")
         step_start = time.perf_counter()
-        lsp_query_helper = LspQueryHelper(root_uri=root_path, max_lsp_instances=8)
-        lsp_query_helper.start()
-        step_times['lsp_setup'] = time.perf_counter() - step_start
-        logger.info(f"LSP setup completed in {step_times['lsp_setup']:.2f}s")
+        # Get resolver mode from environment variable for benchmarking
+        resolver_mode_str = os.getenv("RESOLVER_MODE", "AUTO")
+        if resolver_mode_str == "LSP_ONLY":
+            resolver_mode = ResolverMode.LSP_ONLY
+        elif resolver_mode_str == "SCIP_ONLY":
+            resolver_mode = ResolverMode.SCIP_ONLY
+        else:
+            resolver_mode = ResolverMode.AUTO
+            
+        reference_resolver = HybridReferenceResolver(
+            root_uri=root_path,
+            mode=resolver_mode,
+            max_lsp_instances=8  # LSP fallback configuration
+        )
+        step_times['resolver_setup'] = time.perf_counter() - step_start
+        logger.info(f"Reference resolver setup completed in {step_times['resolver_setup']:.2f}s")
+        
+        # Log resolver configuration
+        resolver_info = reference_resolver.get_resolver_info()
+        logger.info(f"📊 Resolver config: {resolver_info}")
         
         # File Iterator Setup
         print("📁 Setting up Project Files Iterator...")
@@ -156,8 +173,8 @@ def main_with_profiling(root_path: str = None, blarignore_path: str = None):
         # Database Setup
         print("💾 Setting up database connection...")
         step_start = time.perf_counter()
-        repoId = "test"
-        entity_id = "test"
+        repoId = os.getenv("RESOLVER_MODE", "AUTO")
+        entity_id = os.getenv("RESOLVER_MODE", "AUTO")
         graph_manager = Neo4jManager(repoId, entity_id)
         step_times['db_setup'] = time.perf_counter() - step_start
         logger.info(f"Database setup completed in {step_times['db_setup']:.2f}s")
@@ -165,7 +182,7 @@ def main_with_profiling(root_path: str = None, blarignore_path: str = None):
         # Graph Creation (Main Operation)
         print("🏗️  Creating Project Graph...")
         step_start = time.perf_counter()
-        graph_creator = ProjectGraphCreator(root_path, lsp_query_helper, project_files_iterator)
+        graph_creator = ProjectGraphCreator(root_path, reference_resolver, project_files_iterator)
         graph = graph_creator.build()
         step_times['graph_creation'] = time.perf_counter() - step_start
         logger.info(f"Graph creation completed in {step_times['graph_creation']:.2f}s")
@@ -186,12 +203,12 @@ def main_with_profiling(root_path: str = None, blarignore_path: str = None):
         step_times['db_save'] = time.perf_counter() - step_start
         logger.info(f"Database save completed in {step_times['db_save']:.2f}s")
         
-        # LSP Shutdown
-        print("🔄 Shutting down LSP...")
+        # Reference Resolver Shutdown
+        print("🔄 Shutting down Reference Resolver...")
         step_start = time.perf_counter()
-        lsp_query_helper.shutdown_exit_close()
-        step_times['lsp_shutdown'] = time.perf_counter() - step_start
-        logger.info(f"LSP shutdown completed in {step_times['lsp_shutdown']:.2f}s")
+        reference_resolver.shutdown()
+        step_times['resolver_shutdown'] = time.perf_counter() - step_start
+        logger.info(f"Reference resolver shutdown completed in {step_times['resolver_shutdown']:.2f}s")
     
     # Create benchmark result
     file_count = len([n for n in nodes if n.get('label') == 'FILE'])
@@ -214,20 +231,28 @@ def main_with_profiling(root_path: str = None, blarignore_path: str = None):
     # Timing breakdown
     total_time = profiler.stats['total_time']
     print(f"\n⏱️  TIMING BREAKDOWN:")
-    print(f"  LSP Setup: {step_times['lsp_setup']:.2f}s ({step_times['lsp_setup']/total_time*100:.1f}%)")
+    print(f"  Resolver Setup: {step_times['resolver_setup']:.2f}s ({step_times['resolver_setup']/total_time*100:.1f}%)")
     print(f"  File Iterator: {step_times['file_iterator']:.2f}s ({step_times['file_iterator']/total_time*100:.1f}%)")
     print(f"  Database Setup: {step_times['db_setup']:.2f}s ({step_times['db_setup']/total_time*100:.1f}%)")
     print(f"  Graph Creation: {step_times['graph_creation']:.2f}s ({step_times['graph_creation']/total_time*100:.1f}%)")
     print(f"  Data Extraction: {step_times['data_extraction']:.2f}s ({step_times['data_extraction']/total_time*100:.1f}%)")
     print(f"  Database Save: {step_times['db_save']:.2f}s ({step_times['db_save']/total_time*100:.1f}%)")
-    print(f"  LSP Shutdown: {step_times['lsp_shutdown']:.2f}s ({step_times['lsp_shutdown']/total_time*100:.1f}%)")
+    print(f"  Resolver Shutdown: {step_times['resolver_shutdown']:.2f}s ({step_times['resolver_shutdown']/total_time*100:.1f}%)")
     
     # Performance insights
     print(f"\n🔍 PERFORMANCE INSIGHTS:")
     if step_times['graph_creation'] > total_time * 0.8:
         print("  📈 Graph creation dominates execution time - focus optimization here")
-    if step_times['lsp_setup'] > 10:
-        print("  ⚠️  LSP setup is slow - consider LSP optimization")
+    if step_times['resolver_setup'] > 10:
+        print("  ⚠️  Reference resolver setup is slow - check SCIP index generation")
+    
+    # Add SCIP-specific insights
+    if resolver_info.get('scip_enabled'):
+        scip_stats = resolver_info.get('scip_stats', {})
+        print(f"  📚 SCIP index: {scip_stats.get('documents', 0)} docs, {scip_stats.get('symbols', 0)} symbols")
+        print(f"  🚀 Using SCIP for faster reference resolution!")
+    elif resolver_info.get('lsp_enabled'):
+        print(f"  🔧 Using LSP fallback - SCIP index may be missing or invalid")
     if result.memory_peak > 1000:
         print("  🧠 High memory usage detected - consider memory optimization")
     if file_count > 0:
@@ -247,6 +272,11 @@ def main_with_profiling(root_path: str = None, blarignore_path: str = None):
         f.write("TIMING BREAKDOWN:\n")
         for step, duration in step_times.items():
             f.write(f"{step}: {duration:.2f}s ({duration/total_time*100:.1f}%)\n")
+        
+        # Add resolver information to report
+        f.write(f"\nRESOLVER CONFIGURATION:\n")
+        for key, value in resolver_info.items():
+            f.write(f"{key}: {value}\n")
     
     print(f"\n📝 Detailed report saved to: {report_file}")
     

@@ -17,9 +17,72 @@ import time
 from blarify.graph.node import DefinitionNode
 from .types.Reference import Reference
 from .lsp_helper import ProgressTracker
-import scip_pb2 as scip
 
 logger = logging.getLogger(__name__)
+
+# Import SCIP protobuf bindings with multiple fallback paths
+SCIP_AVAILABLE = False
+scip = None
+
+# Try multiple import paths for maximum compatibility
+import_attempts = [
+    # Try package-relative import first
+    ("from blarify import scip_pb2 as scip", lambda: __import__('blarify.scip_pb2', fromlist=[''])),
+    # Try direct import from package directory
+    ("import scip_pb2 as scip", lambda: __import__('scip_pb2')),
+    # Try importing from current directory
+    ("from . import scip_pb2 as scip", lambda: __import__('scip_pb2', globals(), locals(), [], 1)),
+]
+
+for description, import_func in import_attempts:
+    try:
+        scip = import_func()
+        SCIP_AVAILABLE = True
+        logger.debug(f"Successfully imported SCIP using: {description}")
+        break
+    except (ImportError, ModuleNotFoundError, ValueError) as e:
+        logger.debug(f"Import attempt failed ({description}): {e}")
+        continue
+
+if not SCIP_AVAILABLE:
+    # Create a mock scip module for type hints and graceful degradation
+    class MockScip:
+        class Index: 
+            def __init__(self): pass
+            def ParseFromString(self, data): pass
+            @property
+            def documents(self): return []
+        
+        class Document: 
+            def __init__(self): pass
+            @property
+            def relative_path(self): return ""
+            @property
+            def occurrences(self): return []
+        
+        class Occurrence: 
+            def __init__(self): pass
+            @property
+            def symbol(self): return ""
+            @property
+            def symbol_roles(self): return 0
+            @property
+            def range(self): return []
+        
+        class SymbolRole:
+            Definition = 1
+            ReadAccess = 2
+            WriteAccess = 4
+            Import = 8
+    
+    scip = MockScip()
+    logger.warning(
+        "SCIP protobuf bindings not found. SCIP functionality will be disabled. "
+        "To enable SCIP:\n"
+        "  1. Run 'python scripts/initialize_scip.py' to generate bindings\n"
+        "  2. Or ensure scip_pb2.py is available in your Python path\n"
+        "  3. Or install protobuf: pip install protobuf>=6.30.0"
+    )
 
 
 class ScipReferenceResolver:
@@ -36,6 +99,10 @@ class ScipReferenceResolver:
         
     def ensure_loaded(self) -> bool:
         """Load the SCIP index if not already loaded."""
+        if not SCIP_AVAILABLE:
+            logger.error("SCIP protobuf bindings are not available. Cannot load SCIP index.")
+            return False
+            
         if self._loaded:
             return True
             

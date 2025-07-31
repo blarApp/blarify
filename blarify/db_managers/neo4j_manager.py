@@ -61,7 +61,9 @@ class Neo4jManager:
     def create_edges(self, edgesList: List[Any]):
         # Function to create edges between nodes in the Neo4j database
         with self.driver.session() as session:
-            session.write_transaction(self._create_edges_txn, edgesList, 100, entityId=self.entity_id, repoId=self.repo_id)
+            session.write_transaction(
+                self._create_edges_txn, edgesList, 100, entityId=self.entity_id, repoId=self.repo_id
+            )
 
     @staticmethod
     def _create_nodes_txn(tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
@@ -111,7 +113,9 @@ class Neo4jManager:
         RETURN batches, total, errorMessages, updateStatistics
         """
         # Execute the query
-        result = tx.run(edge_creation_query, edgesList=edgesList, batchSize=batch_size, entityId=entityId)
+        result = tx.run(
+            edge_creation_query, edgesList=edgesList, batchSize=batch_size, entityId=entityId, repoId=repoId
+        )
 
         # Fetch the result
         for record in result:

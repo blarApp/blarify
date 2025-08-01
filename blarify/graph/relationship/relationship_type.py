@@ -32,3 +32,8 @@ class RelationshipType(Enum):
     WORKFLOW_STEP = "WORKFLOW_STEP"  # Execution flow between components with step_order
     TRIGGERS_ASYNC = "TRIGGERS_ASYNC"  # Async operation triggering
     COLLABORATES_WITH = "COLLABORATES_WITH"  # Components working together in workflow
+    
+    # 4-layer architecture relationships
+    BELONGS_TO_SPEC = "BELONGS_TO_SPEC"  # Workflow belongs to specification
+    BELONGS_TO_WORKFLOW = "BELONGS_TO_WORKFLOW"  # Documentation node belongs to workflow
+    DESCRIBES = "DESCRIBES"  # Documentation node describes code node

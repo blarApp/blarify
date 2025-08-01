@@ -5,6 +5,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
 from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.db_managers.queries import get_mermaid_graph
 
 
 class Input(BaseModel):
@@ -47,6 +48,6 @@ class GetRelationshipFlowchart(BaseTool):
     ) -> str:
         """Retrieves the mermaid relationship flowchart for a given node."""
         try:
-            return self.db_manager.get_mermaid_graph(node_id, self.company_id, self.diff_identifier)
+            return get_mermaid_graph(self.db_manager, node_id, self.company_id, self.diff_identifier)
         except ValueError as e:
-            return e
+            return str(e)

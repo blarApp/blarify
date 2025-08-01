@@ -60,15 +60,32 @@ class FalkorDBManager(AbstractDbManager):
 
     def create_edges(self, edgesList: List[dict]):
         graph = self.db.select_graph(self.repo_id)
-        cypher_query = """
-        UNWIND $edges AS edge
-        MATCH (a {node_id: edge.sourceId}), (b {node_id: edge.targetId})
-        CREATE (a)-[:`$edge.type` {scopeText: edge.scopeText}]->(b)
-        """
-        graph.query(
-            cypher_query,
-            params={"edges": edgesList},
-        )
+        
+        # Process each edge individually since FalkorDB doesn't support dynamic relationship types in UNWIND
+        for edge in edgesList:
+            rel_type = edge.get("type", "UNKNOWN")
+            cypher_query = f"""
+            MATCH (a {{node_id: $sourceId}}), (b {{node_id: $targetId}})
+            CREATE (a)-[r:{rel_type}]->(b)
+            SET r.scopeText = $scopeText
+            """
+            
+            # Add optional properties if they exist
+            params = {
+                "sourceId": edge["sourceId"],
+                "targetId": edge["targetId"],
+                "scopeText": edge.get("scopeText", "")
+            }
+            
+            if edge.get("startLine") is not None:
+                cypher_query += ", r.startLine = $startLine"
+                params["startLine"] = edge["startLine"]
+                
+            if edge.get("referenceCharacter") is not None:
+                cypher_query += ", r.referenceCharacter = $referenceCharacter"
+                params["referenceCharacter"] = edge["referenceCharacter"]
+            
+            graph.query(cypher_query, params=params)
 
     def detach_delete_nodes_with_path(self, path: str):
         graph = self.db.select_graph(self.repo_id)

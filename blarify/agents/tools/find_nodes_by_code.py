@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from blarify.agents.utils import normalize_node_path, mark_deleted_or_added_lines
 from blarify.db_managers.dtos.node_found_by_text import NodeFoundByTextDto
 from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.db_managers.queries import find_nodes_by_text_content
 
 
 class Input(BaseModel):
@@ -29,25 +30,42 @@ class FindNodesByCode(BaseTool):
         code: str,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, Any] | str:
-        """Retrivies all nodes that contain the given text."""
+        """Retrieves all nodes that contain the given text."""
 
-        nodes: List[NodeFoundByTextDto] = self.db_manager.get_nodes_by_text(
-            text=code,
-            company_id=self.company_id,
+        # Use the new query function instead of the non-existent db_manager method
+        nodes_data = find_nodes_by_text_content(
+            db_manager=self.db_manager,
+            entity_id=self.company_id,
             repo_id=self.repo_id,
             diff_identifier=self.diff_identifier,
+            search_text=code,
         )
+
+        # Convert to NodeFoundByTextDto objects
+        nodes: List[NodeFoundByTextDto] = []
+        for node_data in nodes_data:
+            try:
+                node_dto = NodeFoundByTextDto(
+                    id=node_data.get("id", ""),
+                    name=node_data.get("name", ""),
+                    label=str(node_data.get("label", [])),  # Convert list to string
+                    diff_text=node_data.get("diff_text", ""),
+                    relevant_snippet=node_data.get("relevant_snippet", ""),
+                    node_path=node_data.get("node_path", ""),
+                )
+                nodes.append(node_dto)
+            except Exception:
+                # Skip malformed nodes
+                continue
 
         nodes_as_dict = [node.as_dict() for node in nodes]
 
-        if len(nodes) > 15:
+        if len(nodes) > 20:
             return "Too many nodes found. Please refine your query or use another tool"
 
         # If are two nodes with the same normalized node path, just return the node with the diff identifier = self.diff_identifier
         # In fact, this return the node from the PR instead of the base branch.
         seen_paths = {}
-
-        filtered_nodes = []
 
         for node in nodes_as_dict:
             node["diff_text"] = mark_deleted_or_added_lines(node["diff_text"])
@@ -59,7 +77,7 @@ class FindNodesByCode(BaseTool):
                 if node.get("diff_identifier") == self.diff_identifier:
                     seen_paths[normalized_path] = node
 
-        filtered_nodes: List[NodeFoundByTextDto] = list(seen_paths.values())
+        filtered_nodes = list(seen_paths.values())
         return {
             "nodes": filtered_nodes,
             "too many nodes": False,

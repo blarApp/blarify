@@ -11,7 +11,7 @@ from blarify.graph.graph_environment import GraphEnvironment
 from blarify.utils.file_remover import FileRemover
 from blarify.agents.llm_provider import LLMProvider
 from blarify.documentation.workflow import DocumentationWorkflow
-from blarify.documentation.workflow_analysis_workflow import WorkflowAnalysisWorkflow
+from blarify.documentation.spec_analysis_workflow import SpecAnalysisWorkflow
 
 import dotenv
 import os
@@ -317,9 +317,9 @@ def main_diff_with_previous(
     lsp_query_helper.shutdown_exit_close()
 
 
-def test_workflow_analysis_only(root_path: str = None):
-    """Test only the WorkflowAnalysisWorkflow with real framework data and InformationNodes."""
-    print("🔬 Testing WorkflowAnalysisWorkflow independently...")
+def test_spec_analysis_only(root_path: str = None):
+    """Test only the SpecAnalysisWorkflow with real framework data and InformationNodes."""
+    print("🔬 Testing SpecAnalysisWorkflow independently...")
 
     # Setup infrastructure
     repoId = "test"
@@ -346,11 +346,11 @@ def test_workflow_analysis_only(root_path: str = None):
             "blarify/blarify/vendor/",
         ]
 
-        # Create WorkflowAnalysisWorkflow
-        print("🔧 Setting up WorkflowAnalysisWorkflow...")
+        # Create SpecAnalysisWorkflow
+        print("🔧 Setting up SpecAnalysisWorkflow...")
         llm_provider = LLMProvider()
         graph_environment = GraphEnvironment("dev", "main", root_path)
-        workflow_analysis = WorkflowAnalysisWorkflow(
+        spec_analysis = SpecAnalysisWorkflow(
             company_id=entity_id,
             company_graph_manager=graph_manager,
             repo_id=repoId,
@@ -359,32 +359,32 @@ def test_workflow_analysis_only(root_path: str = None):
         )
 
         # Prepare input data
-        workflow_input = {
+        spec_input = {
             "main_folders": main_folders,
             "detected_framework": detected_framework,
         }
 
-        # Run the workflow analysis
-        print(f"🚀 Running WorkflowAnalysisWorkflow with {len(main_folders)} main folders...")
-        result = workflow_analysis.run(workflow_input)
+        # Run the spec analysis
+        print(f"🚀 Running SpecAnalysisWorkflow with {len(main_folders)} main folders...")
+        result = spec_analysis.run(spec_input)
 
         # Display results
-        discovered_workflows = result.get("discovered_workflows", [])
+        discovered_specs = result.get("discovered_specs", [])
         error = result.get("error")
 
         if error:
-            print(f"❌ WorkflowAnalysisWorkflow encountered error: {error}")
+            print(f"❌ SpecAnalysisWorkflow encountered error: {error}")
         else:
-            print("✅ WorkflowAnalysisWorkflow completed successfully!")
-            print(f"📋 Results: {len(discovered_workflows)} workflows discovered")
+            print("✅ SpecAnalysisWorkflow completed successfully!")
+            print(f"📋 Results: {len(discovered_specs)} specs discovered")
 
-            if discovered_workflows:
-                print("\n🔍 Discovered Workflows:")
-                for i, workflow in enumerate(discovered_workflows):
-                    name = workflow.get("name", "Unknown")
-                    description = workflow.get("description", "No description")
-                    entry_points = workflow.get("entry_points", [])
-                    scope = workflow.get("scope", "Unknown")
+            if discovered_specs:
+                print("\n🔍 Discovered Specs:")
+                for i, spec in enumerate(discovered_specs):
+                    name = spec.get("name", "Unknown")
+                    description = spec.get("description", "No description")
+                    entry_points = spec.get("entry_points", [])
+                    scope = spec.get("scope", "Unknown")
 
                     print(f"   {i + 1}. **{name}**")
                     print(f"      Description: {description[:150]}{'...' if len(description) > 150 else ''}")
@@ -392,10 +392,10 @@ def test_workflow_analysis_only(root_path: str = None):
                     print(f"      Scope: {scope}")
                     print()
             else:
-                print("📋 No workflows were discovered.")
+                print("📋 No specs were discovered.")
 
     except Exception as e:
-        print(f"❌ WorkflowAnalysisWorkflow test failed: {e}")
+        print(f"❌ SpecAnalysisWorkflow test failed: {e}")
         import traceback
 
         traceback.print_exc()
@@ -415,9 +415,9 @@ if __name__ == "__main__":
     # Comment out regular main() and use documentation integration
     # main(root_path=root_path, blarignore_path=blarignore_path)
 
-    # Test the WorkflowAnalysisWorkflow only (assuming InformationNodes exist)
-    # test_workflow_analysis_only(root_path=root_path)
+    # Test the SpecAnalysisWorkflow only (assuming InformationNodes exist)
+    test_spec_analysis_only(root_path=root_path)
 
     # Other test options (commented out):
-    test_documentation_only(root_path=root_path)  # Test full documentation workflow
+    # test_documentation_only(root_path=root_path)  # Test full documentation workflow
     # main_with_documentation(root_path=root_path, blarignore_path=blarignore_path)  # Full pipeline

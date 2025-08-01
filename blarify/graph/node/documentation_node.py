@@ -3,7 +3,7 @@ from blarify.graph.node import NodeLabels
 from .types.node import Node
 
 
-class InformationNode(Node):
+class DocumentationNode(Node):
     """Represents a semantic piece of documentation/knowledge extracted from the codebase.
 
     This node type is used to store atomic pieces of information that can be retrieved
@@ -41,9 +41,9 @@ class InformationNode(Node):
         self.children_count = children_count  # For parent nodes
         
         # Use source_path as path for Node, and source_name@info as name
-        # Set layer to documentation for information nodes
+        # Set layer to documentation for documentation nodes
         super().__init__(
-            label=NodeLabels.INFORMATION, 
+            label=NodeLabels.DOCUMENTATION, 
             path=source_path,
             name=f"{source_name}@info",
             level=kwargs.get('level', 0),

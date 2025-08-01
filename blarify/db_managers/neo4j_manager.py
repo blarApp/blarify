@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict
 
 from dotenv import load_dotenv
 from neo4j import Driver, GraphDatabase, exceptions
@@ -8,8 +8,6 @@ import logging
 
 from blarify.db_managers.db_manager import AbstractDbManager
 from blarify.db_managers.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
-
-from .dtos import NodeSearchResultDTO
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +102,7 @@ class Neo4jManager(AbstractDbManager):
             CALL apoc.merge.relationship(
             node1, 
             edgeObject.type, 
-            {scopeText: edgeObject.scopeText}, 
+            apoc.map.removeKeys(edgeObject, ["sourceId", "targetId", "type"]), 
             {}, 
             node2, 
             {}
@@ -157,63 +155,6 @@ class Neo4jManager(AbstractDbManager):
             logger.exception(f"Parameters: {parameters}")
             raise
 
-    def get_node_by_id_v2(
-        self, node_id: str, company_id: str, diff_identifier: Optional[str] = None
-    ) -> Optional[NodeSearchResultDTO]:
-        """
-        Get a node by its ID.
-
-        Args:
-            node_id: The ID of the node to retrieve
-            company_id: Company ID to filter by
-            diff_identifier: Optional diff identifier for PR context
-
-        Returns:
-            An instance of NodeSearchResultDTO containing the node data, or None if not found
-        """
-        query = """
-        MATCH (n:NODE {node_id: $node_id})
-        RETURN n
-        """
-        result = self.query(query, {"node_id": node_id})
-
-        if result:
-            node_data = result[0]["n"]
-            print(node_data)
-            # Create NodeSearchResultDTO with required fields
-            # Note: You'll need to implement the logic to populate outbound_relations and inbound_relations
-            {
-                "stats_min_indentation": 0,
-                "repoId": "test",
-                "stats_max_indentation": 0,
-                "node_path": "/blarify/repo/blarify/requirements-vendor.txt",
-                "level": 1,
-                "stats_average_indentation": 0,
-                "entityId": "test",
-                "stats_sd_indentation": 0,
-                "label": "FILE",
-                "hashed_id": "e0b4c6b548e0785004e664b34903e0fe",
-                "layer": "code",
-                "path": "file:///Users/pepemanu/Desktop/Trabajo/Blar/Dev/blarify/requirements-vendor.txt",
-                "diff_identifier": "repo",
-                "name": "requirements-vendor.txt",
-                "text": "git+https://github.com/blarApp/multilspy.git",
-                "node_id": "e0b4c6b548e0785004e664b34903e0fe",
-            }
-            return NodeSearchResultDTO(
-                node_id=node_data.get("node_id", ""),
-                node_name=node_data.get("name", ""),
-                node_labels=[node_data.get("label", "")],
-                path=node_data.get("path", ""),
-                node_path=node_data.get("node_path", ""),
-                code=node_data.get("text", ""),
-                diff_text=node_data.get("diff_text", ""),
-                outbound_relations=[],  # TODO: Implement relationship queries
-                inbound_relations=[],  # TODO: Implement relationship queries
-                modified_node=node_data.get("modified_node", False),
-            )
-        else:
-            return None
 
     def get_node_by_name_and_type(
         self, name: str, type: str, company_id: str, repo_id: str, diff_identifier: str

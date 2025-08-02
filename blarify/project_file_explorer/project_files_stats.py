@@ -1,11 +1,11 @@
 from blarify.project_file_explorer.project_files_iterator import ProjectFilesIterator
 import os
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from blarify.logger import Logger
 
 
 class ProjectFileStats:
-    def __init__(self, project_files_iterator: ProjectFilesIterator):
+    def __init__(self, project_files_iterator: ProjectFilesIterator): -> None
         self.project_files_iterator = project_files_iterator
         self.file_stats: List[Dict[str, Any]] = []
         self._analize()
@@ -32,7 +32,7 @@ class ProjectFileStats:
         for file_stat in file_stats:
             Logger.log(f"{file_stat['name']} - {file_stat['lines_count']} lines - {file_stat['size']} bytes")
 
-    def get_file_stats(self, file_path: str) -> Optional[Dict[str, Union[str, int]]]:
+    def get_file_stats(self, file_path: str) -> Optional[Dict[str, Any]]:
         file_lines = self._read_file(file_path)
         if not file_lines:
             return None
@@ -43,7 +43,7 @@ class ProjectFileStats:
             "size": os.path.getsize(file_path),
         }
 
-    def _read_file(self, file_path: str) -> List[str]:
+    def _read_file(self, file_path: str) -> Optional[List[str]]:
         try:
             with open(file_path, "r") as file:
                 return file.readlines()

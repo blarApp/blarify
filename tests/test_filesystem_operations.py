@@ -16,7 +16,7 @@ from blarify.graph.graph_environment import GraphEnvironment
 class TestFilesystemGraphGenerator(unittest.TestCase):
     """Test filesystem graph generation."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.temp_dir: str = tempfile.mkdtemp()  # type: ignore[reportUninitializedInstanceVariable]
         # Create generator with common names to skip
@@ -26,7 +26,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         )
         self.graph: Graph = Graph()  # type: ignore[reportUninitializedInstanceVariable]
         
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test directory."""
         import shutil
         shutil.rmtree(self.temp_dir)
@@ -61,7 +61,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
             
         return files
         
-    def test_generate_filesystem_nodes(self):
+    def test_generate_filesystem_nodes(self) -> None:
         """Test generating filesystem nodes for project."""
         self.create_test_structure()
         
@@ -87,7 +87,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         self.assertIn("main.py", file_names)
         self.assertIn("helpers.py", file_names)
         
-    def test_filesystem_contains_relationships(self):
+    def test_filesystem_contains_relationships(self) -> None:
         """Test FILESYSTEM_CONTAINS relationships are created correctly."""
         self.create_test_structure()
         
@@ -114,7 +114,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
                         if r['sourceId'] == src_node.hashed_id and r['targetId'] == main_py_node.hashed_id)  # type: ignore[attr-defined]
         self.assertTrue(rel_exists)
         
-    def test_skip_hidden_directories(self):
+    def test_skip_hidden_directories(self) -> None:
         """Test that hidden directories like .git are skipped."""
         self.create_test_structure()
         
@@ -131,7 +131,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         git_files = [n for n in file_nodes if "/.git/" in n.path]
         self.assertEqual(len(git_files), 0)
         
-    def test_file_properties(self):
+    def test_file_properties(self) -> None:
         """Test that file nodes have correct properties."""
         # Create a specific file
         test_file = Path(self.temp_dir) / "test.py"
@@ -152,7 +152,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         self.assertEqual(test_node.size, len(test_content))  # type: ignore[attr-defined]
         self.assertAlmostEqual(test_node.last_modified, stats.st_mtime, delta=1)  # type: ignore[attr-defined]
         
-    def test_empty_directory(self):
+    def test_empty_directory(self) -> None:
         """Test handling empty directories."""
         empty_dir = Path(self.temp_dir) / "empty"
         empty_dir.mkdir()
@@ -165,7 +165,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         
         self.assertIsNotNone(empty_node)
         
-    def test_symlinks(self):
+    def test_symlinks(self) -> None:
         """Test handling symbolic links."""
         # Create a file and a symlink to it
         real_file = Path(self.temp_dir) / "real.txt"
@@ -187,7 +187,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         self.assertIn("real.txt", file_names)
         # Symlink handling depends on implementation
         
-    def test_deep_nesting(self):
+    def test_deep_nesting(self) -> None:
         """Test handling deeply nested directories."""
         # Create deep structure (9 levels to stay within max_depth=10)
         deep_path = Path(self.temp_dir)
@@ -212,7 +212,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         deep_file_node = next((n for n in file_nodes if n.name == "deep.txt"), None)
         self.assertIsNotNone(deep_file_node)
         
-    def test_special_characters_in_names(self):
+    def test_special_characters_in_names(self) -> None:
         """Test handling files with special characters."""
         special_names = [
             "file with spaces.txt",
@@ -238,7 +238,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         special_found = sum(1 for name in special_names if name in created_names)
         self.assertGreater(special_found, 0)
         
-    def test_large_directory(self):
+    def test_large_directory(self) -> None:
         """Test handling directory with many files."""
         # Create many files
         large_dir = Path(self.temp_dir) / "large"
@@ -256,7 +256,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         self.assertEqual(len(large_dir_files), 100)
         
     @unittest.skip("connect_to_code_nodes method doesn't exist in FilesystemGraphGenerator")
-    def test_connect_to_code_nodes(self):
+    def test_connect_to_code_nodes(self) -> None:
         """Test connecting filesystem nodes to existing code nodes."""
         from blarify.graph.node.class_node import ClassNode
         from unittest.mock import Mock
@@ -314,17 +314,17 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
 class TestGitignoreManager(unittest.TestCase):
     """Test gitignore file handling."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.temp_dir: str = tempfile.mkdtemp()  # type: ignore[reportUninitializedInstanceVariable]
         self.manager: GitignoreManager = GitignoreManager(self.temp_dir)  # type: ignore[reportUninitializedInstanceVariable]
         
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test directory."""
         import shutil
         shutil.rmtree(self.temp_dir)
         
-    def test_parse_gitignore(self):
+    def test_parse_gitignore(self) -> None:
         """Test parsing gitignore patterns."""
         gitignore_content = """
 # Comments should be ignored
@@ -358,7 +358,7 @@ docs/**/*.tmp
         self.assertNotIn("# Comments should be ignored", patterns)
         self.assertNotIn("", patterns)
         
-    def test_should_ignore_file(self):
+    def test_should_ignore_file(self) -> None:
         """Test checking if files should be ignored."""
         gitignore_content = """
 *.pyc
@@ -387,7 +387,7 @@ test_*.py
         self.assertFalse(self.manager.should_ignore("main.py"))
         self.assertFalse(self.manager.should_ignore("README.md"))
         
-    def test_no_gitignore_file(self):
+    def test_no_gitignore_file(self) -> None:
         """Test behavior when no gitignore file exists."""
         # No gitignore file created
         patterns = self.manager.get_all_patterns()
@@ -399,7 +399,7 @@ test_*.py
         self.assertFalse(self.manager.should_ignore("any_file.py"))
         self.assertFalse(self.manager.should_ignore(".env"))
         
-    def test_nested_gitignore(self):
+    def test_nested_gitignore(self) -> None:
         """Test handling gitignore files in subdirectories."""
         # Create nested structure with multiple gitignore files
         (Path(self.temp_dir) / "src").mkdir()

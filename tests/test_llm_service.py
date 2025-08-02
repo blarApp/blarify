@@ -7,7 +7,7 @@ from blarify.llm_descriptions.llm_service import LLMService, retry_on_exception
 
 class TestLLMService(unittest.TestCase):
     
-    def setUp(self):
+    def setUp(self) -> None:
         # Mock environment variables (using both old and new key names)
         self.env_patcher = patch.dict(os.environ, {  # type: ignore[misc]
             'AZURE_OPENAI_KEY': 'test-key',
@@ -18,7 +18,7 @@ class TestLLMService(unittest.TestCase):
         })
         self.env_patcher.start()
     
-    def tearDown(self):
+    def tearDown(self) -> None:
         self.env_patcher.stop()
     
     @patch('blarify.llm_descriptions.llm_service.AzureOpenAI')
@@ -32,13 +32,13 @@ class TestLLMService(unittest.TestCase):
         
         mock_azure_openai.assert_called_once()
     
-    def test_init_with_disabled_llm(self):
+    def test_init_with_disabled_llm(self) -> None:
         with patch.dict(os.environ, {'ENABLE_LLM_DESCRIPTIONS': 'false'}):
             service = LLMService()
             self.assertFalse(service.enabled)
             self.assertIsNone(service.client)
     
-    def test_init_with_missing_config(self):
+    def test_init_with_missing_config(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(ValueError) as context:
                 LLMService()
@@ -116,7 +116,7 @@ class TestLLMService(unittest.TestCase):
         self.assertEqual(mock_client.chat.completions.create.call_count, 3)
         self.assertEqual(mock_sleep.call_count, 2)
     
-    def test_init_with_custom_parameters(self):
+    def test_init_with_custom_parameters(self) -> None:
         """Test initialization with custom parameters."""
         with patch('blarify.llm_descriptions.llm_service.AzureOpenAI'):
             service = LLMService(
@@ -135,7 +135,7 @@ class TestLLMService(unittest.TestCase):
             self.assertEqual(service.temperature, 0.5)
             self.assertEqual(service.max_tokens, 1000)
     
-    def test_init_with_old_env_vars(self):
+    def test_init_with_old_env_vars(self) -> None:
         """Test initialization with old environment variable names."""
         with patch.dict(os.environ, {
             'AZURE_OPENAI_API_KEY': 'old-key',
@@ -150,7 +150,7 @@ class TestLLMService(unittest.TestCase):
                 self.assertEqual(service.api_key, 'old-key')
                 self.assertEqual(service.deployment_name, 'old-deployment')
     
-    def test_init_with_llm_disabled_no_validation(self):
+    def test_init_with_llm_disabled_no_validation(self) -> None:
         """Test that validation is skipped when LLM is disabled."""
         with patch.dict(os.environ, {'ENABLE_LLM_DESCRIPTIONS': 'false'}, clear=True):
             # Should not raise ValueError even with missing config
@@ -242,7 +242,7 @@ class TestLLMService(unittest.TestCase):
             # Should be called 10 times (once per prompt)
             self.assertEqual(mock_client.chat.completions.create.call_count, 10)
     
-    def test_generate_batch_descriptions_disabled(self):
+    def test_generate_batch_descriptions_disabled(self) -> None:
         """Test batch generation when LLM is disabled."""
         with patch.dict(os.environ, {'ENABLE_LLM_DESCRIPTIONS': 'false'}):
             service = LLMService()
@@ -350,7 +350,7 @@ class TestLLMService(unittest.TestCase):
         # Total calls: 1 + 3 + 3 + 2 + 1 = 10
         self.assertEqual(mock_client.chat.completions.create.call_count, 10)
     
-    def test_is_enabled(self):
+    def test_is_enabled(self) -> None:
         """Test is_enabled method."""
         with patch('blarify.llm_descriptions.llm_service.AzureOpenAI'):
             service = LLMService()

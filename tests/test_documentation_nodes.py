@@ -160,7 +160,7 @@ class TokenManager:
 """
         Path(os.path.join(self.test_dir, "services", "token_manager.py")).write_text(token_manager_code)
     
-    def test_documentation_file_detection(self):
+    def test_documentation_file_detection(self) -> None:
         """Test that documentation files are correctly identified."""
         self.create_test_project()
         
@@ -177,7 +177,7 @@ class TokenManager:
         # Should not include code files
         assert "auth_controller.py" not in doc_file_names
     
-    def test_concept_extraction_from_documentation(self):
+    def test_concept_extraction_from_documentation(self) -> None:
         """Test that concepts are extracted from documentation using LLM."""
         self.create_test_project()
         
@@ -260,7 +260,7 @@ class TokenManager:
             # Verify code references were found
             assert len(result["code_references"]) == 3
     
-    def test_documentation_node_creation(self):
+    def test_documentation_node_creation(self) -> None:
         """Test that documentation nodes are created in the graph."""
         self.create_test_project()
 
@@ -301,7 +301,7 @@ class TokenManager:
                 entity_nodes = graph.get_nodes_by_label(NodeLabels.DOCUMENTED_ENTITY)
                 assert len(entity_nodes) > 0
     
-    def test_documentation_to_code_linking(self):
+    def test_documentation_to_code_linking(self) -> None:
         """Test that documentation nodes are linked to relevant code nodes."""
         self.create_test_project()
         
@@ -351,7 +351,7 @@ class TokenManager:
         assert len(matches) == 1
         assert "token_manager.py" in matches[0].path
     
-    def test_relationship_creation_between_doc_and_code(self):
+    def test_relationship_creation_between_doc_and_code(self) -> None:
         """Test that relationships are created between documentation and code nodes."""
         self.create_test_project()
 
@@ -385,7 +385,7 @@ class TokenManager:
                 # These should exist if code implements documented concepts
                 assert True  # Placeholder for concept relationship verification
             
-    def test_documentation_parsing_can_be_disabled(self):
+    def test_documentation_parsing_can_be_disabled(self) -> None:
         """Test that documentation parsing can be disabled via configuration."""
         self.create_test_project()
 
@@ -405,7 +405,7 @@ class TokenManager:
             concept_nodes = graph.get_nodes_by_label(NodeLabels.CONCEPT)
             assert len(concept_nodes) == 0
     
-    def test_custom_documentation_patterns(self):
+    def test_custom_documentation_patterns(self) -> None:
         """Test that custom documentation patterns can be configured."""
         self.create_test_project()
         
@@ -422,7 +422,7 @@ class TokenManager:
         doc_file_names = [os.path.basename(f) for f in doc_files]
         assert "DESIGN.txt" in doc_file_names
     
-    def test_llm_error_handling(self):
+    def test_llm_error_handling(self) -> None:
         """Test that LLM errors are handled gracefully."""
         self.create_test_project()
         

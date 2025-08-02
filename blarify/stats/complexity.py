@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from statistics import stdev, mean
 from tree_sitter import Node
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING, Union, Sequence, Any
 
 if TYPE_CHECKING:
     from blarify.code_hierarchy.languages.language_definitions import LanguageDefinitions
@@ -21,9 +21,8 @@ class CodeComplexityCalculator:
     @staticmethod
     def calculate_nesting_stats(node: Node, extension: str) -> NestingStats:
         # Import here to avoid circular dependencies
-        language_definitions = CodeComplexityCalculator._get_language_definitions(extension)
-        if not language_definitions:
-            return NestingStats(0, 0, 0, 0)
+        from blarify.code_references.lsp_helper import LspQueryHelper
+        language_definitions = LspQueryHelper.get_language_definition_for_extension(extension)
 
         indentation_per_line = CodeComplexityCalculator.__get_nesting_levels(node, language_definitions)
 
@@ -36,34 +35,6 @@ class CodeComplexityCalculator:
         sd = stdev(indentation_per_line) if len(indentation_per_line) > 1 else 0
 
         return NestingStats(max_indentation, min_indentation, average_indentation, sd)
-    
-    @staticmethod
-    def _get_language_definitions(extension: str) -> Optional["LanguageDefinitions"]:
-        """Get language definitions for an extension without circular imports."""
-        from blarify.code_hierarchy.languages import get_language_definition
-        
-        # Map of file extensions to language names
-        extension_to_language = {
-            '.py': 'python',
-            '.js': 'javascript',
-            '.jsx': 'javascript',
-            '.ts': 'typescript',
-            '.tsx': 'typescript',
-            '.rb': 'ruby',
-            '.cs': 'csharp',
-            '.go': 'go',
-            '.php': 'php',
-            '.java': 'java',
-        }
-        
-        language_name = extension_to_language.get(extension)
-        if not language_name:
-            return None
-            
-        definition_class = get_language_definition(language_name)
-        if definition_class:
-            return definition_class()
-        return None
 
     @staticmethod
     def __get_nesting_levels(node: Node, language_definitions: "LanguageDefinitions") -> list[int]:
@@ -77,8 +48,8 @@ class CodeComplexityCalculator:
 
     @staticmethod
     def __calculate_max_nesting_depth(node: Node, language_definitions: "LanguageDefinitions") -> int:
-        consequence_statements: List[str] = getattr(language_definitions, 'CONSEQUENCE_STATEMENTS', [])
-        control_flow_statements: List[str] = getattr(language_definitions, 'CONTROL_FLOW_STATEMENTS', [])
+        consequence_statements = language_definitions.CONSEQUENCE_STATEMENTS
+        control_flow_statements = language_definitions.CONTROL_FLOW_STATEMENTS
 
         depths: list[int] = []
         depth = 0
@@ -101,7 +72,8 @@ class CodeComplexityCalculator:
         """
         Calculate the number of parameters in a function definition node.
         """
-        # Remove unreachable code - node parameter is typed as Node, not Optional[Node]
+        if node is None:
+            return 0
         
         if parameters_node := node.child_by_field_name("parameters"):
             return len(parameters_node.named_children)
@@ -110,19 +82,11 @@ class CodeComplexityCalculator:
 
 if __name__ == "__main__":
     code = """
-def foo():
+def foo(): -> None
     if True:
         print("Hello")
     else:
         print("World")
 """
-    # Fix: missing extension parameter
-    import tree_sitter_python as tspython
-    from tree_sitter import Language, Parser
-    
-    PY_LANGUAGE = Language(tspython.language())
-    parser = Parser(PY_LANGUAGE)
-    tree = parser.parse(bytes(code, "utf8"))
-    
-    stats = CodeComplexityCalculator.calculate_nesting_stats(tree.root_node, ".py")
+    stats = CodeComplexityCalculator.calculate_nesting_stats(code)
     print(stats)

@@ -2,15 +2,20 @@ import unittest
 import tempfile
 import shutil
 import os
+from typing import Any
 from unittest.mock import patch, MagicMock
 from blarify.prebuilt.graph_builder import GraphBuilder
 
 
 class TestLLMIntegration(unittest.TestCase):
     
-    def setUp(self):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.test_dir: str
+    
+    def setUp(self) -> None:
         # Create a temporary directory for test files
-        self.test_dir = tempfile.mkdtemp()  # type: ignore[misc]
+        self.test_dir = tempfile.mkdtemp()
         
         # Create test Python files
         self.create_test_file("main.py", """
@@ -48,7 +53,7 @@ def validate_input(value):
         return False
 """)
     
-    def tearDown(self):
+    def tearDown(self) -> None:
         # Clean up temporary directory
         shutil.rmtree(self.test_dir)
     
@@ -82,7 +87,7 @@ def validate_input(value):
             "Validates that the input is a positive number, returning True if valid."
         ]
         
-        def mock_create(*args: str, **kwargs: str) -> MagicMock:
+        def mock_create(*args: Any, **kwargs: Any) -> MagicMock:
             nonlocal response_counter
             mock_response = MagicMock()
             mock_response.choices[0].message.content = descriptions[response_counter % len(descriptions)]
@@ -120,7 +125,7 @@ def validate_input(value):
     @patch.dict(os.environ, {
         'ENABLE_LLM_DESCRIPTIONS': 'false'
     })
-    def test_graph_without_llm_descriptions(self):
+    def test_graph_without_llm_descriptions(self) -> None:
         # Build graph with LLM descriptions disabled
         builder = GraphBuilder(
             root_path=self.test_dir,

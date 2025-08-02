@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 class TestConditionalImportsIntegration(unittest.TestCase):
     """Integration tests for conditional language imports."""
     
-    def test_import_with_warnings(self):
+    def test_import_with_warnings(self) -> None:
         """Test that the import system properly handles and warns about failures."""
         # Force reimport to trigger the conditional loading
         if 'blarify.code_hierarchy.languages' in sys.modules:
@@ -47,7 +47,7 @@ class TestConditionalImportsIntegration(unittest.TestCase):
         # Test that FallbackDefinitions is always available
         self.assertIsNotNone(FallbackDefinitions)
     
-    def test_project_graph_creator_robustness(self):
+    def test_project_graph_creator_robustness(self) -> None:
         """Test that ProjectGraphCreator is robust to missing languages."""
         from blarify.project_graph_creator import ProjectGraphCreator
         from blarify.code_hierarchy.languages import FallbackDefinitions
@@ -75,7 +75,7 @@ class TestConditionalImportsIntegration(unittest.TestCase):
         unknown_def = creator.languages.get('.unknown', FallbackDefinitions)
         self.assertEqual(unknown_def.__name__, 'FallbackDefinitions')
     
-    def test_lsp_helper_error_messages(self):
+    def test_lsp_helper_error_messages(self) -> None:
         """Test that LspQueryHelper provides clear error messages."""
         from blarify.code_references.lsp_helper import (
             LspQueryHelper,

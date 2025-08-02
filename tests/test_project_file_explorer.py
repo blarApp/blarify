@@ -16,7 +16,7 @@ from blarify.project_file_explorer.project_files_stats import ProjectFileStats
 class TestFile(unittest.TestCase):
     """Test File class functionality."""
     
-    def test_file_creation(self):
+    def test_file_creation(self) -> None:
         """Test creating a File instance."""
         file = File(
             name="main.py",
@@ -29,7 +29,7 @@ class TestFile(unittest.TestCase):
         self.assertEqual(file.extension, ".py")
         self.assertEqual(file.level, 2)
         
-    def test_file_str_representation(self):
+    def test_file_str_representation(self) -> None:
         """Test string representation of File."""
         file = File(
             name="utils.py",
@@ -41,7 +41,7 @@ class TestFile(unittest.TestCase):
         self.assertIn("utils.py", str_repr)
         self.assertIn("/test/src/utils.py", str_repr)
         
-    def test_file_equality(self):
+    def test_file_equality(self) -> None:
         """Test File equality comparison."""
         file1 = File("main.py", "/test", 2)
         file2 = File("main.py", "/test", 2)
@@ -54,7 +54,7 @@ class TestFile(unittest.TestCase):
 class TestFolder(unittest.TestCase):
     """Test Folder class functionality."""
     
-    def test_folder_creation(self):
+    def test_folder_creation(self) -> None:
         """Test creating a Folder instance."""
         folder = Folder(
             name="src",
@@ -70,7 +70,7 @@ class TestFolder(unittest.TestCase):
         self.assertEqual(folder.files, [])
         self.assertEqual(folder.folders, [])
         
-    def test_add_file_to_folder(self):
+    def test_add_file_to_folder(self) -> None:
         """Test adding files to a folder."""
         folder = Folder("src", "/test/src", [], [], 1)
         file1 = File("main.py", "/test/src", 2)
@@ -83,7 +83,7 @@ class TestFolder(unittest.TestCase):
         self.assertIn(file1, folder.files)
         self.assertIn(file2, folder.files)
         
-    def test_add_subfolder(self):
+    def test_add_subfolder(self) -> None:
         """Test adding subfolders to a folder."""
         parent = Folder("test", "/test", [], [], 0)
         child1 = Folder("src", "/test/src", [], [], 1)
@@ -96,7 +96,7 @@ class TestFolder(unittest.TestCase):
         self.assertIn(child1, parent.folders)
         self.assertIn(child2, parent.folders)
         
-    def test_folder_traversal(self):
+    def test_folder_traversal(self) -> None:
         """Test traversing folder structure."""
         # Create structure
         root = Folder("test", "/test", [], [], 0)
@@ -123,11 +123,11 @@ class TestFolder(unittest.TestCase):
 class TestProjectFilesIterator(unittest.TestCase):
     """Test project files iteration."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.temp_dir: str = tempfile.mkdtemp()  # type: ignore[misc]
         
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test directory."""
         import shutil
         shutil.rmtree(self.temp_dir)
@@ -155,7 +155,7 @@ class TestProjectFilesIterator(unittest.TestCase):
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content)
             
-    def test_iterate_all_files(self):
+    def test_iterate_all_files(self) -> None:
         """Test iterating through all project files."""
         self.create_test_structure()
         
@@ -178,7 +178,7 @@ class TestProjectFilesIterator(unittest.TestCase):
         self.assertIn("utils.py", file_names)  # type: ignore[arg-type]
         self.assertIn("test_main.py", file_names)  # type: ignore[arg-type]
         
-    def test_skip_extensions(self):
+    def test_skip_extensions(self) -> None:
         """Test skipping files by extension."""
         self.create_test_structure()
         
@@ -199,7 +199,7 @@ class TestProjectFilesIterator(unittest.TestCase):
         # Should include other files
         self.assertIn("main.py", file_names)  # type: ignore[arg-type]
         
-    def test_skip_folders(self):
+    def test_skip_folders(self) -> None:
         """Test skipping folders by name."""
         self.create_test_structure()
         
@@ -226,7 +226,7 @@ class TestProjectFilesIterator(unittest.TestCase):
         # Should include files from other folders
         self.assertTrue(any("main.py" in str(p) for p in file_paths))  # type: ignore[union-attr]
         
-    def test_file_levels(self):
+    def test_file_levels(self) -> None:
         """Test that file levels are calculated correctly."""
         self.create_test_structure()
         
@@ -255,7 +255,7 @@ class TestProjectFilesIterator(unittest.TestCase):
         # main.py is one level deeper
         self.assertLess(readme.level, main.level)  # type: ignore[union-attr]
         
-    def test_empty_directory(self):
+    def test_empty_directory(self) -> None:
         """Test iterating empty directory."""
         iterator = ProjectFilesIterator(
             root_path=self.temp_dir,
@@ -268,7 +268,7 @@ class TestProjectFilesIterator(unittest.TestCase):
         # Should have at least one folder (the root)
         self.assertGreaterEqual(len(folders), 1)
         
-    def test_single_file(self):
+    def test_single_file(self) -> None:
         """Test directory with single file."""
         single_file = Path(self.temp_dir) / "only.txt"
         single_file.write_text("only file")
@@ -291,7 +291,7 @@ class TestProjectFilesIterator(unittest.TestCase):
 class TestProjectFileStats(unittest.TestCase):
     """Test project files statistics."""
     
-    def test_stats_initialization(self):
+    def test_stats_initialization(self) -> None:
         """Test creating ProjectFileStats instance."""
         # Create a mock iterator
         mock_iterator = Mock()
@@ -301,7 +301,7 @@ class TestProjectFileStats(unittest.TestCase):
         
         self.assertEqual(len(stats.file_stats), 0)
         
-    def test_file_stats_collection(self):
+    def test_file_stats_collection(self) -> None:
         """Test collecting file statistics."""
         # Create a mock iterator with test data
         mock_file1 = Mock()
@@ -334,7 +334,7 @@ class TestProjectFileStats(unittest.TestCase):
         self.assertEqual(stats.file_stats[0]['size'], 200)  # Sorted by size descending
         self.assertEqual(stats.file_stats[1]['size'], 100)
         
-    def test_get_file_stats(self):
+    def test_get_file_stats(self) -> None:
         """Test getting individual file statistics."""
         # Create a temporary file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
@@ -357,7 +357,7 @@ class TestProjectFileStats(unittest.TestCase):
         finally:
             os.unlink(temp_file)
         
-    def test_print_stats(self):
+    def test_print_stats(self) -> None:
         """Test printing file statistics."""
         # Create mock files
         mock_file = Mock()

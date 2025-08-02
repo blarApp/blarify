@@ -8,11 +8,11 @@ from blarify.graph.relationship import Relationship
 class TestGraphComprehensive(unittest.TestCase):
     """Comprehensive test cases for Graph class to improve coverage."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.graph = Graph()  # type: ignore[misc]
         
-    def test_has_folder_node_with_path(self):
+    def test_has_folder_node_with_path(self) -> None:
         """Test checking if folder node exists with path."""
         # Initially no folder nodes
         self.assertFalse(self.graph.has_folder_node_with_path("/test/folder"))
@@ -29,7 +29,7 @@ class TestGraphComprehensive(unittest.TestCase):
         self.assertTrue(self.graph.has_folder_node_with_path("/test/folder"))
         self.assertFalse(self.graph.has_folder_node_with_path("/other/folder"))
         
-    def test_add_nodes(self):
+    def test_add_nodes(self) -> None:
         """Test adding multiple nodes at once."""
         nodes = []
         for i in range(3):
@@ -46,12 +46,12 @@ class TestGraphComprehensive(unittest.TestCase):
         for i in range(3):
             self.assertIsNotNone(self.graph.get_node_by_id(f"node{i}"))
             
-    def test_get_file_node_by_path_none(self):
+    def test_get_file_node_by_path_none(self) -> None:
         """Test getting file node when it doesn't exist."""
         result = self.graph.get_file_node_by_path("/nonexistent/file.py")
         self.assertIsNone(result)
         
-    def test_get_file_node_by_path_exists(self):
+    def test_get_file_node_by_path_exists(self) -> None:
         """Test getting file node when it exists."""
         mock_file = MagicMock(spec=FileNode)
         mock_file.id = "file1"
@@ -64,7 +64,7 @@ class TestGraphComprehensive(unittest.TestCase):
         result = self.graph.get_file_node_by_path("/test/file.py")
         self.assertEqual(result, mock_file)
         
-    def test_get_folder_node_by_path(self):
+    def test_get_folder_node_by_path(self) -> None:
         """Test getting folder node by path."""
         mock_folder = MagicMock(spec=Node)
         mock_folder.id = "folder1"
@@ -77,12 +77,12 @@ class TestGraphComprehensive(unittest.TestCase):
         result = self.graph.get_folder_node_by_path("/test/folder")
         self.assertEqual(result, mock_folder)
         
-    def test_get_node_by_relative_id_none(self):
+    def test_get_node_by_relative_id_none(self) -> None:
         """Test getting node by relative ID when it doesn't exist."""
         result = self.graph.get_node_by_relative_id("nonexistent")
         self.assertIsNone(result)
         
-    def test_get_node_by_relative_id_exists(self):
+    def test_get_node_by_relative_id_exists(self) -> None:
         """Test getting node by relative ID when it exists."""
         mock_node = MagicMock(spec=Node)
         mock_node.id = "node1"
@@ -95,7 +95,7 @@ class TestGraphComprehensive(unittest.TestCase):
         result = self.graph.get_node_by_relative_id("MyClass")
         self.assertEqual(result, mock_node)
         
-    def test_get_relationships_as_objects(self):
+    def test_get_relationships_as_objects(self) -> None:
         """Test getting relationships as objects."""
         # Add nodes with relationships
         mock_node1 = MagicMock(spec=Node)
@@ -130,7 +130,7 @@ class TestGraphComprehensive(unittest.TestCase):
         self.assertIn({"type": "DEFINES", "start": "node1", "end": "node2"}, relationships)
         self.assertIn({"type": "USES", "start": "node2", "end": "node1"}, relationships)
         
-    def test_get_relationships_from_nodes(self):
+    def test_get_relationships_from_nodes(self) -> None:
         """Test getting relationships from nodes."""
         mock_node1 = MagicMock(spec=Node)
         mock_node1.id = "node1"
@@ -150,7 +150,7 @@ class TestGraphComprehensive(unittest.TestCase):
         self.assertIn(mock_rel1, relationships)
         self.assertIn(mock_rel2, relationships)
         
-    def test_get_all_relationships(self):
+    def test_get_all_relationships(self) -> None:
         """Test getting all relationships (nodes + references)."""
         # Add node with relationship
         mock_node = MagicMock(spec=Node)
@@ -174,7 +174,7 @@ class TestGraphComprehensive(unittest.TestCase):
         self.assertIn(mock_node_rel, all_relationships)
         self.assertIn(mock_ref_rel, all_relationships)
         
-    def test_get_nodes_as_objects(self):
+    def test_get_nodes_as_objects(self) -> None:
         """Test getting nodes as objects."""
         mock_node1 = MagicMock(spec=Node)
         mock_node1.id = "node1"
@@ -199,7 +199,7 @@ class TestGraphComprehensive(unittest.TestCase):
         self.assertIn({"id": "node1", "type": "CLASS"}, objects)
         self.assertIn({"id": "node2", "type": "FUNCTION"}, objects)
         
-    def test_filtered_graph_by_paths(self):
+    def test_filtered_graph_by_paths(self) -> None:
         """Test filtering graph by paths."""
         # Create nodes
         nodes = []
@@ -242,7 +242,7 @@ class TestGraphComprehensive(unittest.TestCase):
         filtered_relationships = filtered_graph.get_all_relationships()
         self.assertEqual(len(filtered_relationships), 1)
         
-    def test_filtered_graph_by_paths_with_cross_references(self):
+    def test_filtered_graph_by_paths_with_cross_references(self) -> None:
         """Test filtering graph with cross-file references."""
         # Create nodes
         node1 = MagicMock(spec=Node)
@@ -277,7 +277,7 @@ class TestGraphComprehensive(unittest.TestCase):
         filtered_relationships = filtered_graph.get_all_relationships()
         self.assertEqual(len(filtered_relationships), 1)
         
-    def test_str_representation(self):
+    def test_str_representation(self) -> None:
         """Test string representation of graph."""
         # Add nodes
         mock_node1 = MagicMock(spec=Node)
@@ -308,7 +308,7 @@ class TestGraphComprehensive(unittest.TestCase):
         self.assertIn("Node2: Function", graph_str)
         self.assertIn("Relationship: Node1 -> Node2", graph_str)
         
-    def test_empty_graph_operations(self):
+    def test_empty_graph_operations(self) -> None:
         """Test operations on empty graph."""
         # Test getting from empty graph
         self.assertEqual(len(self.graph.get_nodes_by_path("/any/path")), 0)
@@ -325,7 +325,7 @@ class TestGraphComprehensive(unittest.TestCase):
         # Test string representation of empty graph
         self.assertEqual(str(self.graph), "")
         
-    def test_get_all_nodes(self):
+    def test_get_all_nodes(self) -> None:
         """Test getting all nodes from graph."""
         nodes = []
         for i in range(3):
@@ -343,7 +343,7 @@ class TestGraphComprehensive(unittest.TestCase):
         for node in nodes:  # type: ignore[attr-defined]
             self.assertIn(node, all_nodes)
     
-    def test_filtered_graph_with_self_referencing_relationships(self):
+    def test_filtered_graph_with_self_referencing_relationships(self) -> None:
         """Test filtering graph with self-referencing relationships."""
         # Create a node that has a relationship to itself
         mock_node = MagicMock(spec=Node)
@@ -374,7 +374,7 @@ class TestGraphComprehensive(unittest.TestCase):
         # Verify the node is still present
         self.assertIsNotNone(filtered_graph.get_node_by_id("self_ref_node"))
     
-    def test_filtered_graph_with_circular_references(self):
+    def test_filtered_graph_with_circular_references(self) -> None:
         """Test filtering graph with circular references between nodes."""
         # Create three nodes in a circular reference pattern
         node_a = MagicMock(spec=Node)
@@ -440,7 +440,7 @@ class TestGraphComprehensive(unittest.TestCase):
         self.assertIn(rel_b_to_c, filtered_relationships)  # B -> C (kept because B is kept)
         self.assertIn(rel_c_to_a, filtered_relationships)  # C -> A (kept because A is kept)
     
-    def test_filtered_graph_with_complex_relationship_patterns(self):
+    def test_filtered_graph_with_complex_relationship_patterns(self) -> None:
         """Test filtering with complex patterns including bidirectional relationships."""
         # Create nodes
         node1 = MagicMock(spec=Node)

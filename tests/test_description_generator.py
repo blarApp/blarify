@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import sys
 import os
+from typing import Any
 
 # Add the project root to the path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,16 +15,21 @@ from blarify.graph.graph_environment import GraphEnvironment
 
 
 class TestDescriptionGenerator(unittest.TestCase):
-    def setUp(self):
-        self.mock_llm_service: MagicMock = MagicMock(spec=LLMService)  # type: ignore[reportUninitializedInstanceVariable]
+    mock_llm_service: MagicMock
+    graph_env: GraphEnvironment
+    generator: DescriptionGenerator
+    graph: Graph
+    
+    def setUp(self) -> None:
+        self.mock_llm_service = MagicMock(spec=LLMService)
         self.mock_llm_service.is_enabled.return_value = True
         self.mock_llm_service.deployment_name = "test-deployment"
         
-        self.graph_env: GraphEnvironment = GraphEnvironment("test", "repo", "/test/path")  # type: ignore[reportUninitializedInstanceVariable]
-        self.generator: DescriptionGenerator = DescriptionGenerator(self.mock_llm_service, self.graph_env)  # type: ignore[reportUninitializedInstanceVariable]
-        self.graph: Graph = Graph()  # type: ignore[reportUninitializedInstanceVariable]
+        self.graph_env = GraphEnvironment("test", "repo", "/test/path")
+        self.generator = DescriptionGenerator(self.mock_llm_service, self.graph_env)
+        self.graph = Graph()
     
-    def test_detect_language(self):
+    def test_detect_language(self) -> None:
         test_cases = [
             (".py", "Python"),
             (".js", "JavaScript"),
@@ -38,10 +44,10 @@ class TestDescriptionGenerator(unittest.TestCase):
         
         for extension, expected_language in test_cases:
             with self.subTest(extension=extension):
-                language = self.generator._detect_language(extension)  # type: ignore[reportPrivateUsage]
+                language = self.generator._detect_language(extension)
                 self.assertEqual(language, expected_language)
     
-    def test_get_eligible_nodes(self):
+    def test_get_eligible_nodes(self) -> None:
         # Create test nodes
         file_node = MagicMock()
         file_node.label = NodeLabels.FILE
@@ -57,14 +63,14 @@ class TestDescriptionGenerator(unittest.TestCase):
         self.graph.add_node(function_node)
         self.graph.add_node(class_node)
         
-        eligible_nodes = self.generator._get_eligible_nodes(self.graph)  # type: ignore[reportPrivateUsage]
+        eligible_nodes = self.generator._get_eligible_nodes(self.graph)
         
         self.assertEqual(len(eligible_nodes), 3)
         self.assertIn(file_node, eligible_nodes)
         self.assertIn(function_node, eligible_nodes)
         self.assertIn(class_node, eligible_nodes)
     
-    def test_create_prompt_for_file_node(self):
+    def test_create_prompt_for_file_node(self) -> None:
         file_node = MagicMock()
         file_node.label = NodeLabels.FILE
         file_node.path = "file:///test/project/main.py"
@@ -72,7 +78,7 @@ class TestDescriptionGenerator(unittest.TestCase):
         file_node.extension = ".py"
         file_node.hashed_id = "test-hash-1"
         
-        prompt_data = self.generator._create_prompt_for_node(file_node, self.graph)  # type: ignore[reportPrivateUsage]
+        prompt_data = self.generator._create_prompt_for_node(file_node, self.graph)
         
         self.assertIsNotNone(prompt_data)
         assert prompt_data is not None  # Type narrowing for pyright
@@ -80,16 +86,16 @@ class TestDescriptionGenerator(unittest.TestCase):
         self.assertIn("main.py", prompt_data["prompt"])
         self.assertIn("Python", prompt_data["prompt"])
     
-    def test_create_prompt_for_function_node(self):
+    def test_create_prompt_for_function_node(self) -> None:
         function_node = MagicMock()
         function_node.label = NodeLabels.FUNCTION
         function_node.path = "file:///test/project/utils.py"
         function_node.name = "calculate_total"
         function_node.extension = ".py"
         function_node.hashed_id = "test-hash-2"
-        function_node.code_text = "def calculate_total(items):\n    return sum(item.price for item in items)"
+        function_node.text = "def calculate_total(items):\n    return sum(item.price for item in items)"
         
-        prompt_data = self.generator._create_prompt_for_node(function_node, self.graph)  # type: ignore[reportPrivateUsage]
+        prompt_data = self.generator._create_prompt_for_node(function_node, self.graph)
         
         self.assertIsNotNone(prompt_data)
         assert prompt_data is not None  # Type narrowing for pyright
@@ -97,7 +103,7 @@ class TestDescriptionGenerator(unittest.TestCase):
         self.assertIn("calculate_total", prompt_data["prompt"])
         self.assertIn("def calculate_total", prompt_data["prompt"])
     
-    def test_generate_descriptions_for_graph_disabled(self):
+    def test_generate_descriptions_for_graph_disabled(self) -> None:
         self.mock_llm_service.is_enabled.return_value = False
         
         result = self.generator.generate_descriptions_for_graph(self.graph)
@@ -106,7 +112,7 @@ class TestDescriptionGenerator(unittest.TestCase):
         self.mock_llm_service.generate_batch_descriptions.assert_not_called()
     
     @patch('blarify.llm_descriptions.description_generator.logger')
-    def test_generate_descriptions_for_graph(self, mock_logger: MagicMock):
+    def test_generate_descriptions_for_graph(self, mock_logger: MagicMock) -> None:
         # Create test nodes
         file_node = MagicMock()
         file_node.label = NodeLabels.FILE
@@ -136,10 +142,10 @@ class TestDescriptionGenerator(unittest.TestCase):
         self.assertEqual(len(description_nodes), 1)
         
         desc_node = description_nodes[0]
-        self.assertEqual(desc_node.description_text, "This is the main entry point of the application.")  # type: ignore[attr-defined]
-        self.assertEqual(desc_node.target_node_id, "file-hash")  # type: ignore[attr-defined]
+        self.assertEqual(desc_node.description_text, "This is the main entry point of the application.")
+        self.assertEqual(desc_node.target_node_id, "file-hash")
     
-    def test_extract_referenced_nodes(self):
+    def test_extract_referenced_nodes(self) -> None:
         # Create test nodes in graph
         func_node = MagicMock()
         func_node.label = NodeLabels.FUNCTION
@@ -155,13 +161,13 @@ class TestDescriptionGenerator(unittest.TestCase):
         # Test description with references
         description = "This function calls `process_data` and instantiates the 'DataProcessor' class."
         
-        referenced_nodes = self.generator._extract_referenced_nodes(description, self.graph)  # type: ignore[reportPrivateUsage]
+        referenced_nodes = self.generator._extract_referenced_nodes(description, self.graph)
         
         self.assertEqual(len(referenced_nodes), 2)
         self.assertIn(func_node, referenced_nodes)
         self.assertIn(class_node, referenced_nodes)
     
-    def test_create_description_node_and_relationship(self):
+    def test_create_description_node_and_relationship(self) -> None:
         # Create target node
         target_node = MagicMock()
         target_node.path = "file:///test/project/utils.py"
@@ -172,19 +178,19 @@ class TestDescriptionGenerator(unittest.TestCase):
         
         description_text = "This function calculates the total price of items."
         
-        desc_node, relationship = self.generator._create_description_node_and_relationship(  # type: ignore[reportPrivateUsage]
+        desc_node, relationship = self.generator._create_description_node_and_relationship(
             target_node, description_text, self.graph
         )
         
         self.assertIsNotNone(desc_node)
         self.assertIsNotNone(relationship)
         
-        self.assertEqual(desc_node.description_text, description_text)  # type: ignore[attr-defined]
-        self.assertEqual(desc_node.target_node_id, "target-hash")  # type: ignore[attr-defined]
-        self.assertEqual(desc_node.name, "Description of calculate_total")  # type: ignore[attr-defined]
+        self.assertEqual(desc_node.description_text, description_text)
+        self.assertEqual(desc_node.target_node_id, "target-hash")
+        self.assertEqual(desc_node.name, "Description of calculate_total")
         
-        self.assertEqual(relationship.start_node, target_node)  # type: ignore[attr-defined]
-        self.assertEqual(relationship.end_node, desc_node)  # type: ignore[attr-defined]
+        self.assertEqual(relationship.start_node, target_node)
+        self.assertEqual(relationship.end_node, desc_node)
 
 
 if __name__ == '__main__':

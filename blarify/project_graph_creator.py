@@ -2,7 +2,7 @@ import time
 from blarify.code_references import LspQueryHelper, FileExtensionNotSupported
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.graph.node import NodeLabels, NodeFactory
-from blarify.graph.relationship.relationship_creator import RelationshipCreator
+from blarify.graph.relationship import RelationshipCreator
 from blarify.graph.graph import Graph
 from blarify.code_hierarchy import TreeSitterHelper
 from blarify.code_hierarchy.languages import (
@@ -10,7 +10,7 @@ from blarify.code_hierarchy.languages import (
     get_language_definition,
     get_available_languages
 )
-from typing import List, TYPE_CHECKING, Optional, Dict, Any, cast
+from typing import List, TYPE_CHECKING, Optional, Dict, Any, Union, Sequence, Any
 from blarify.logger import Logger
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.llm_descriptions import LLMService
@@ -34,7 +34,7 @@ class ProjectGraphCreator:
     lsp_query_helper: LspQueryHelper
     project_files_iterator: ProjectFilesIterator
     graph: Graph
-    languages: Dict[str, Any] = {}  # Will be initialized in __init__
+    languages: Optional[Dict[str, Any]] = None  # Will be initialized in __init__
 
     def __init__(
         self,
@@ -143,7 +143,7 @@ class ProjectGraphCreator:
         logger.info(f"Available language support: {list(get_available_languages())}")
         return languages
 
-    def build(self) -> Any:
+    def build(self) -> Graph:
         self._create_code_hierarchy()
         self._create_relationships_from_references_for_files()
         
@@ -161,7 +161,7 @@ class ProjectGraphCreator:
         
         return self.graph
 
-    def build_hierarchy_only(self) -> Any:
+    def build_hierarchy_only(self) -> Graph:
         """
         Build the graph with only the code hierarchy (folders, files, class definitions, function definitions)
 
@@ -183,22 +183,16 @@ class ProjectGraphCreator:
     def _process_folder(self, folder: "Folder") -> None:
         folder_node = self._add_or_get_folder_node(folder)
         folder_nodes = self._create_subfolder_nodes(folder, folder_node)
-        # FolderNode list is compatible with Union[FileNode, FolderNode] list
-        from typing import Union
-        from blarify.graph.node.file_node import FileNode
-        folder_node.relate_nodes_as_contain_relationship(cast(List[Union[FileNode, "FolderNode"]], folder_nodes))
+        folder_node.relate_nodes_as_contain_relationship(folder_nodes)
 
-        # Cast to List[Node] for add_nodes method
-        self.graph.add_nodes(cast(List["Node"], folder_nodes))
+        self.graph.add_nodes(folder_nodes)
 
         files = folder.files
         self._process_files(files, parent_folder=folder_node)
 
-    def _add_or_get_folder_node(self, folder: "Folder", parent_folder: Optional["FolderNode"] = None) -> "FolderNode":
+    def _add_or_get_folder_node(self, folder: "Folder", parent_folder: "Folder" = None) -> "FolderNode":
         if self.graph.has_folder_node_with_path(folder.uri_path):
-            # Cast to FolderNode since we know it's a folder node from the path check
-            from blarify.graph.node.folder_node import FolderNode
-            return cast(FolderNode, self.graph.get_folder_node_by_path(folder.uri_path))
+            return self.graph.get_folder_node_by_path(folder.uri_path)
         else:
             folder_node = NodeFactory.create_folder_node(
                 folder, parent=parent_folder, graph_environment=self.graph_environment
@@ -206,8 +200,8 @@ class ProjectGraphCreator:
             self.graph.add_node(folder_node)
             return folder_node
 
-    def _create_subfolder_nodes(self, folder: "Folder", folder_node: "FolderNode") -> List["FolderNode"]:
-        nodes: List["FolderNode"] = []
+    def _create_subfolder_nodes(self, folder: "Folder", folder_node: "FolderNode") -> List["Node"]:
+        nodes = []
         for sub_folder in folder.folders:
             node = self._add_or_get_folder_node(sub_folder, parent_folder=folder_node)
             nodes.append(node)
@@ -233,7 +227,7 @@ class ProjectGraphCreator:
 
     def _try_initialize_directory(self, file: "File") -> None:
         try:
-            self.lsp_query_helper.initialize_directory(file.path)
+            self.lsp_query_helper.initialize_directory(file)
         except FileExtensionNotSupported:
             pass
 
@@ -248,8 +242,7 @@ class ProjectGraphCreator:
         # File node should always be the first node in the list
         for node in file_nodes:
             if node.label == NodeLabels.FILE:
-                from blarify.graph.node.file_node import FileNode
-                return cast(FileNode, node)
+                return node
 
         raise ValueError("File node not found in file nodes")
 
@@ -261,10 +254,10 @@ class ProjectGraphCreator:
 
     def _create_relationships_from_references_for_files(self) -> None:
         file_nodes = self.graph.get_nodes_by_label(NodeLabels.FILE)
-        self._create_relationship_from_references(list(file_nodes))
+        self._create_relationship_from_references(file_nodes)
 
     def _create_relationship_from_references(self, file_nodes: List["Node"]) -> None:
-        references_relationships: List["Relationship"] = []
+        references_relationships = []
 
         total_files = len(file_nodes)
         log_interval = max(1, total_files // 10)
@@ -308,13 +301,10 @@ class ProjectGraphCreator:
         node: "Node",
         tree_sitter_helper: TreeSitterHelper,
     ) -> List["Relationship"]:
-        # Cast node to DefinitionNode for the LSP query
-        from blarify.graph.node.types.definition_node import DefinitionNode
-        definition_node = cast(DefinitionNode, node)
-        references = self.lsp_query_helper.get_paths_where_node_is_referenced(definition_node)
+        references = self.lsp_query_helper.get_paths_where_node_is_referenced(node)
 
-        relationships: List["Relationship"] = RelationshipCreator.create_relationships_from_paths_where_node_is_referenced(
-            references=references, node=definition_node, graph=self.graph, tree_sitter_helper=tree_sitter_helper
+        relationships = RelationshipCreator.create_relationships_from_paths_where_node_is_referenced(
+            references=references, node=node, graph=self.graph, tree_sitter_helper=tree_sitter_helper
         )
 
         return relationships
@@ -325,9 +315,8 @@ class ProjectGraphCreator:
         logger.info("Starting LLM description generation")
         
         try:
-            if self.description_generator is not None:
-                description_nodes = self.description_generator.generate_descriptions_for_graph(self.graph)
-                logger.info(f"Generated {len(description_nodes)} description nodes")
+            description_nodes = self.description_generator.generate_descriptions_for_graph(self.graph)
+            logger.info(f"Generated {len(description_nodes)} description nodes")
         except Exception as e:
             logger.error(f"Error generating LLM descriptions: {e}")
         
@@ -341,18 +330,17 @@ class ProjectGraphCreator:
         logger.info("Starting filesystem node generation")
         
         try:
-            if self.filesystem_generator is not None:
-                # Generate filesystem nodes
-                self.filesystem_generator.generate_filesystem_nodes(self.graph)
-                
-                # Create IMPLEMENTS relationships
-                implements_rels = self.filesystem_generator.create_implements_relationships(self.graph)
-                self.graph.add_references_relationships(implements_rels)
-                
-                # Create description references if LLM descriptions are enabled
-                if self.enable_llm_descriptions:
-                    desc_refs = self.filesystem_generator.create_description_references(self.graph)
-                    self.graph.add_references_relationships(desc_refs)
+            # Generate filesystem nodes
+            self.filesystem_generator.generate_filesystem_nodes(self.graph)
+            
+            # Create IMPLEMENTS relationships
+            implements_rels = self.filesystem_generator.create_implements_relationships(self.graph)
+            self.graph.add_references_relationships(implements_rels)
+            
+            # Create description references if LLM descriptions are enabled
+            if self.enable_llm_descriptions:
+                desc_refs = self.filesystem_generator.create_description_references(self.graph)
+                self.graph.add_references_relationships(desc_refs)
             
         except Exception as e:
             logger.error(f"Error generating filesystem nodes: {e}")
@@ -367,9 +355,8 @@ class ProjectGraphCreator:
         logger.info("Starting documentation node generation")
         
         try:
-            if self.documentation_generator is not None:
-                # Generate documentation nodes
-                self.documentation_generator.generate_documentation_nodes(self.graph)
+            # Generate documentation nodes
+            self.documentation_generator.generate_documentation_nodes(self.graph)
             
         except Exception as e:
             logger.error(f"Error generating documentation nodes: {e}")

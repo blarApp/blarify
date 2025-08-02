@@ -140,7 +140,7 @@ class TestComplexityMetrics(unittest.TestCase):
         """Set up test fixtures."""
         self.calculator: CodeComplexityCalculator = CodeComplexityCalculator()  # type: ignore[reportUninitializedInstanceVariable]
         
-    def test_nesting_stats_dataclass(self):
+    def test_nesting_stats_dataclass(self) -> None:
         """Test NestingStats dataclass."""
         stats = NestingStats(
             max_indentation=4,
@@ -154,7 +154,7 @@ class TestComplexityMetrics(unittest.TestCase):
         self.assertEqual(stats.average_indentation, 2.5)
         self.assertEqual(stats.sd, 1.2)
         
-    def test_empty_nesting_stats(self):
+    def test_empty_nesting_stats(self) -> None:
         """Test empty nesting stats."""
         stats = NestingStats(0, 0, 0, 0)
         

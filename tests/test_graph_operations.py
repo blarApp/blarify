@@ -15,11 +15,11 @@ from tests.fixtures.node_factories import (
 class TestGraphOperations(unittest.TestCase):
     """Test suite for core graph operations."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test graph instance."""
         self.graph = Graph()  # type: ignore[misc]
         
-    def test_add_node_success(self):
+    def test_add_node_success(self) -> None:
         """Test adding a node to the graph."""
         node = create_filesystem_file_node("main.py")
         
@@ -29,7 +29,7 @@ class TestGraphOperations(unittest.TestCase):
         retrieved = self.graph.get_node_by_id(node.id)
         self.assertEqual(retrieved, node)
         
-    def test_add_duplicate_node(self):
+    def test_add_duplicate_node(self) -> None:
         """Test that duplicate nodes are handled correctly."""
         # Create a node and add it twice
         node1 = create_filesystem_file_node("main.py", "main.py")
@@ -49,7 +49,7 @@ class TestGraphOperations(unittest.TestCase):
         retrieved = self.graph.get_node_by_id(node1.id)
         self.assertEqual(retrieved, node1)
         
-    def test_get_node_by_id(self):
+    def test_get_node_by_id(self) -> None:
         """Test retrieving a node by ID."""
         node = create_concept_node("TestConcept")
         self.graph.add_node(node)
@@ -59,12 +59,12 @@ class TestGraphOperations(unittest.TestCase):
         self.assertEqual(retrieved, node)
         self.assertEqual(retrieved.name, "TestConcept")  # type: ignore[attr-defined]
         
-    def test_get_node_by_id_not_found(self):
+    def test_get_node_by_id_not_found(self) -> None:
         """Test retrieving non-existent node returns None."""
         result = self.graph.get_node_by_id("non_existent_id")
         self.assertIsNone(result)
         
-    def test_get_nodes_by_label(self):
+    def test_get_nodes_by_label(self) -> None:
         """Test retrieving nodes by label."""
         file1 = create_filesystem_file_node("main.py")
         file2 = create_filesystem_file_node("utils.py")
@@ -83,7 +83,7 @@ class TestGraphOperations(unittest.TestCase):
         self.assertIn(file2, file_nodes)
         self.assertIn(concept1, concept_nodes)
         
-    def test_add_relationship_success(self):
+    def test_add_relationship_success(self) -> None:
         """Test adding a relationship between nodes."""
         file_node = create_filesystem_file_node("main.py")
         concept_node = create_concept_node("TestConcept", source_file="main.py")
@@ -105,7 +105,7 @@ class TestGraphOperations(unittest.TestCase):
         self.assertEqual(relationships[0]['targetId'], concept_node.hashed_id)
         self.assertEqual(relationships[0]['type'], RelationshipType.CONTAINS_CONCEPT.name)
         
-    def test_add_relationship_missing_nodes(self):
+    def test_add_relationship_missing_nodes(self) -> None:
         """Test adding relationship with missing nodes raises error."""
         # Create mock nodes that don't exist in graph
         mock_node1 = Mock()
@@ -125,7 +125,7 @@ class TestGraphOperations(unittest.TestCase):
         relationships = self.graph.get_relationships_as_objects()
         self.assertEqual(len(relationships), 1)
             
-    def test_get_relationships_by_node(self):
+    def test_get_relationships_by_node(self) -> None:
         """Test retrieving relationships for a specific node."""
         file_node = create_filesystem_file_node("main.py")
         concept1 = create_concept_node("Concept1", source_file="main.py")
@@ -166,7 +166,7 @@ class TestGraphOperations(unittest.TestCase):
         self.assertEqual(len(incoming), 1)
         self.assertEqual(incoming[0].start_node, file_node)
         
-    def test_get_nodes_as_objects(self):
+    def test_get_nodes_as_objects(self) -> None:
         """Test serializing nodes to dictionary objects."""
         file_node = create_filesystem_file_node("main.py")
         concept_node = create_concept_node("TestConcept")
@@ -187,7 +187,7 @@ class TestGraphOperations(unittest.TestCase):
         objects = self.graph.get_nodes_as_objects()
         self.assertEqual(len(objects), 2)
         
-    def test_clear_graph(self):
+    def test_clear_graph(self) -> None:
         """Test clearing all nodes and relationships from graph."""
         # Add some nodes and relationships
         node1 = create_filesystem_file_node("file1.py")
@@ -209,7 +209,7 @@ class TestGraphOperations(unittest.TestCase):
         self.assertEqual(len(self.graph.get_all_nodes()), 0)
         self.assertEqual(len(self.graph.get_relationships_as_objects()), 0)
         
-    def test_node_exists(self):
+    def test_node_exists(self) -> None:
         """Test checking if a node exists in the graph."""
         node = create_concept_node("test_concept")
         
@@ -220,7 +220,7 @@ class TestGraphOperations(unittest.TestCase):
         
         self.assertIsNotNone(self.graph.get_node_by_id(node.id))
         
-    def test_remove_node(self):
+    def test_remove_node(self) -> None:
         """Test removing a node from the graph."""
         node = create_filesystem_file_node("temp.py")
         concept_node = create_concept_node("TempConcept", source_file="temp.py")
@@ -244,7 +244,7 @@ class TestGraphOperations(unittest.TestCase):
         self.assertEqual(len(nodes), 1)
         self.assertEqual(nodes[0].name, "TempConcept")
         
-    def test_get_connected_nodes(self):
+    def test_get_connected_nodes(self) -> None:
         """Test getting nodes connected to a specific node."""
         # Create a small graph
         file1 = create_filesystem_file_node("main.py", "main.py")
@@ -294,7 +294,7 @@ class TestGraphOperations(unittest.TestCase):
         self.assertIn(entity1, connected_to_concept1)  # type: ignore[arg-type]
         self.assertNotIn(file2, connected_to_concept1)  # type: ignore[arg-type]
         
-    def test_get_subgraph(self):
+    def test_get_subgraph(self) -> None:
         """Test extracting a subgraph around specific nodes."""
         # Create a simple graph
         file1 = create_filesystem_file_node("main.py")
@@ -325,7 +325,7 @@ class TestGraphOperations(unittest.TestCase):
         self.assertIn('MainConcept', node_names)
         self.assertNotIn('OtherConcept', node_names)
         
-    def test_merge_graphs(self):
+    def test_merge_graphs(self) -> None:
         """Test merging two graphs together."""
         graph1 = Graph()
         graph2 = Graph()

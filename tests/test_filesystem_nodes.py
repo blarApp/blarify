@@ -17,7 +17,7 @@ from blarify.filesystem.filesystem_graph_generator import FilesystemGraphGenerat
 class TestFilesystemFileNode(unittest.TestCase):
     """Test FilesystemFileNode functionality."""
     
-    def test_filesystem_file_node_creation(self):
+    def test_filesystem_file_node_creation(self) -> None:
         """Test creating a filesystem file node."""
         node = FilesystemFileNode(
             path="file:///project/src/main.py",
@@ -39,7 +39,7 @@ class TestFilesystemFileNode(unittest.TestCase):
         # Test node_repr_for_identifier - it includes the type and relative path
         self.assertEqual(node.node_repr_for_identifier, "/FILESYSTEM_FILE[src/main.py]")
         
-    def test_filesystem_file_node_as_object(self):
+    def test_filesystem_file_node_as_object(self) -> None:
         """Test serializing filesystem file node."""
         node = FilesystemFileNode(
             path="file:///project/docs/README.md",
@@ -64,7 +64,7 @@ class TestFilesystemFileNode(unittest.TestCase):
         self.assertEqual(obj['attributes']['size'], 1024)
         self.assertEqual(obj['attributes']['extension'], ".md")
         
-    def test_filesystem_file_node_in_graph(self):
+    def test_filesystem_file_node_in_graph(self) -> None:
         """Test adding filesystem file nodes to graph."""
         graph = Graph()
         
@@ -94,7 +94,7 @@ class TestFilesystemFileNode(unittest.TestCase):
 class TestFilesystemDirectoryNode(unittest.TestCase):
     """Test FilesystemDirectoryNode functionality."""
     
-    def test_filesystem_directory_node_creation(self):
+    def test_filesystem_directory_node_creation(self) -> None:
         """Test creating a filesystem directory node."""
         node = FilesystemDirectoryNode(
             path="file:///project/src",
@@ -111,7 +111,7 @@ class TestFilesystemDirectoryNode(unittest.TestCase):
         # Test node_repr_for_identifier - it includes the type and relative path
         self.assertEqual(node.node_repr_for_identifier, "/FILESYSTEM_DIR[src]")
         
-    def test_filesystem_directory_node_as_object(self):
+    def test_filesystem_directory_node_as_object(self) -> None:
         """Test serializing filesystem directory node."""
         node = FilesystemDirectoryNode(
             path="file:///project/tests/unit",
@@ -130,7 +130,7 @@ class TestFilesystemDirectoryNode(unittest.TestCase):
         self.assertEqual(obj['type'], 'FILESYSTEM_DIRECTORY')
         self.assertEqual(obj['attributes']['relative_path'], "tests/unit")
         
-    def test_filesystem_directory_node_in_graph(self):
+    def test_filesystem_directory_node_in_graph(self) -> None:
         """Test adding filesystem directory nodes to graph."""
         graph = Graph()
         
@@ -161,11 +161,11 @@ class TestFilesystemDirectoryNode(unittest.TestCase):
 class TestFilesystemGraphGenerator(unittest.TestCase):
     """Test filesystem graph generation."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test directory."""
         self.test_dir: str = tempfile.mkdtemp()  # type: ignore[reportUninitializedInstanceVariable]
         
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test directory."""
         import shutil
         shutil.rmtree(self.test_dir)
@@ -182,7 +182,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         (Path(self.test_dir) / "src" / "utils.py").write_text("def helper(): pass")
         (Path(self.test_dir) / "tests" / "test_main.py").write_text("def test(): pass")
         
-    def test_filesystem_graph_generation(self):
+    def test_filesystem_graph_generation(self) -> None:
         """Test generating filesystem nodes."""
         self.create_test_structure()
         
@@ -210,7 +210,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
         self.assertIn("src", dir_names)
         self.assertIn("tests", dir_names)
         
-    def test_file_properties(self):
+    def test_file_properties(self) -> None:
         """Test that filesystem nodes have correct properties."""
         # Create a single file
         test_file = Path(self.test_dir) / "test.txt"
@@ -239,7 +239,7 @@ class TestFilesystemGraphGenerator(unittest.TestCase):
 class TestFilesystemRelationships(unittest.TestCase):
     """Test filesystem relationships."""
     
-    def test_filesystem_relationship_types(self):
+    def test_filesystem_relationship_types(self) -> None:
         """Test that filesystem relationship types exist."""
         from blarify.graph.relationship.relationship_type import RelationshipType
         
@@ -248,7 +248,7 @@ class TestFilesystemRelationships(unittest.TestCase):
         self.assertEqual(RelationshipType.IMPLEMENTS.value, "IMPLEMENTS")
         self.assertEqual(RelationshipType.DEPENDS_ON.value, "DEPENDS_ON")
         
-    def test_implements_relationship(self):
+    def test_implements_relationship(self) -> None:
         """Test IMPLEMENTS relationship between filesystem and code nodes."""
         # This tests that the relationship type exists and has correct value
         from blarify.graph.relationship.relationship_type import RelationshipType

@@ -24,17 +24,17 @@ class MockNode(Node):
 class TestGraph(unittest.TestCase):
     """Test Graph class functionality."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.graph = Graph()  # type: ignore[misc]
         
-    def test_graph_initialization(self):
+    def test_graph_initialization(self) -> None:
         """Test graph is initialized properly."""
         # Graph uses private __nodes, but we can test public methods
         nodes = self.graph.get_all_nodes()
         self.assertEqual(len(nodes), 0)
         
-    def test_add_and_get_node(self):
+    def test_add_and_get_node(self) -> None:
         """Test adding and retrieving nodes."""
         node = MockNode(
             label=NodeLabels.FILE,
@@ -53,7 +53,7 @@ class TestGraph(unittest.TestCase):
         nodes_by_path = self.graph.get_nodes_by_path("file:///test/main.py")
         self.assertIn(node, nodes_by_path)
         
-    def test_get_nodes_by_label(self):
+    def test_get_nodes_by_label(self) -> None:
         """Test filtering nodes by label."""
         file_node = MockNode(
             label=NodeLabels.FILE,
@@ -81,7 +81,7 @@ class TestGraph(unittest.TestCase):
         self.assertIn(file_node, file_nodes)
         self.assertIn(folder_node, folder_nodes)
         
-    def test_relationships(self):
+    def test_relationships(self) -> None:
         """Test adding and retrieving relationships."""
         parent = MockNode(
             label=NodeLabels.FOLDER,
@@ -119,7 +119,7 @@ class TestGraph(unittest.TestCase):
 class TestNodeTypes(unittest.TestCase):
     """Test various node types."""
     
-    def test_description_node(self):
+    def test_description_node(self) -> None:
         """Test DescriptionNode creation."""
         from blarify.graph.node.description_node import DescriptionNode
         
@@ -137,7 +137,7 @@ class TestNodeTypes(unittest.TestCase):
         self.assertEqual(node.target_node_id, "function_123")
         self.assertEqual(node.llm_model, "gpt-4")
         
-    def test_filesystem_nodes(self):
+    def test_filesystem_nodes(self) -> None:
         """Test filesystem node types."""
         from blarify.graph.node.filesystem_file_node import FilesystemFileNode
         from blarify.graph.node.filesystem_directory_node import FilesystemDirectoryNode
@@ -164,7 +164,7 @@ class TestNodeTypes(unittest.TestCase):
         
         self.assertEqual(dir_node.label, NodeLabels.FILESYSTEM_DIRECTORY)
         
-    def test_documentation_nodes(self):
+    def test_documentation_nodes(self) -> None:
         """Test documentation node types."""
         from blarify.graph.node.concept_node import ConceptNode
         from blarify.graph.node.documented_entity_node import DocumentedEntityNode
@@ -192,7 +192,7 @@ class TestNodeTypes(unittest.TestCase):
 class TestRelationshipTypes(unittest.TestCase):
     """Test relationship types."""
     
-    def test_relationship_types_exist(self):
+    def test_relationship_types_exist(self) -> None:
         """Test that expected relationship types exist."""
         # Core relationships
         self.assertEqual(RelationshipType.CONTAINS.value, "CONTAINS")
@@ -219,7 +219,7 @@ class TestRelationshipTypes(unittest.TestCase):
 class TestNodeLabels(unittest.TestCase):
     """Test node label types."""
     
-    def test_node_labels_exist(self):
+    def test_node_labels_exist(self) -> None:
         """Test that expected node labels exist."""
         # Core labels
         self.assertEqual(NodeLabels.FILE.value, "FILE")

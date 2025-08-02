@@ -12,17 +12,17 @@ from blarify.graph.node.types.node_labels import NodeLabels
 class TestGraphBasic(unittest.TestCase):
     """Basic tests for Graph class."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.graph = Graph()  # type: ignore[misc]
         
-    def test_graph_initialization(self):
+    def test_graph_initialization(self) -> None:
         """Test graph is initialized empty."""
         # Graph doesn't have .nodes attribute, use get_nodes_as_objects()
         self.assertEqual(len(self.graph.get_nodes_as_objects()), 0)
         self.assertIsInstance(self.graph.get_nodes_as_objects(), list)
         
-    def test_node_exists(self):
+    def test_node_exists(self) -> None:
         """Test checking if node exists."""
         # Mock node with required properties
         mock_node = Mock()
@@ -45,7 +45,7 @@ class TestGraphBasic(unittest.TestCase):
         # Now should exist
         self.assertIsNotNone(self.graph.get_node_by_id("test_node_123"))
         
-    def test_get_node_by_id(self):
+    def test_get_node_by_id(self) -> None:
         """Test retrieving node by ID."""
         mock_node = Mock()
         mock_node.id = "test_node_456"
@@ -68,7 +68,7 @@ class TestGraphBasic(unittest.TestCase):
         # Non-existent node
         self.assertIsNone(self.graph.get_node_by_id("non_existent"))
         
-    def test_get_nodes_by_label(self):
+    def test_get_nodes_by_label(self) -> None:
         """Test filtering nodes by label."""
         # Create mock nodes with different labels
         desc_node1 = Mock()
@@ -119,7 +119,7 @@ class TestGraphBasic(unittest.TestCase):
         self.assertEqual(len(concept_nodes), 1)
         self.assertIn(concept_node, concept_nodes)
         
-    def test_add_relationship_validation(self):
+    def test_add_relationship_validation(self) -> None:
         """Test relationship validation."""
         # Create mock nodes
         node1 = Mock()
@@ -163,7 +163,7 @@ class TestGraphBasic(unittest.TestCase):
         relationships = self.graph.get_relationships_as_objects()
         self.assertEqual(len(relationships), 1)
             
-    def test_get_relationships_as_objects(self):
+    def test_get_relationships_as_objects(self) -> None:
         """Test serializing relationships."""
         # Create nodes
         node1 = Mock()
@@ -215,7 +215,7 @@ class TestGraphBasic(unittest.TestCase):
 class TestNodeLabelsAndRelationships(unittest.TestCase):
     """Test node labels and relationship types exist."""
     
-    def test_essential_node_labels(self):
+    def test_essential_node_labels(self) -> None:
         """Test essential node labels are defined."""
         # Core labels
         self.assertEqual(NodeLabels.FILE.value, "FILE")
@@ -231,7 +231,7 @@ class TestNodeLabelsAndRelationships(unittest.TestCase):
         self.assertEqual(NodeLabels.CONCEPT.value, "CONCEPT")
         self.assertEqual(NodeLabels.DOCUMENTED_ENTITY.value, "DOCUMENTED_ENTITY")
         
-    def test_essential_relationship_types(self):
+    def test_essential_relationship_types(self) -> None:
         """Test essential relationship types are defined."""
         # Core relationships
         self.assertEqual(RelationshipType.CONTAINS.value, "CONTAINS")
@@ -252,7 +252,7 @@ class TestNodeLabelsAndRelationships(unittest.TestCase):
 class TestDescriptionNode(unittest.TestCase):
     """Test DescriptionNode functionality."""
     
-    def test_description_node_creation(self):
+    def test_description_node_creation(self) -> None:
         """Test creating a description node."""
         from blarify.graph.node.description_node import DescriptionNode
         
@@ -278,7 +278,7 @@ class TestDescriptionNode(unittest.TestCase):
         self.assertIn(target_id, node.id)
         self.assertIn("DESCRIPTION", node.node_repr_for_identifier)
         
-    def test_description_node_as_object(self):
+    def test_description_node_as_object(self) -> None:
         """Test serializing description node."""
         from blarify.graph.node.description_node import DescriptionNode
         
@@ -306,7 +306,7 @@ class TestDescriptionNode(unittest.TestCase):
 class TestFilesystemNodes(unittest.TestCase):
     """Test filesystem node types."""
     
-    def test_filesystem_file_node(self):
+    def test_filesystem_file_node(self) -> None:
         """Test FilesystemFileNode creation."""
         from blarify.graph.node.filesystem_file_node import FilesystemFileNode
         
@@ -326,7 +326,7 @@ class TestFilesystemNodes(unittest.TestCase):
         self.assertEqual(node.size, 1024)
         self.assertEqual(node.extension, ".py")
         
-    def test_filesystem_directory_node(self):
+    def test_filesystem_directory_node(self) -> None:
         """Test FilesystemDirectoryNode creation."""
         from blarify.graph.node.filesystem_directory_node import FilesystemDirectoryNode
         
@@ -345,7 +345,7 @@ class TestFilesystemNodes(unittest.TestCase):
 class TestDocumentationNodes(unittest.TestCase):
     """Test documentation node types."""
     
-    def test_concept_node(self):
+    def test_concept_node(self) -> None:
         """Test ConceptNode creation."""
         from blarify.graph.node.concept_node import ConceptNode
         
@@ -360,7 +360,7 @@ class TestDocumentationNodes(unittest.TestCase):
         self.assertEqual(node.description, "A design pattern for data access")
         self.assertEqual(node.source_file, "README.md")
         
-    def test_documented_entity_node(self):
+    def test_documented_entity_node(self) -> None:
         """Test DocumentedEntityNode creation."""
         from blarify.graph.node.documented_entity_node import DocumentedEntityNode
         

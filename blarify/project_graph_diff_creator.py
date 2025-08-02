@@ -6,7 +6,7 @@ from blarify.graph.graph_environment import GraphEnvironment
 from blarify.code_references.lsp_helper import LspQueryHelper
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.graph.node import FileNode
-from typing import List, Set, Optional, cast, Any
+from typing import List, Set, Optional, Union, Sequence, Any
 from dataclasses import dataclass
 from enum import Enum
 from blarify.graph.external_relationship_store import ExternalRelationshipStore
@@ -47,7 +47,7 @@ class PreviousNodeState:
 class ProjectGraphDiffCreator(ProjectGraphCreator):
     added_and_modified_paths: List[str]
     file_diffs: List[FileDiff]
-    pr_environment: GraphEnvironment
+    pr_environment: Optional[GraphEnvironment]
     deleted_nodes_added_paths: List[str]
 
     def __init__(
@@ -64,8 +64,8 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         self.external_relationship_store = ExternalRelationshipStore()
 
         self.file_diffs = file_diffs
-        self.graph_environment = graph_environment or GraphEnvironment("default", "repo", root_path)
-        self.pr_environment = pr_environment or GraphEnvironment("pr", "repo", root_path)
+        self.graph_environment = graph_environment
+        self.pr_environment = pr_environment
 
         self.added_paths = self.get_added_paths()
         self.modified_paths = self.get_modified_paths()
@@ -79,7 +79,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
     def get_modified_paths(self) -> List[str]:
         return [file_diff.path for file_diff in self.file_diffs if file_diff.change_type == ChangeType.MODIFIED]
 
-    def build(self) -> GraphUpdate:
+    def build(self) -> GraphUpdate:  # type: ignore[override]
         self._create_code_hierarchy()
         self.mark_updated_and_added_nodes_as_diff()
         self.create_relationship_from_references_for_modified_and_added_files()
@@ -88,7 +88,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
         return GraphUpdate(self.graph, self.external_relationship_store)
 
-    def build_hierarchy_only(self) -> GraphUpdate:
+    def build_hierarchy_only(self) -> GraphUpdate:  # type: ignore[override]
         self._create_code_hierarchy()
         self.mark_updated_and_added_nodes_as_diff()
         self.keep_only_files_to_create()
@@ -127,11 +127,10 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
     def _create_modified_relationships(self, previous_node_states: List[PreviousNodeState]) -> None:
         for previous_node in previous_node_states:
-            node = self.graph.get_node_by_relative_id(previous_node.relative_id)
-            if node is None:
+            equivalent_node_raw = self.graph.get_node_by_relative_id(previous_node.relative_id)
+            if not isinstance(equivalent_node_raw, DefinitionNode):
                 continue
-            
-            equivalent_node = cast(DefinitionNode, node)
+            equivalent_node: DefinitionNode = equivalent_node_raw
 
             is_equivalent_node_modified = equivalent_node and not equivalent_node.is_code_text_equivalent(
                 previous_node.code_text
@@ -160,8 +159,8 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
     def _mark_deleted_nodes_with_label(self, previous_node_states: List[PreviousNodeState]) -> None:
         for previous_node in previous_node_states:
-            node = self.graph.get_node_by_relative_id(previous_node.relative_id)
-            if node is None:
+            equivalent_node_raw = self.graph.get_node_by_relative_id(previous_node.relative_id)
+            if not equivalent_node_raw or not isinstance(equivalent_node_raw, DefinitionNode):
                 deleted_node = NodeFactory.create_deleted_node(
                     graph_environment=self.pr_environment,
                 )
@@ -184,7 +183,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         self.mark_file_nodes_as_diff(self.get_file_nodes_from_path_list(self.added_and_modified_paths))
 
     def keep_only_files_to_create(self) -> None:
-        paths_to_keep: List[str] = self.get_parent_paths_from_paths(self.added_and_modified_paths)
+        paths_to_keep = self.get_parent_paths_from_paths(self.added_and_modified_paths)
         paths_to_keep.extend(self.added_and_modified_paths)
         paths_to_keep.extend(self.deleted_nodes_added_paths)
 
@@ -199,6 +198,9 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
     def get_parent_paths_from_path(self, path: str) -> List[str]:
         parents: List[str] = []
+
+        if not self.graph_environment:
+            return parents
 
         iterations = 0
         while self.graph_environment.root_path in path:
@@ -222,10 +224,12 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         paths = self.remove_paths_to_create_from_paths_referenced(paths)
 
         file_nodes.extend(self.get_file_nodes_from_path_list(paths))
-        self._create_relationship_from_references(file_nodes=cast(List[Node], file_nodes))
+        # Cast to List[Node] for parent method compatibility
+        node_list: List[Node] = file_nodes  
+        self._create_relationship_from_references(file_nodes=node_list)
 
     def get_paths_referenced_by_file_nodes(self, file_nodes: List[FileNode]) -> List[str]:
-        paths: Set[str] = set()
+        paths = set()
         for file in file_nodes:
             if self.is_file_node_raw(file):
                 # Raw files can't be parsed, so we can't get references from them
@@ -233,7 +237,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
             paths.update(self.get_paths_referenced_by_file_node(file))
 
-        return list(paths)
+        return paths
 
     def is_file_node_raw(self, file_node: FileNode) -> bool:
         return not file_node.has_tree_sitter_node()
@@ -264,7 +268,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
         return {self.lsp_query_helper.get_definition_path_for_reference(ref, file_node.extension) for ref in filtered_identifiers}
 
-    def remove_definitions_from_identifiers(self, definitions: List[Any], identifiers: List[Any]) -> List[Any]:
+    def remove_definitions_from_identifiers(self, definitions: List, identifiers: List) -> List:
         return [identifier for identifier in identifiers if identifier not in definitions]
 
     def get_file_nodes_from_path_list(self, paths: List[str]) -> List[FileNode]:

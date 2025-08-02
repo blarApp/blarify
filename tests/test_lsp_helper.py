@@ -16,75 +16,75 @@ patcher.start()
 class TestLspQueryHelper(unittest.TestCase):
     """Test cases for LspQueryHelper class."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
         self.root_uri: str = "file:///test/project"  # type: ignore[misc]
         self.helper: LspQueryHelper = LspQueryHelper(self.root_uri)  # type: ignore[misc]
         
-    def test_init(self):
+    def test_init(self) -> None:
         """Test LspQueryHelper initialization."""
         helper = LspQueryHelper("file:///test", "localhost", 8080)
         self.assertEqual(helper.root_uri, "file:///test")
         self.assertEqual(helper.entered_lsp_servers, {})
         self.assertEqual(helper.language_to_lsp_server, {})
         
-    def test_get_language_definition_for_extension_python(self):
+    def test_get_language_definition_for_extension_python(self) -> None:
         """Test getting language definition for Python files."""
         from blarify.code_hierarchy.languages import PythonDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".py")
         self.assertEqual(result, PythonDefinitions)
         
-    def test_get_language_definition_for_extension_javascript(self):
+    def test_get_language_definition_for_extension_javascript(self) -> None:
         """Test getting language definition for JavaScript files."""
         from blarify.code_hierarchy.languages import JavascriptDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".js")
         self.assertEqual(result, JavascriptDefinitions)
         
-    def test_get_language_definition_for_extension_typescript(self):
+    def test_get_language_definition_for_extension_typescript(self) -> None:
         """Test getting language definition for TypeScript files."""
         from blarify.code_hierarchy.languages import TypescriptDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".ts")
         self.assertEqual(result, TypescriptDefinitions)
         
-    def test_get_language_definition_for_extension_ruby(self):
+    def test_get_language_definition_for_extension_ruby(self) -> None:
         """Test getting language definition for Ruby files."""
         from blarify.code_hierarchy.languages import RubyDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".rb")
         self.assertEqual(result, RubyDefinitions)
         
-    def test_get_language_definition_for_extension_csharp(self):
+    def test_get_language_definition_for_extension_csharp(self) -> None:
         """Test getting language definition for C# files."""
         from blarify.code_hierarchy.languages import CsharpDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".cs")
         self.assertEqual(result, CsharpDefinitions)
         
-    def test_get_language_definition_for_extension_go(self):
+    def test_get_language_definition_for_extension_go(self) -> None:
         """Test getting language definition for Go files."""
         from blarify.code_hierarchy.languages import GoDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".go")
         self.assertEqual(result, GoDefinitions)
         
-    def test_get_language_definition_for_extension_php(self):
+    def test_get_language_definition_for_extension_php(self) -> None:
         """Test getting language definition for PHP files."""
         from blarify.code_hierarchy.languages import PhpDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".php")
         self.assertEqual(result, PhpDefinitions)
         
-    def test_get_language_definition_for_extension_java(self):
+    def test_get_language_definition_for_extension_java(self) -> None:
         """Test getting language definition for Java files."""
         from blarify.code_hierarchy.languages import JavaDefinitions
         
         result = LspQueryHelper.get_language_definition_for_extension(".java")
         self.assertEqual(result, JavaDefinitions)
         
-    def test_get_language_definition_for_unsupported_extension(self):
+    def test_get_language_definition_for_unsupported_extension(self) -> None:
         """Test getting language definition for unsupported file extension."""
         with self.assertRaises(FileExtensionNotSupported) as context:
             LspQueryHelper.get_language_definition_for_extension(".xyz")
@@ -94,7 +94,7 @@ class TestLspQueryHelper(unittest.TestCase):
     @patch('blarify.code_references.lsp_helper.MultilspyConfig')
     @patch('blarify.code_references.lsp_helper.MultilspyLogger')
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_create_lsp_server(self, mock_path_calc: Any, mock_logger: Any, mock_config: Any, mock_sync_server: Any):
+    def test_create_lsp_server(self) -> None:
         """Test creating an LSP server."""
         # Mock language definitions
         mock_lang_def = MagicMock()
@@ -131,7 +131,7 @@ class TestLspQueryHelper(unittest.TestCase):
         )
         self.assertEqual(result, mock_server)
         
-    def test_get_or_create_lsp_server_existing(self):
+    def test_get_or_create_lsp_server_existing(self) -> None:
         """Test getting existing LSP server."""
         # Setup existing server
         mock_server = MagicMock()
@@ -147,7 +147,7 @@ class TestLspQueryHelper(unittest.TestCase):
             
         self.assertIsInstance(result, MagicMock)
         
-    def test_get_or_create_lsp_server_new(self):
+    def test_get_or_create_lsp_server_new(self) -> None:
         """Test creating new LSP server when none exists."""
         mock_server = MagicMock()
         
@@ -173,7 +173,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertEqual(self.helper.language_to_lsp_server.get("python", mock_server), mock_server)
         self.assertEqual(result, mock_server)
         
-    def test_initialize_lsp_server(self):
+    def test_initialize_lsp_server(self) -> None:
         """Test initializing LSP server."""
         mock_server = MagicMock()
         mock_context = MagicMock()
@@ -186,7 +186,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertEqual(self.helper.entered_lsp_servers["python"], mock_context)
         
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_get_paths_where_node_is_referenced(self, mock_path_calc: Any):
+    def test_get_paths_where_node_is_referenced(self) -> None:
         """Test getting references for a node."""
         # Mock node
         mock_node = MagicMock()
@@ -214,7 +214,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertIsInstance(result[0], Reference)
         
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_request_references_with_exponential_backoff_success(self, mock_path_calc: Any):
+    def test_request_references_with_exponential_backoff_success(self) -> None:
         """Test successful reference request."""
         mock_node = MagicMock()
         mock_node.extension = ".py"
@@ -236,7 +236,7 @@ class TestLspQueryHelper(unittest.TestCase):
         )
         
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_request_references_with_exponential_backoff_retry(self, mock_path_calc: Any):
+    def test_request_references_with_exponential_backoff_retry(self) -> None:
         """Test reference request with retry on timeout."""
         mock_node = MagicMock()
         mock_node.extension = ".py"
@@ -257,7 +257,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertEqual(len(result), 1)
         
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_request_references_with_exponential_backoff_failure(self, mock_path_calc: Any):
+    def test_request_references_with_exponential_backoff_failure(self) -> None:
         """Test reference request failing after all retries."""
         mock_node = MagicMock()
         mock_node.extension = ".py"
@@ -277,7 +277,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(mock_restart.call_count, 2)
         
-    def test_restart_lsp_for_extension(self):
+    def test_restart_lsp_for_extension(self) -> None:
         """Test restarting LSP server for an extension."""
         mock_server = MagicMock()
         
@@ -304,7 +304,7 @@ class TestLspQueryHelper(unittest.TestCase):
             self.assertEqual(args[1], mock_server)
         self.assertEqual(self.helper.language_to_lsp_server.get("python", mock_server), mock_server)
         
-    def test_restart_lsp_for_extension_connection_error(self):
+    def test_restart_lsp_for_extension_connection_error(self) -> None:
         """Test restarting LSP server with connection error."""
         with patch.object(self.helper, 'get_language_definition_for_extension') as mock_get_lang:
             with patch.object(self.helper, 'exit_lsp_server'):
@@ -319,7 +319,7 @@ class TestLspQueryHelper(unittest.TestCase):
                         self.helper._restart_lsp_for_extension(".py")  # type: ignore[attr-defined]
                         
     @patch('blarify.code_references.lsp_helper.threading.Thread')
-    def test_exit_lsp_server_with_context(self, mock_thread_class: Any):
+    def test_exit_lsp_server_with_context(self) -> None:
         """Test exiting LSP server with context manager."""
         mock_context = MagicMock()
         self.helper.entered_lsp_servers["python"] = mock_context
@@ -337,7 +337,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertNotIn("python", self.helper.language_to_lsp_server)
         
     @patch('blarify.code_references.lsp_helper.threading.Thread')
-    def test_exit_lsp_server_with_timeout(self, mock_thread_class: Any):
+    def test_exit_lsp_server_with_timeout(self) -> None:
         """Test exiting LSP server when context manager times out."""
         mock_context = MagicMock()
         self.helper.entered_lsp_servers["python"] = mock_context
@@ -351,7 +351,7 @@ class TestLspQueryHelper(unittest.TestCase):
             self.helper.exit_lsp_server("python")
             mock_cleanup.assert_called_once_with("python")
             
-    def test_exit_lsp_server_no_context(self):
+    def test_exit_lsp_server_no_context(self) -> None:
         """Test exiting LSP server without context manager."""
         self.helper.language_to_lsp_server["python"] = MagicMock()
         
@@ -361,7 +361,7 @@ class TestLspQueryHelper(unittest.TestCase):
             
     @patch('blarify.code_references.lsp_helper.psutil')
     @patch('blarify.code_references.lsp_helper.asyncio')
-    def test_manual_cleanup_lsp_server(self, mock_asyncio: Any, mock_psutil: Any):
+    def test_manual_cleanup_lsp_server(self) -> None:
         """Test manual cleanup of LSP server."""
         # Mock server and process
         mock_server = MagicMock()
@@ -397,7 +397,7 @@ class TestLspQueryHelper(unittest.TestCase):
         mock_loop.call_soon_threadsafe.assert_called_once_with(mock_loop.stop)
         
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_get_definition_path_for_reference(self, mock_path_calc: Any):
+    def test_get_definition_path_for_reference(self) -> None:
         """Test getting definition path for a reference."""
         mock_reference = MagicMock()
         mock_reference.uri = "file:///test/ref.py"
@@ -415,7 +415,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertEqual(result, "file:///test/def.py")
         
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_get_definition_path_for_reference_no_definitions(self, mock_path_calc: Any):
+    def test_get_definition_path_for_reference_no_definitions(self) -> None:
         """Test getting definition path when no definitions found."""
         mock_reference = MagicMock()
         
@@ -427,7 +427,7 @@ class TestLspQueryHelper(unittest.TestCase):
                 
         self.assertEqual(result, "")
         
-    def test_shutdown_exit_close(self):
+    def test_shutdown_exit_close(self) -> None:
         """Test shutting down all LSP servers."""
         self.helper.language_to_lsp_server = {
             "python": MagicMock(),
@@ -442,7 +442,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertEqual(len(self.helper.language_to_lsp_server), 0)
         self.assertEqual(len(self.helper.entered_lsp_servers), 0)
         
-    def test_shutdown_exit_close_with_error(self):
+    def test_shutdown_exit_close_with_error(self) -> None:
         """Test shutting down with error handling."""
         self.helper.language_to_lsp_server = {"python": MagicMock()}
         
@@ -454,7 +454,7 @@ class TestLspQueryHelper(unittest.TestCase):
             
         self.assertEqual(len(self.helper.language_to_lsp_server), 0)
     
-    def test_lsp_error_handling_coverage(self):
+    def test_lsp_error_handling_coverage(self) -> None:
         """Test that LSP helper properly handles various error types."""
         # Test unsupported extension error handling
         with self.assertRaises(FileExtensionNotSupported):
@@ -465,7 +465,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertTrue(hasattr(self.helper, '_restart_lsp_for_extension'))
     
     @patch('blarify.code_references.lsp_helper.PathCalculator')
-    def test_lsp_error_simulation_and_recovery(self, mock_path_calc: Any):
+    def test_lsp_error_simulation_and_recovery(self) -> None:
         """Test LSP error simulation and recovery behavior."""
         # Create mock node for testing
         mock_node = MagicMock()
@@ -536,7 +536,7 @@ class TestLspQueryHelper(unittest.TestCase):
                 self.assertEqual(len(result), 1)
                 self.assertEqual(result[0]["uri"], "file:///test/ref.py")
     
-    def test_lsp_retry_mechanism_constants(self):
+    def test_lsp_retry_mechanism_constants(self) -> None:
         """Test that retry mechanism uses appropriate error types."""
         # Verify that the helper recognizes common LSP error types
         # by checking if they would be caught in exception handling
@@ -551,7 +551,7 @@ class TestLspQueryHelper(unittest.TestCase):
         self.assertTrue(hasattr(self.helper, '_request_references_with_exponential_backoff'))
         self.assertTrue(hasattr(self.helper, '_restart_lsp_for_extension'))
     
-    def test_error_recovery_workflow(self):
+    def test_error_recovery_workflow(self) -> None:
         """Test the error recovery workflow without complex side effects."""
         mock_lang_def = MagicMock()
         mock_lang_def.get_language_name.return_value = "python"

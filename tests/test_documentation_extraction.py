@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 import tempfile
 import os
 from pathlib import Path
+from typing import Any
 
 from blarify.documentation.documentation_parser import DocumentationParser
 from blarify.documentation.documentation_graph_generator import DocumentationGraphGenerator
@@ -16,41 +17,43 @@ from blarify.graph.node.types.node_labels import NodeLabels
 
 class TestDocumentationParser(unittest.TestCase):
     """Test documentation file parsing."""
+    temp_dir: str
+    parser: DocumentationParser
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
-        self.temp_dir: str = tempfile.mkdtemp()  # type: ignore[reportUninitializedInstanceVariable]
-        self.parser: DocumentationParser = DocumentationParser(root_path=self.temp_dir)  # type: ignore[reportUninitializedInstanceVariable]
+        self.temp_dir = tempfile.mkdtemp()
+        self.parser = DocumentationParser(root_path=self.temp_dir)
         
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test files."""
         import shutil
         shutil.rmtree(self.temp_dir)
         
-    def test_is_documentation_file_markdown(self):
+    def test_is_documentation_file_markdown(self) -> None:
         """Test identifying markdown files as documentation."""
         # Create test files
         readme_path = os.path.join(self.temp_dir, "README.md")
         Path(readme_path).write_text("# Test Project")
         
         # Test that common documentation files are identified
-        self.assertTrue(self.parser._is_documentation_file("README.md", readme_path))  # type: ignore[reportPrivateUsage]
-        self.assertTrue(self.parser._is_documentation_file("CHANGELOG.md", "CHANGELOG.md"))  # type: ignore[reportPrivateUsage]
-        self.assertTrue(self.parser._is_documentation_file("docs.md", "docs.md"))  # type: ignore[reportPrivateUsage]
+        self.assertTrue(self.parser._is_documentation_file("README.md", readme_path))
+        self.assertTrue(self.parser._is_documentation_file("CHANGELOG.md", "CHANGELOG.md"))
+        self.assertTrue(self.parser._is_documentation_file("docs.md", "docs.md"))
         
-    def test_is_documentation_file_other_formats(self):
+    def test_is_documentation_file_other_formats(self) -> None:
         """Test identifying other documentation formats."""
-        self.assertTrue(self.parser._is_documentation_file("README.rst", "README.rst"))  # type: ignore[reportPrivateUsage]
-        self.assertTrue(self.parser._is_documentation_file("documentation.txt", "documentation.txt"))  # type: ignore[reportPrivateUsage]
-        self.assertTrue(self.parser._is_documentation_file("guide.adoc", "guide.adoc"))  # type: ignore[reportPrivateUsage]
+        self.assertTrue(self.parser._is_documentation_file("README.rst", "README.rst"))
+        self.assertTrue(self.parser._is_documentation_file("documentation.txt", "documentation.txt"))
+        self.assertTrue(self.parser._is_documentation_file("guide.adoc", "guide.adoc"))
         
-    def test_is_not_documentation_file(self):
+    def test_is_not_documentation_file(self) -> None:
         """Test files that should not be identified as documentation."""
-        self.assertFalse(self.parser._is_documentation_file("main.py", "main.py"))  # type: ignore[reportPrivateUsage]
-        self.assertFalse(self.parser._is_documentation_file("config.json", "config.json"))  # type: ignore[reportPrivateUsage]
-        self.assertFalse(self.parser._is_documentation_file("test.js", "test.js"))  # type: ignore[reportPrivateUsage]
+        self.assertFalse(self.parser._is_documentation_file("main.py", "main.py"))
+        self.assertFalse(self.parser._is_documentation_file("config.json", "config.json"))
+        self.assertFalse(self.parser._is_documentation_file("test.js", "test.js"))
         
-    def test_find_documentation_files(self):
+    def test_find_documentation_files(self) -> None:
         """Test finding documentation files in directory."""
         # Create test structure
         (Path(self.temp_dir) / "README.md").write_text("# Main")
@@ -67,7 +70,7 @@ class TestDocumentationParser(unittest.TestCase):
         self.assertIn("guide.md", doc_file_names)
         self.assertNotIn("main.py", doc_file_names)
         
-    def test_parse_documentation_files(self):
+    def test_parse_documentation_files(self) -> None:
         """Test parsing documentation files."""
         # Create test documentation
         readme_content = "# Project\nThis is a test project."
@@ -87,19 +90,21 @@ class TestDocumentationParser(unittest.TestCase):
 
 class TestDocumentationGraphGenerator(unittest.TestCase):
     """Test documentation graph generation."""
+    temp_dir: str
+    mock_llm: Mock
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test fixtures."""
-        self.temp_dir: str = tempfile.mkdtemp()  # type: ignore[reportUninitializedInstanceVariable]
-        self.mock_llm: Mock = Mock()  # type: ignore[reportUninitializedInstanceVariable]
+        self.temp_dir = tempfile.mkdtemp()
+        self.mock_llm = Mock()
         
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up."""
         import shutil
         shutil.rmtree(self.temp_dir)
         
     @patch('blarify.project_file_explorer.project_files_iterator.ProjectFilesIterator')
-    def test_generate_documentation_nodes(self, mock_iterator: Mock):
+    def test_generate_documentation_nodes(self, mock_iterator: Mock) -> None:
         """Test generating documentation nodes."""
         # Create test structure
         (Path(self.temp_dir) / "README.md").write_text("# Test Project")

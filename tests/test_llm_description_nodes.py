@@ -2,7 +2,8 @@
 Tests for LLM description node functionality.
 """
 import unittest
-from unittest.mock import Mock
+from typing import Any
+from unittest.mock import Mock, patch
 from blarify.graph.node.description_node import DescriptionNode
 from blarify.graph.node.types.node_labels import NodeLabels
 from blarify.llm_descriptions.description_generator import DescriptionGenerator
@@ -12,7 +13,7 @@ from blarify.graph.graph import Graph
 class TestDescriptionNodes(unittest.TestCase):
     """Test LLM description nodes."""
     
-    def test_description_node_creation(self):
+    def test_description_node_creation(self) -> None:
         """Test creating a description node with proper parameters."""
         node = DescriptionNode(
             path="file:///descriptions/desc_123",
@@ -32,7 +33,7 @@ class TestDescriptionNodes(unittest.TestCase):
         # Test node_repr_for_identifier
         self.assertEqual(node.node_repr_for_identifier, "/DESCRIPTION[function_factorial_123]")
         
-    def test_description_node_as_object(self):
+    def test_description_node_as_object(self) -> None:
         """Test serializing description node."""
         node = DescriptionNode(
             path="file:///descriptions/desc_456",
@@ -56,7 +57,7 @@ class TestDescriptionNodes(unittest.TestCase):
         self.assertEqual(obj['attributes']['target_node_id'], "class_auth_456")
         self.assertEqual(obj['attributes']['llm_model'], "gpt-3.5-turbo")
         
-    def test_description_node_in_graph(self):
+    def test_description_node_in_graph(self) -> None:
         """Test adding description nodes to graph."""
         graph = Graph()
         
@@ -76,14 +77,14 @@ class TestDescriptionNodes(unittest.TestCase):
         # Retrieve by ID
         retrieved = graph.get_node_by_id(desc_node.id)
         self.assertIsNotNone(retrieved)
-        self.assertEqual(retrieved.description_text, "Handles HTTP requests")  # type: ignore[attr-defined]
+        self.assertEqual(retrieved.description_text, "Handles HTTP requests")
         
         # Retrieve by label - use the enum, not string
         desc_nodes = graph.get_nodes_by_label(NodeLabels.DESCRIPTION)
         self.assertEqual(len(desc_nodes), 1)
         self.assertIn(desc_node, desc_nodes)
         
-    def test_create_prompt_for_description(self):
+    def test_create_prompt_for_description(self) -> None:
         """Test creating prompts for LLM description generation."""
         # Mock LLM service
         mock_llm = Mock()
@@ -96,12 +97,12 @@ class TestDescriptionNodes(unittest.TestCase):
         mock_node.path = "file:///test/main.py"
         mock_node.extension = ".py"
         mock_node.hashed_id = "func_123"
-        mock_node.code_text = "def calculate_average(numbers):\n    return sum(numbers) / len(numbers)"
+        mock_node.text = "def calculate_average(numbers):\n    return sum(numbers) / len(numbers)"
         
         mock_graph = Mock()
         
         # Test _create_prompt_for_node method
-        prompt_data = generator._create_prompt_for_node(mock_node, mock_graph)  # type: ignore[misc]
+        prompt_data = generator._create_prompt_for_node(mock_node, mock_graph)
         
         self.assertIsNotNone(prompt_data)
         assert prompt_data is not None  # Type narrowing for pyright
@@ -110,26 +111,26 @@ class TestDescriptionNodes(unittest.TestCase):
         self.assertIn("calculate_average", prompt_data['prompt'])
         self.assertIn("def calculate_average", prompt_data['prompt'])
         
-    def test_should_generate_description(self):
+    def test_should_generate_description(self) -> None:
         """Test logic for which nodes should get descriptions."""
         # Mock LLM service
         mock_llm = Mock()
-        DescriptionGenerator(llm_service=mock_llm)
+        generator = DescriptionGenerator(llm_service=mock_llm)
         
         # Test _get_eligible_nodes method which filters by label
-        Mock()
+        mock_graph = Mock()
         
         # Mock nodes with different labels
         func_node = Mock()
         func_node.label = NodeLabels.FUNCTION
         
-        class_node = Mock()
+        class_node = Mock() 
         class_node.label = NodeLabels.CLASS
         
         file_node = Mock()
         file_node.label = NodeLabels.FILE
         
-        folder_node = Mock()  # type: ignore[var-annotated]
+        folder_node = Mock()
         folder_node.label = NodeLabels.FOLDER
         
         # The eligible labels are FILE, FUNCTION, CLASS, METHOD, MODULE
@@ -144,7 +145,7 @@ class TestDescriptionNodes(unittest.TestCase):
         self.assertIn(NodeLabels.FILE, eligible_labels)
         self.assertNotIn(NodeLabels.FOLDER, eligible_labels)
         
-    def test_generate_description_with_mock_llm(self):
+    def test_generate_description_with_mock_llm(self) -> None:
         """Test description generation with mocked LLM."""
         # Set up mock
         mock_llm = Mock()
@@ -171,12 +172,12 @@ class TestDescriptionNodes(unittest.TestCase):
         graph = Graph()
         
         # Mock graph methods
-        def mock_get_nodes_by_label(label: object) -> list[Mock]:
+        def mock_get_nodes_by_label(label: NodeLabels) -> list[Any]:
             if label == NodeLabels.FUNCTION:
                 return [func_node]
             return []
         
-        graph.get_nodes_by_label = mock_get_nodes_by_label  # type: ignore[method-assign]
+        graph.get_nodes_by_label = mock_get_nodes_by_label
         
         # Generate descriptions
         desc_nodes = generator.generate_descriptions_for_graph(graph)
@@ -184,28 +185,28 @@ class TestDescriptionNodes(unittest.TestCase):
         # Check that description was generated
         self.assertEqual(len(desc_nodes), 1)
         desc_node = list(desc_nodes.values())[0]
-        self.assertEqual(desc_node.description_text, "Mock description for process_data function")  # type: ignore[attr-defined]
-        self.assertEqual(desc_node.target_node_id, "func_123")  # type: ignore[attr-defined]
+        self.assertEqual(desc_node.description_text, "Mock description for process_data function")
+        self.assertEqual(desc_node.target_node_id, "func_123")
 
 
 class TestDescriptionRelationships(unittest.TestCase):
     """Test relationships involving description nodes."""
     
-    def test_has_description_relationship(self):
+    def test_has_description_relationship(self) -> None:
         """Test HAS_DESCRIPTION relationship type."""
         from blarify.graph.relationship.relationship_type import RelationshipType
         
         # Verify the relationship type exists
         self.assertEqual(RelationshipType.HAS_DESCRIPTION.value, "HAS_DESCRIPTION")
         
-    def test_references_in_description_relationship(self):
+    def test_references_in_description_relationship(self) -> None:
         """Test REFERENCES_IN_DESCRIPTION relationship type."""
         from blarify.graph.relationship.relationship_type import RelationshipType
         
         # Verify the relationship type exists  
         self.assertEqual(RelationshipType.REFERENCES_IN_DESCRIPTION.value, "REFERENCES_IN_DESCRIPTION")
         
-    def test_referenced_by_description_relationship(self):
+    def test_referenced_by_description_relationship(self) -> None:
         """Test REFERENCED_BY_DESCRIPTION relationship type."""
         from blarify.graph.relationship.relationship_type import RelationshipType
         

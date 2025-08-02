@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from typing import List, Any
 import pytest
+from typing import Any, List, Dict, Optional
 from blarify.project_file_explorer import ProjectFilesIterator
 
 
@@ -69,7 +70,7 @@ test_*.py
 """
         Path(os.path.join(self.test_dir, ".blarignore")).write_text(blarignore_content.strip())
     
-    def test_gitignore_files_are_excluded(self):
+    def test_gitignore_files_are_excluded(self) -> None:
         """Test that files matching .gitignore patterns are excluded."""
         self.create_test_structure()
         
@@ -101,7 +102,7 @@ test_*.py
         assert not any("build" in path for path in file_paths)
         assert not any(".venv" in path for path in file_paths)
     
-    def test_blarignore_is_additive_to_gitignore(self):
+    def test_blarignore_is_additive_to_gitignore(self) -> None:
         """Test that .blarignore adds additional exclusions on top of .gitignore."""
         self.create_test_structure()
         
@@ -127,7 +128,7 @@ test_*.py
         assert "main.py" in file_names
         assert "app.py" in file_names
     
-    def test_nested_gitignore_files(self):
+    def test_nested_gitignore_files(self) -> None:
         """Test that nested .gitignore files in subdirectories are respected."""
         self.create_test_structure()
         
@@ -162,7 +163,7 @@ local.conf
         assert "app.py" in src_file_names
     
     @pytest.mark.skip(reason="Negation patterns are complex and will be addressed in a follow-up PR")
-    def test_gitignore_negation_patterns(self):
+    def test_gitignore_negation_patterns(self) -> None:
         """Test that gitignore negation patterns (!) work correctly."""
         self.create_test_structure()
         
@@ -215,7 +216,7 @@ build/*
         # Other .log files should still be excluded
         assert "test.log" not in file_names
     
-    def test_gitignore_can_be_disabled(self):
+    def test_gitignore_can_be_disabled(self) -> None:
         """Test that gitignore integration can be disabled if needed."""
         self.create_test_structure()
         

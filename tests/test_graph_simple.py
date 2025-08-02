@@ -12,16 +12,16 @@ from blarify.graph.relationship.relationship_type import RelationshipType
 class TestGraphSimple(unittest.TestCase):
     """Simple test suite for graph operations."""
     
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test graph instance."""
         self.graph = Graph()  # type: ignore[misc]
         
-    def test_graph_creation(self):
+    def test_graph_creation(self) -> None:
         """Test creating an empty graph."""
         self.assertIsInstance(self.graph, Graph)
         self.assertEqual(len(self.graph.get_nodes_as_objects()), 0)
         
-    def test_add_simple_node(self):
+    def test_add_simple_node(self) -> None:
         """Test adding a simple node to graph."""
         # Create a mock node with required properties
         node = Mock()
@@ -42,7 +42,7 @@ class TestGraphSimple(unittest.TestCase):
         retrieved = self.graph.get_node_by_id(node.id)
         self.assertEqual(retrieved, node)
         
-    def test_get_node_by_id(self):
+    def test_get_node_by_id(self) -> None:
         """Test retrieving node by ID."""
         node = Mock()
         node.id = "folder_node_id"
@@ -62,7 +62,7 @@ class TestGraphSimple(unittest.TestCase):
         self.assertEqual(retrieved, node)
         self.assertEqual(retrieved.name, "src")  # type: ignore[attr-defined]
         
-    def test_get_nodes_by_label(self):
+    def test_get_nodes_by_label(self) -> None:
         """Test retrieving nodes by label."""
         # Add different types of nodes
         file_node = Mock()
@@ -99,7 +99,7 @@ class TestGraphSimple(unittest.TestCase):
         self.assertIn(file_node, file_nodes)
         self.assertIn(folder_node, folder_nodes)
         
-    def test_add_relationship(self):
+    def test_add_relationship(self) -> None:
         """Test adding relationships between nodes."""
         # Create two nodes
         parent = Mock()
@@ -143,7 +143,7 @@ class TestGraphSimple(unittest.TestCase):
         self.assertEqual(relationships[0]['sourceId'], parent.hashed_id)
         self.assertEqual(relationships[0]['targetId'], child.hashed_id)
         
-    def test_get_nodes_as_objects(self):
+    def test_get_nodes_as_objects(self) -> None:
         """Test serializing nodes to dictionaries."""
         node = Mock()
         node.id = "utils_node_id"
@@ -183,7 +183,7 @@ class TestGraphSimple(unittest.TestCase):
 class TestNodeLabels(unittest.TestCase):
     """Test node label types."""
     
-    def test_node_labels_exist(self):
+    def test_node_labels_exist(self) -> None:
         """Test that expected node labels exist."""
         # Basic labels
         self.assertTrue(hasattr(NodeLabels, 'FILE'))
@@ -207,7 +207,7 @@ class TestNodeLabels(unittest.TestCase):
 class TestRelationshipTypes(unittest.TestCase):
     """Test relationship types."""
     
-    def test_relationship_types_exist(self):
+    def test_relationship_types_exist(self) -> None:
         """Test that expected relationship types exist."""
         # Basic relationships
         self.assertTrue(hasattr(RelationshipType, 'CONTAINS'))

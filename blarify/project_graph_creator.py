@@ -182,7 +182,7 @@ class ProjectGraphCreator:
                 if node.label == NodeLabels.FILE:
                     continue
 
-                logger.debug(f"Processing node {node.name}")
+                logger.info(f"DEBUG: Processing node {node.name}")
 
                 tree_sitter_helper = self._get_tree_sitter_for_file_extension(node.extension)
                 references_relationships.extend(

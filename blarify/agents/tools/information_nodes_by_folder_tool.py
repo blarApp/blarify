@@ -16,13 +16,13 @@ from blarify.db_managers.db_manager import AbstractDbManager
 
 class InformationNodesByFolderInput(BaseModel):
     folder_node_id: str = Field(
-        description="Node ID of the folder InformationNode to explore (e.g., 'info_abc123')"
+        description="Node ID of the folder InformationNode to explore (e.g., 'aa203a8096fd36b42c4c2bab6efc4e08'). DO NOT include a '\n' or comments."
     )
 
 
 class InformationNodesByFolderTool(BaseTool):
     name: str = "information_nodes_by_folder"
-    description: str = "Get all InformationNodes related to a specific folder node. Input should be ONLY the node_id (e.g., 'aa203a8096fd36b42c4c2bab6efc4e08') from the folder context provided to you. Do NOT include folder names or comments."
+    description: str = "Get all InformationNodes related to a specific folder node. Input should be ONLY the node_id (e.g., 'aa203a8096fd36b42c4c2bab6efc4e08') from the folder context provided to you. Do NOT include folder names, '\\n', or comments."
 
     args_schema: Type[BaseModel] = InformationNodesByFolderInput
     db_manager: AbstractDbManager = Field(description="Database manager to interact with the graph database")
@@ -48,6 +48,9 @@ class InformationNodesByFolderTool(BaseTool):
     ) -> List[Dict[str, Any]]:
         """Get all InformationNodes related to the specified folder node using hierarchy relationships."""
         try:
+            # Trim newline characters from folder_node_id
+            folder_node_id = folder_node_id.strip()
+
             # Cypher query to find InformationNodes related to the folder using hierarchy relationships
             # Pattern: folder_info -> DESCRIBES -> folder_code -> CONTAINS -> child_code <- DESCRIBES <- info
             cypher_query = """
@@ -61,7 +64,8 @@ class InformationNodesByFolderTool(BaseTool):
                    info.content as content,
                    info.info_type as info_type,
                    info.source_path as source_path,
-                   info.source_labels as source_labels
+                   info.source_labels as source_labels,
+                   child_code.id as source_node_id
             ORDER BY info.source_path, info.title
             LIMIT 30
             """
@@ -71,7 +75,7 @@ class InformationNodesByFolderTool(BaseTool):
             results = self.db_manager.query(cypher_query, parameters)
 
             if not results:
-                    return [{"message": f"No InformationNodes found related to folder node {folder_node_id}"}]
+                return [{"message": f"No InformationNodes found related to folder node {folder_node_id}"}]
 
             # Format results for the agent
             formatted_results = []
@@ -85,6 +89,7 @@ class InformationNodesByFolderTool(BaseTool):
                     "source_path": result.get("source_path", ""),
                     "source_labels": result.get("source_labels", []),
                     "source_name": result.get("source_name", ""),
+                    "source_node_id": result.get("source_node_id", ""),
                 }
                 formatted_results.append(formatted_result)
 

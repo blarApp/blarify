@@ -39,7 +39,7 @@ class FindNodesByPath(BaseTool):
 
         nodes_as_dict = [node.as_dict() for node in nodes]
 
-        if len(nodes) > 15:
+        if len(nodes) > 20:
             return "Too many nodes found. Please refine your query or use another tool"
 
         nodes: List[NodeFoundByPathDto] = nodes_as_dict

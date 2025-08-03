@@ -1,41 +1,11 @@
-from typing import Dict, List, Optional, Type
+from typing import Dict, Optional, Type
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
-from blarify.db_managers.dtos import EdgeDTO, NodeSearchResultDTO
 from blarify.db_managers.neo4j_manager import Neo4jManager
-
-
-def get_relations_str(*, node_name: str, relations: List[EdgeDTO], direction: str) -> str:
-    if direction == "outbound":
-        relationship_str = "{node_name} -> {relation.relationship_type} -> {relation.node_name}"
-    else:
-        relationship_str = "{relation.node_name} -> {relation.relationship_type} -> {node_name}"
-    relation_str = ""
-    for relation in relations:
-        relation_str += f"""
-RELATIONSHIP: {relationship_str.format(node_name=node_name, relation=relation)}
-RELATION NODE ID: {relation.node_id}
-RELATION NODE TYPE: {" | ".join(relation.node_type)}
-"""
-    return relation_str
-
-
-def get_result_prompt(node_result: NodeSearchResultDTO) -> str:
-    diff_text = f"\n\nDIFF TEXT: {node_result.diff_text}\n" if node_result.diff_text else ""
-
-    output = f"""
-NODE: ID: {node_result.node_id} | NAME: {node_result.node_name}
-LABELS: {" | ".join(node_result.node_labels)}
-CODE for {node_result.node_name}:
-```
-{node_result.code}
-```
-{diff_text}
-"""
-    return output
+from blarify.db_managers.queries import get_code_by_id
 
 
 class NodeIdInput(BaseModel):
@@ -46,6 +16,7 @@ class NodeIdInput(BaseModel):
     @field_validator("node_id", mode="before")
     @classmethod
     def format_node_id(cls, value: any) -> any:
+        value = str(value).strip()
         if isinstance(value, str) and len(value) == 32:
             return value
         raise ValueError("Node id must be a 32 character string UUID like hash id")
@@ -83,17 +54,15 @@ class GetCodeByIdTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, str]:
         """Returns a function code given a node_id. returns the node text and the neighbors of the node."""
-        try:
-            node_result: NodeSearchResultDTO = self.db_manager.get_node_by_id_v2(
-                node_id=node_id, company_id=self.company_id, diff_identifier=self.diff_identifier
-            )
-        except ValueError:
+        node_result = get_code_by_id(self.db_manager, node_id=node_id, entity_id=self.company_id)
+        
+        if not node_result:
             return f"No code found for the given query: {node_id}"
 
         return_dict = {
-            "name": node_result.node_name,
-            "labels": node_result.node_labels,
-            "code": node_result.code,
+            "name": node_result.get("name", ""),
+            "labels": node_result.get("labels", []),
+            "code": node_result.get("text", ""),
         }
 
         return return_dict

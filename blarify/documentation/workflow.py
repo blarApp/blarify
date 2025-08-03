@@ -17,7 +17,7 @@ from ..db_managers.db_manager import AbstractDbManager
 from ..db_managers.queries import get_codebase_skeleton, get_root_folders_and_files
 from ..graph.graph_environment import GraphEnvironment
 from .root_file_folder_processing_workflow import RooFileFolderProcessingWorkflow
-from .workflow_analysis_workflow import WorkflowAnalysisWorkflow
+from .spec_analysis_workflow import SpecAnalysisWorkflow
 from .main_documentation_workflow import MainDocumentationWorkflow
 
 logger = logging.getLogger(__name__)
@@ -48,10 +48,10 @@ class DocumentationState(TypedDict):
     # New fields for bottoms-up approach
     leaf_node_descriptions: Annotated[list, add]  # Initial descriptions of all leaf nodes
 
-    # Workflow analysis fields
-    discovered_workflows: List[Dict[str, Any]]  # From discover_workflows node
-    workflow_analysis_results: Annotated[list, add]  # From process_workflows node
-    workflow_relationships: Annotated[list, add]  # Workflow-specific relationships
+    # Spec analysis fields
+    discovered_specs: List[Dict[str, Any]]  # From discover_specs node
+    spec_analysis_results: Annotated[list, add]  # From process_specs node
+    spec_relationships: Annotated[list, add]  # Spec-specific relationships
 
 
 class DocumentationWorkflow:
@@ -91,15 +91,15 @@ class DocumentationWorkflow:
         workflow.add_node("load_codebase", self.__load_codebase)
         workflow.add_node("detect_framework", self.__detect_framework)
         workflow.add_node("create_descriptions", self.__create_descriptions)
-        workflow.add_node("get_workflows", self.__get_workflows)
+        workflow.add_node("get_specs", self.__get_specs)
         workflow.add_node("construct_general_documentation", self.__construct_general_documentation)
 
         # Sequential execution workflow with normalized names
         workflow.add_edge(START, "load_codebase")
         workflow.add_edge("load_codebase", "detect_framework")
         workflow.add_edge("detect_framework", "create_descriptions")
-        workflow.add_edge("create_descriptions", "get_workflows")
-        workflow.add_edge("get_workflows", "construct_general_documentation")
+        workflow.add_edge("create_descriptions", "get_specs")
+        workflow.add_edge("get_specs", "construct_general_documentation")
 
         self.__compiled_graph = workflow.compile()
 
@@ -214,21 +214,21 @@ class DocumentationWorkflow:
             logger.exception(f"Error in parallel root processing workflow: {e}")
             return {"information_nodes": [], "error": str(e)}
 
-    def __get_workflows(self, state: DocumentationState) -> Dict[str, Any]:
-        """Orchestrate workflow analysis using WorkflowAnalysisWorkflow."""
+    def __get_specs(self, state: DocumentationState) -> Dict[str, Any]:
+        """Orchestrate spec analysis using WorkflowAnalysisWorkflow."""
         try:
-            logger.info("Starting workflow analysis orchestration")
+            logger.info("Starting spec analysis orchestration")
 
             # Get required data from state
             information_nodes = state.get("information_nodes", [])
             detected_framework = state.get("detected_framework", {})
 
             if not information_nodes:
-                logger.warning("No information nodes available for workflow analysis")
-                return {"discovered_workflows": [], "workflow_analysis_results": [], "workflow_relationships": []}
+                logger.warning("No information nodes available for spec analysis")
+                return {"discovered_specs": [], "spec_analysis_results": [], "spec_relationships": []}
 
-            # Create WorkflowAnalysisWorkflow instance
-            workflow_analysis = WorkflowAnalysisWorkflow(
+            # Create SpecAnalysisWorkflow instance
+            spec_analysis = SpecAnalysisWorkflow(
                 company_id=self.__company_id,
                 company_graph_manager=self.__company_graph_manager,
                 repo_id=self.__repo_id,
@@ -236,28 +236,28 @@ class DocumentationWorkflow:
                 agent_caller=self.__agent_caller,
             )
 
-            # Prepare input data for the workflow analysis
-            workflow_input = {
+            # Prepare input data for the spec analysis
+            spec_input = {
                 "information_nodes": information_nodes,
                 "detected_framework": detected_framework,
             }
 
-            # Run the workflow analysis workflow
-            workflow_result = workflow_analysis.run(workflow_input)
+            # Run the spec analysis workflow
+            spec_result = spec_analysis.run(spec_input)
 
-            logger.info("Workflow analysis orchestration completed")
+            logger.info("Spec analysis orchestration completed")
             return {
-                "discovered_workflows": workflow_result.get("discovered_workflows", []),
-                "workflow_analysis_results": workflow_result.get("workflow_analysis_results", []),
-                "workflow_relationships": workflow_result.get("workflow_relationships", []),
+                "discovered_specs": spec_result.get("discovered_specs", []),
+                "spec_analysis_results": spec_result.get("spec_analysis_results", []),
+                "spec_relationships": spec_result.get("spec_relationships", []),
             }
 
         except Exception as e:
-            logger.exception(f"Error in workflow analysis orchestration: {e}")
+            logger.exception(f"Error in spec analysis orchestration: {e}")
             return {
-                "discovered_workflows": [],
-                "workflow_analysis_results": [],
-                "workflow_relationships": [],
+                "discovered_specs": [],
+                "spec_analysis_results": [],
+                "spec_relationships": [],
                 "error": str(e),
             }
 
@@ -269,9 +269,9 @@ class DocumentationWorkflow:
             # Get required data from state
             information_nodes = state.get("information_nodes", [])
             detected_framework = state.get("detected_framework", {})
-            discovered_workflows = state.get("discovered_workflows", [])
-            workflow_analysis_results = state.get("workflow_analysis_results", [])
-            workflow_relationships = state.get("workflow_relationships", [])
+            discovered_specs = state.get("discovered_specs", [])
+            spec_analysis_results = state.get("spec_analysis_results", [])
+            spec_relationships = state.get("spec_relationships", [])
 
             # Create MainDocumentationWorkflow instance
             main_documentation = MainDocumentationWorkflow(
@@ -286,9 +286,9 @@ class DocumentationWorkflow:
             documentation_input = {
                 "information_nodes": information_nodes,
                 "detected_framework": detected_framework,
-                "discovered_workflows": discovered_workflows,
-                "workflow_analysis_results": workflow_analysis_results,
-                "workflow_relationships": workflow_relationships,
+                "discovered_specs": discovered_specs,
+                "spec_analysis_results": spec_analysis_results,
+                "spec_relationships": spec_relationships,
             }
 
             # Run the main documentation workflow
@@ -342,10 +342,10 @@ class DocumentationWorkflow:
                 key_components=[],
                 # New fields for bottoms-up approach
                 leaf_node_descriptions=[],
-                # Workflow analysis fields
-                discovered_workflows=[],
-                workflow_analysis_results=[],
-                workflow_relationships=[],
+                # Spec analysis fields
+                discovered_specs=[],
+                spec_analysis_results=[],
+                spec_relationships=[],
             )
 
             # Execute workflow

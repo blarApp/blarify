@@ -70,10 +70,12 @@ class InformationNodeRelationshipTraversalTool(BaseTool):
                    target_info.source_labels as source_labels,
                    type(rel) as relationship_type,
                    labels(target_code) as target_code_type,
-                   target_code.name as target_code_name
+                   target_code.name as target_code_name,
+                   target_code.id as source_node_id
             ORDER BY target_info.title
             LIMIT 15
             """
+            print(f"Running relationship traversal query: {cypher_query}")
 
             parameters = {"info_id": info_node_id, "entity_id": self.company_id, "repo_id": self.repo_id}
 
@@ -97,6 +99,7 @@ class InformationNodeRelationshipTraversalTool(BaseTool):
                     "relationship_type": result.get("relationship_type", ""),
                     "target_code_type": result.get("target_code_type", []),
                     "target_code_name": result.get("target_code_name", ""),
+                    "source_node_id": result.get("source_node_id", ""),
                 }
                 formatted_results.append(formatted_result)
 

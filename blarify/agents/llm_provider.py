@@ -227,11 +227,7 @@ Question: {input}
 
         # Create agent executor
         agent_executor = AgentExecutor(
-            agent=react_agent,
-            tools=tools,
-            verbose=True,
-            handle_parsing_errors=True,
-            max_iterations=10,
+            agent=react_agent, tools=tools, verbose=True, handle_parsing_errors=True, max_iterations=30
         )
 
         # Format the input text with input_dict

@@ -35,6 +35,7 @@ class DirectoryExplorerTool:
             """
             try:
                 # If no node_id provided, find and use repo root
+                node_id = node_id.strip() if node_id else None
                 if node_id is None:
                     node_id = self._find_repo_root()
                     if not node_id:
@@ -92,7 +93,6 @@ class DirectoryExplorerTool:
             MATCH (root:NODE {entityId: $entity_id, repoId: $repoId})
             WHERE root.level=0
             AND root.name <> "DELETED"
-            AND (root.environment IS NULL OR root.environment = "blarify")
             RETURN root.node_id as node_id, root.node_path as path, root.name as name
             ORDER BY root.node_path
             LIMIT 1
@@ -117,11 +117,7 @@ class DirectoryExplorerTool:
         """
         try:
             query = """
-            MATCH (parent:NODE {node_id: $node_id})-[:CONTAINS]->(child:NODE)
-            WHERE parent.entityId = $entity_id
-            AND child.entityId = $entity_id
-            AND (parent.environment IS NULL OR parent.environment = "blarify")
-            AND (child.environment IS NULL OR child.environment = "blarify")
+            MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id})-[:CONTAINS]->(child:NODE)
             RETURN child.node_id as node_id,
                    child.name as name,
                    child.node_path as path,
@@ -141,7 +137,7 @@ class DirectoryExplorerTool:
         """Get basic information about a node."""
         try:
             query = """
-            MATCH (n:NODE {node_id: $node_id, entityId: $entity_id, environment: "main"})
+            MATCH (n:NODE {node_id: $node_id, entityId: $entity_id})
             RETURN n.node_id as node_id,
                    n.name as name,
                    n.node_path as path

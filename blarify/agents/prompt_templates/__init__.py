@@ -18,7 +18,9 @@ from .component_documentation import COMPONENT_DOCUMENTATION_TEMPLATE
 from .documentation_consolidation import DOCUMENTATION_CONSOLIDATION_TEMPLATE
 from .leaf_node_analysis import LEAF_NODE_ANALYSIS_TEMPLATE
 from .parent_node_analysis import PARENT_NODE_ANALYSIS_TEMPLATE
-from .workflow_discovery import WORKFLOW_DISCOVERY_TEMPLATE
+from .function_with_calls_analysis import FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE
+from .function_with_cycle_analysis import FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE
+from .spec_discovery import SPEC_DISCOVERY_TEMPLATE
 
 __all__ = [
     "PromptTemplate",
@@ -35,5 +37,7 @@ __all__ = [
     "DOCUMENTATION_CONSOLIDATION_TEMPLATE",
     "LEAF_NODE_ANALYSIS_TEMPLATE",
     "PARENT_NODE_ANALYSIS_TEMPLATE",
-    "WORKFLOW_DISCOVERY_TEMPLATE"
+    "FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE",
+    "FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE",
+    "SPEC_DISCOVERY_TEMPLATE"
 ]

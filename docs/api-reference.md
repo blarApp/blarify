@@ -2,6 +2,75 @@
 
 This document provides a comprehensive reference for the Blarify API, covering all major classes and methods available for building and manipulating code graphs.
 
+## Workflow Analysis
+
+### find_independent_workflows
+
+Discovers complete execution traces from entry points with edge-based flow representation.
+
+```python
+from blarify.db_managers.queries import find_independent_workflows
+
+def find_independent_workflows(
+    db_manager: AbstractDbManager, 
+    entity_id: str, 
+    repo_id: str, 
+    entry_point_id: str
+) -> List[Dict[str, Any]]
+```
+
+**Parameters:**
+- `db_manager`: Database manager instance (Neo4j/FalkorDB)
+- `entity_id`: Entity/company ID for filtering
+- `repo_id`: Repository ID for filtering  
+- `entry_point_id`: Code node ID of the entry point to analyze
+
+**Returns:**
+List of workflow dictionaries containing:
+- `entryPointId/Name/Path`: Entry point details
+- `endPointId/Name/Path`: Final function in call chain
+- `workflowNodes`: Ordered list of functions (backward compatibility)
+- `executionEdges`: **New** - Ordered list of call edges with detailed information
+- `totalEdges`: Number of execution edges
+- `workflowType`: Type indicator (`dfs_execution_trace_with_edges`)
+
+**Example:**
+```python
+workflows = find_independent_workflows(
+    db_manager=your_db_manager,
+    entity_id="company_123",
+    repo_id="repo_456", 
+    entry_point_id="main_function_node_id"
+)
+
+for workflow in workflows:
+    print(f"Workflow: {workflow['entryPointName']} -> {workflow['endPointName']}")
+    for edge in workflow['executionEdges']:
+        print(f"  {edge['source_name']} calls {edge['target_name']} at line {edge['start_line']}")
+```
+
+### RelationshipCreator
+
+Creates workflow relationships for 4-layer architecture integration.
+
+```python
+from blarify.graph.relationship.relationship_creator import RelationshipCreator
+
+# Create BELONGS_TO_WORKFLOW relationships
+belongs_relationships = RelationshipCreator.create_belongs_to_workflow_relationships_for_code_nodes(
+    workflow_node: Node,
+    workflow_code_node_ids: List[str],
+    db_manager: AbstractDbManager
+) -> List[dict]
+
+# Create WORKFLOW_STEP relationships from execution edges (preferred)
+step_relationships = RelationshipCreator.create_workflow_step_relationships_from_execution_edges(
+    workflow_node: Node,
+    execution_edges: List[Dict[str, Any]],
+    db_manager: AbstractDbManager
+) -> List[dict]
+```
+
 ## Core Classes
 
 ### GraphBuilder

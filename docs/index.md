@@ -14,6 +14,11 @@ Welcome to the comprehensive documentation for Blarify - a tool that transforms 
 - **[Examples](examples.md)** - Practical examples for different use cases
 - **[API Reference](api-reference.md)** - Complete API documentation
 
+### Advanced Features
+- **[Workflow Nodes 4-Layer Architecture](implementation_features/workflow_nodes_4layer_architecture.md)** - Edge-based execution flows and business process analysis
+- **[Semantic Documentation Layer](implementation_features/semantic_documentation_layer.md)** - AI-powered code documentation
+- **[Spec Analysis Layer](implementation_features/spec_analysis_layer.md)** - Business specification analysis
+
 ### Development
 - **[Architecture Overview](architecture.md)** - Understanding Blarify's internal design
 - **[Contributing Guide](contributing.md)** - How to contribute to the project

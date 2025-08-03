@@ -1,4 +1,4 @@
-from typing import List, TYPE_CHECKING
+from typing import List, Dict, Any, TYPE_CHECKING
 from blarify.graph.relationship import Relationship, RelationshipType
 from blarify.graph.node import NodeLabels
 
@@ -201,6 +201,69 @@ class RelationshipCreator:
                     {
                         "sourceId": current_doc_id,  # Current documentation node
                         "targetId": next_doc_id,  # Next documentation node
+                        "type": RelationshipType.WORKFLOW_STEP.name,
+                        "scopeText": scope_text,
+                    }
+                )
+
+        return relationships
+
+    @staticmethod
+    def create_workflow_step_relationships_from_execution_edges(
+        workflow_node: "Node", execution_edges: List[Dict[str, Any]], db_manager
+    ) -> List[dict]:
+        """
+        Create WORKFLOW_STEP relationships between documentation nodes based on execution edges.
+
+        This method processes execution edges from the enhanced workflow query to create
+        WORKFLOW_STEP relationships that maintain the exact execution order.
+
+        Args:
+            workflow_node: The workflow InformationNode
+            execution_edges: List of execution edge dicts with source_id, target_id, order
+            db_manager: Database manager to query for documentation nodes
+
+        Returns:
+            List of relationship dicts suitable for database insertion via create_edges()
+        """
+        if not execution_edges:
+            return []
+
+        relationships = []
+        
+        # Sort edges by order to ensure proper sequencing
+        sorted_edges = sorted(execution_edges, key=lambda x: x.get("order", 0))
+        
+        for edge in sorted_edges:
+            source_code_id = edge.get("source_id")
+            target_code_id = edge.get("target_id")
+            edge_order = edge.get("order", 0)
+            
+            if not source_code_id or not target_code_id:
+                continue
+                
+            # Find documentation nodes for source and target code nodes
+            doc_query = """
+            MATCH (sourceDoc:INFORMATION {layer: 'documentation'})-[:DESCRIBES]->(sourceCode:NODE {node_id: $source_id})
+            MATCH (targetDoc:INFORMATION {layer: 'documentation'})-[:DESCRIBES]->(targetCode:NODE {node_id: $target_id})
+            RETURN sourceDoc.node_id as source_doc_id, targetDoc.node_id as target_doc_id
+            """
+            
+            doc_result = db_manager.query(
+                cypher_query=doc_query, 
+                parameters={"source_id": source_code_id, "target_id": target_code_id}
+            )
+            
+            if doc_result and doc_result[0].get("source_doc_id") and doc_result[0].get("target_doc_id"):
+                source_doc_id = doc_result[0]["source_doc_id"]
+                target_doc_id = doc_result[0]["target_doc_id"]
+                
+                scope_text = f"step_order:{edge_order},workflow_id:{workflow_node.hashed_id},edge_based:true"
+                
+                relationships.append(
+                    {
+                        "sourceId": source_doc_id,  # Source documentation node
+                        "targetId": target_doc_id,  # Target documentation node  
                         "type": RelationshipType.WORKFLOW_STEP.name,
                         "scopeText": scope_text,
                     }

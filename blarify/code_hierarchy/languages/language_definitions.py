@@ -77,6 +77,7 @@ class LanguageDefinitions(ABC):
 
     @staticmethod
     def _traverse_and_find_relationships(node: Optional[TreeSitterNode], relationship_mapping: Dict[str, "RelationshipType"]) -> Optional["FoundRelationshipScope"]:
+        # Import FoundRelationshipScope at runtime since it's in the same module package
         from blarify.code_hierarchy.languages.FoundRelationshipScope import FoundRelationshipScope
         
         while node is not None:

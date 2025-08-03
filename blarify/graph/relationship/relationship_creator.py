@@ -1,19 +1,22 @@
-from typing import List, TYPE_CHECKING, Any
-from blarify.graph.relationship.relationship import Relationship
-from blarify.graph.relationship.relationship_type import RelationshipType
+from typing import List, TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from blarify.graph.graph import Graph
-    from blarify.graph.node.types.node import Node
+    from blarify.graph.node import Node
+    from blarify.graph.node.types.definition_node import DefinitionNode
+    from blarify.code_hierarchy.tree_sitter_helper import TreeSitterHelper
     from blarify.code_references.types import Reference
+    from blarify.graph.relationship import Relationship, RelationshipType
 
 
 class RelationshipCreator:
     @staticmethod
     def create_relationships_from_paths_where_node_is_referenced(
-        references: list["Reference"], node: "Node", graph: "Graph", tree_sitter_helper: Any
-    ) -> List[Relationship]:
-        relationships: List[Relationship] = []
+        references: list["Reference"], node: "Node", graph: "Graph", tree_sitter_helper: "TreeSitterHelper"
+    ) -> List["Relationship"]:
+        # Import at runtime to avoid circular dependencies
+        from blarify.graph.relationship import Relationship
+        relationships: List["Relationship"] = []
         for reference in references:
             file_node_reference = graph.get_file_node_by_path(path=reference.uri)
             if file_node_reference is None:
@@ -27,9 +30,11 @@ class RelationshipCreator:
             if not hasattr(node, 'tree_sitter_node') or not hasattr(node_referenced, 'tree_sitter_node'):
                 continue
 
-            # Use node directly since we verified it has tree_sitter_node attribute
+            # Cast to DefinitionNode since we verified they have tree_sitter_node attribute
+            original_node = cast("DefinitionNode", node)
+
             found_relationship_scope = tree_sitter_helper.get_reference_type(
-                original_node=node, reference=reference, node_referenced=node_referenced
+                original_node=original_node, reference=reference, node_referenced=node_referenced
             )
 
             if found_relationship_scope is None:
@@ -53,9 +58,10 @@ class RelationshipCreator:
         return relationships
 
     @staticmethod
-    def _get_relationship_type(defined_node: "Node") -> RelationshipType:
+    def _get_relationship_type(defined_node: "Node") -> "RelationshipType":
         # Import at runtime to avoid circular dependencies
-        from blarify.graph.node.types.node_labels import NodeLabels
+        from blarify.graph.node import NodeLabels
+        from blarify.graph.relationship import RelationshipType
         
         if defined_node.label == NodeLabels.FUNCTION:
             return RelationshipType.FUNCTION_DEFINITION
@@ -65,7 +71,10 @@ class RelationshipCreator:
             raise ValueError(f"Node {defined_node.label} is not a valid definition node")
 
     @staticmethod
-    def create_defines_relationship(node: "Node", defined_node: "Node") -> Relationship:
+    def create_defines_relationship(node: "Node", defined_node: "Node") -> "Relationship":
+        # Import at runtime to avoid circular dependencies
+        from blarify.graph.relationship import Relationship
+        
         rel_type = RelationshipCreator._get_relationship_type(defined_node)
         return Relationship(
             node,
@@ -74,7 +83,10 @@ class RelationshipCreator:
         )
 
     @staticmethod
-    def create_contains_relationship(folder_node: "Node", contained_node: "Node") -> Relationship:
+    def create_contains_relationship(folder_node: "Node", contained_node: "Node") -> "Relationship":
+        # Import at runtime to avoid circular dependencies
+        from blarify.graph.relationship import Relationship, RelationshipType
+        
         return Relationship(
             folder_node,
             contained_node,

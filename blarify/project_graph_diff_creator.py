@@ -6,7 +6,7 @@ from blarify.graph.graph_environment import GraphEnvironment
 from blarify.code_references.lsp_helper import LspQueryHelper
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.graph.node import FileNode
-from typing import List, Set, Optional, Union, Sequence, Any
+from typing import List, Set, Optional
 from dataclasses import dataclass
 from enum import Enum
 from blarify.graph.external_relationship_store import ExternalRelationshipStore
@@ -15,6 +15,7 @@ from blarify.graph.node.utils.id_calculator import IdCalculator
 from blarify.utils.path_calculator import PathCalculator
 from blarify.graph.node import Node, DefinitionNode
 from blarify.utils.relative_id_calculator import RelativeIdCalculator
+from blarify.code_references.types.Reference import Reference
 
 
 class ChangeType(Enum):
@@ -224,12 +225,12 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
         paths = self.remove_paths_to_create_from_paths_referenced(paths)
 
         file_nodes.extend(self.get_file_nodes_from_path_list(paths))
-        # Cast to List[Node] for parent method compatibility
-        node_list: List[Node] = file_nodes  
+        # Convert to List[Node] for parent method compatibility
+        node_list: List[Node] = [node for node in file_nodes]  
         self._create_relationship_from_references(file_nodes=node_list)
 
     def get_paths_referenced_by_file_nodes(self, file_nodes: List[FileNode]) -> List[str]:
-        paths = set()
+        paths: Set[str] = set()
         for file in file_nodes:
             if self.is_file_node_raw(file):
                 # Raw files can't be parsed, so we can't get references from them
@@ -237,7 +238,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
             paths.update(self.get_paths_referenced_by_file_node(file))
 
-        return paths
+        return list(paths)
 
     def is_file_node_raw(self, file_node: FileNode) -> bool:
         return not file_node.has_tree_sitter_node()
@@ -247,7 +248,8 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
             diff = self.get_file_diff_for_path(file_node.path)
             file_node.add_extra_label_to_self_and_children("DIFF")
             file_node.add_extra_attribute_to_self_and_children("diff_text", diff.diff_text)
-            file_node.update_graph_environment_to_self_and_children(self.pr_environment)
+            if self.pr_environment:
+                file_node.update_graph_environment_to_self_and_children(self.pr_environment)
             file_node.skeletonize()
 
     def get_file_diff_for_path(self, path: str) -> FileDiff:
@@ -268,7 +270,7 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
 
         return {self.lsp_query_helper.get_definition_path_for_reference(ref, file_node.extension) for ref in filtered_identifiers}
 
-    def remove_definitions_from_identifiers(self, definitions: List, identifiers: List) -> List:
+    def remove_definitions_from_identifiers(self, definitions: List[Reference], identifiers: List[Reference]) -> List[Reference]:
         return [identifier for identifier in identifiers if identifier not in definitions]
 
     def get_file_nodes_from_path_list(self, paths: List[str]) -> List[FileNode]:
@@ -298,6 +300,9 @@ class ProjectGraphDiffCreator(ProjectGraphCreator):
                 )
 
     def generate_file_id_from_path(self, path: str) -> str:
+        if not self.graph_environment:
+            raise ValueError("Graph environment is required for file ID generation")
+        
         relative_path = PathCalculator.compute_relative_path_with_prefix(path, self.graph_environment.root_path)
         original_file_node_id = IdCalculator.generate_hashed_file_id(
             self.graph_environment.environment, self.graph_environment.diff_identifier, relative_path

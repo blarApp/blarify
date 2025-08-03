@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from statistics import stdev, mean
 from tree_sitter import Node
-from typing import TYPE_CHECKING, Union, Sequence, Any
-
-if TYPE_CHECKING:
-    from blarify.code_hierarchy.languages.language_definitions import LanguageDefinitions
+from typing import Union, Sequence, Any
 
 
 @dataclass
@@ -18,12 +15,8 @@ class NestingStats:
 class CodeComplexityCalculator:
     DEFAULT_INDENTATION = 4
 
-    @staticmethod
-    def calculate_nesting_stats(node: Node, extension: str) -> NestingStats:
-        # Import here to avoid circular dependencies
-        from blarify.code_references.lsp_helper import LspQueryHelper
-        language_definitions = LspQueryHelper.get_language_definition_for_extension(extension)
-
+    @staticmethod 
+    def calculate_nesting_stats(node: Node, language_definitions: Any) -> NestingStats:
         indentation_per_line = CodeComplexityCalculator.__get_nesting_levels(node, language_definitions)
 
         if indentation_per_line == []:
@@ -37,7 +30,7 @@ class CodeComplexityCalculator:
         return NestingStats(max_indentation, min_indentation, average_indentation, sd)
 
     @staticmethod
-    def __get_nesting_levels(node: Node, language_definitions: "LanguageDefinitions") -> list[int]:
+    def __get_nesting_levels(node: Node, language_definitions: Any) -> list[int]:
         depths: list[int] = []
 
         for child in node.named_children:

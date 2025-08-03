@@ -5,7 +5,7 @@ from blarify.logger import Logger
 
 
 class ProjectFileStats:
-    def __init__(self, project_files_iterator: ProjectFilesIterator): -> None
+    def __init__(self, project_files_iterator: ProjectFilesIterator) -> None:
         self.project_files_iterator = project_files_iterator
         self.file_stats: List[Dict[str, Any]] = []
         self._analize()

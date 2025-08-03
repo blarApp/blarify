@@ -39,6 +39,8 @@ class LspQueryHelper:
 
     @staticmethod
     def get_language_definition_for_extension(extension: str) -> Type["LanguageDefinitions"]:
+        # NOTE: This runtime import is necessary here and creates a cycle back to languages
+        # We import here to delay the import until actually needed
         from blarify.code_hierarchy.languages import get_language_definition, get_available_languages
         
         # Map of file extensions to language names

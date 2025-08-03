@@ -1,19 +1,17 @@
 from tree_sitter import Tree, Parser
 from typing import List, TYPE_CHECKING, Tuple, Optional, Dict, Any
 
-from blarify.code_hierarchy.languages.FoundRelationshipScope import FoundRelationshipScope
-from blarify.graph.node.utils.node_factory import NodeFactory
 from blarify.code_references.types import Reference, Range, Point
-from blarify.graph.node.types.node_labels import NodeLabels
 from blarify.project_file_explorer import File
-from blarify.graph.relationship.relationship_type import RelationshipType
 
 if TYPE_CHECKING:
     from tree_sitter import Node as TreeSitterNode
-    from blarify.graph.node import DefinitionNode, Node, FolderNode, FileNode
+    from blarify.graph.node import DefinitionNode, Node, FolderNode, FileNode, NodeFactory, NodeLabels
     from blarify.code_references.types import Reference
     from blarify.graph.graph_environment import GraphEnvironment
-    from blarify.code_hierarchy.languages.language_definitions import LanguageDefinitions
+    from blarify.code_hierarchy.languages.language_definitions import LanguageDefinitions, BodyNodeNotFound
+    from blarify.code_hierarchy.languages.FoundRelationshipScope import FoundRelationshipScope
+    from blarify.graph.relationship import RelationshipType
 
 
 class TreeSitterHelper:
@@ -46,7 +44,11 @@ class TreeSitterHelper:
 
     def get_reference_type(
         self, original_node: "DefinitionNode", reference: "Reference", node_referenced: "DefinitionNode"
-    ) -> Optional[FoundRelationshipScope]:
+    ) -> Optional["FoundRelationshipScope"]:
+        # Import at runtime to avoid circular dependencies
+        from blarify.code_hierarchy.languages.FoundRelationshipScope import FoundRelationshipScope
+        from blarify.graph.relationship import RelationshipType
+        
         node_in_point_reference = self._get_node_in_point_reference(node=node_referenced, reference=reference)
         if node_in_point_reference is None:
             return None
@@ -84,9 +86,8 @@ class TreeSitterHelper:
         return [file_node]
 
     def _does_path_have_valid_extension(self, path: str) -> bool:
-        from .languages import FallbackDefinitions
-        
-        if isinstance(self.language_definitions, FallbackDefinitions):
+        # Check if this is FallbackDefinitions by class name to avoid import cycle
+        if self.language_definitions.__class__.__name__ == 'FallbackDefinitions':
             return False
         return any(path.endswith(extension) for extension in self.language_definitions.get_language_file_extensions())
 
@@ -108,6 +109,9 @@ class TreeSitterHelper:
     def _create_file_node_from_module_node(
         self, module_node: "TreeSitterNode", file: File, parent_folder: Optional["FolderNode"] = None
     ) -> "Node":
+        # Import at runtime to avoid circular dependencies
+        from blarify.graph.node import NodeFactory
+        
         return NodeFactory.create_file_node(
             path=file.uri_path,
             name=file.name,
@@ -157,6 +161,9 @@ class TreeSitterHelper:
         body_node = self._try_process_body_node_snippet(tree_sitter_node)
         parent_node = self.get_parent_node(context_stack)
 
+        # Import at runtime to avoid circular dependencies
+        from blarify.graph.node import NodeFactory
+        
         node = NodeFactory.create_node_based_on_label(
             kind=self._get_label_from_node(tree_sitter_node),
             name=identifier_name,
@@ -206,6 +213,7 @@ class TreeSitterHelper:
         return node_snippet, node_reference
 
     def _try_process_body_node_snippet(self, node: "TreeSitterNode") -> Optional["TreeSitterNode"]:
+        # Import BodyNodeNotFound at runtime to avoid circular dependencies
         from blarify.code_hierarchy.languages.language_definitions import BodyNodeNotFound
         
         try:
@@ -217,7 +225,9 @@ class TreeSitterHelper:
         body_node = self.language_definitions.get_body_node(node)
         return body_node
 
-    def _get_label_from_node(self, node: "TreeSitterNode") -> NodeLabels:
+    def _get_label_from_node(self, node: "TreeSitterNode") -> "NodeLabels":
+        # Import at runtime to avoid circular dependencies
+        from blarify.graph.node import NodeLabels
         return self.language_definitions.get_node_label_from_type(node.type)
 
     def get_parent_node(self, context_stack: List["Node"]) -> "DefinitionNode":
@@ -229,6 +239,9 @@ class TreeSitterHelper:
         raise ValueError(f"Parent node is not a DefinitionNode: {type(parent)}")
 
     def _create_file_node_from_raw_file(self, file: File, parent_folder: Optional["FolderNode"] = None) -> "FileNode":
+        # Import at runtime to avoid circular dependencies
+        from blarify.graph.node import NodeFactory
+        
         return NodeFactory.create_file_node(
             path=file.uri_path,
             name=file.name,

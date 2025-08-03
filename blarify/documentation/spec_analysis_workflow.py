@@ -586,25 +586,42 @@ class SpecAnalysisWorkflow:
                     if belongs_to_workflow_relationships:
                         all_belongs_to_relationships.extend(belongs_to_workflow_relationships)
 
-                    # Create WORKFLOW_STEP relationships using RelationshipCreator
-                    workflow_step_relationships = (
-                        RelationshipCreator.create_workflow_step_relationships_for_code_sequence(
-                            workflow_node=workflow_info_node,
-                            workflow_code_node_ids=workflow_code_node_ids,
-                            db_manager=self.company_graph_manager,
+                    # Create WORKFLOW_STEP relationships using execution edges if available
+                    execution_edges = workflow_data.get("executionEdges", [])
+                    if execution_edges:
+                        # Use new edge-based relationship creation for better accuracy
+                        workflow_step_relationships = (
+                            RelationshipCreator.create_workflow_step_relationships_from_execution_edges(
+                                workflow_node=workflow_info_node,
+                                execution_edges=execution_edges,
+                                db_manager=self.company_graph_manager,
+                            )
                         )
-                    )
+                        logger.debug(f"Created {len(workflow_step_relationships)} edge-based WORKFLOW_STEP relationships")
+                    else:
+                        # Fallback to code sequence method for backward compatibility
+                        workflow_step_relationships = (
+                            RelationshipCreator.create_workflow_step_relationships_for_code_sequence(
+                                workflow_node=workflow_info_node,
+                                workflow_code_node_ids=workflow_code_node_ids,
+                                db_manager=self.company_graph_manager,
+                            )
+                        )
+                        logger.debug(f"Created {len(workflow_step_relationships)} sequence-based WORKFLOW_STEP relationships")
 
                     if workflow_step_relationships:
                         all_workflow_step_relationships.extend(workflow_step_relationships)
 
-                    # Track successful workflow
+                    # Track successful workflow with edge information
                     workflow_results.append(
                         {
                             "workflow_id": workflow_id,
                             "entry_point": workflow_data.get("entryPointName"),
                             "entry_point_id": workflow_data.get("entryPointId"),
                             "steps": len(workflow_data.get("workflowNodes", [])),
+                            "edges": len(workflow_data.get("executionEdges", [])),
+                            "workflow_type": workflow_data.get("workflowType", "unknown"),
+                            "edge_based": bool(workflow_data.get("executionEdges")),
                         }
                     )
 

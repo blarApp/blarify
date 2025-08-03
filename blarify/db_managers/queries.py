@@ -919,45 +919,44 @@ def get_root_folders_and_files(db_manager: AbstractDbManager, entity_id: str, re
 
 def find_independent_workflows_query() -> str:
     """
-    Returns a Cypher query for finding a single complete execution trace from an entry point.
+    Returns a Cypher query for finding a single complete execution trace from an entry point
+    with ordered execution edges for complete flow representation.
 
     This query builds ONE comprehensive execution trace that includes ALL functions
-    called by the entry point, creating a single unified call stack trace like:
-    entry_point() -> all_functions_it_calls() -> their_functions() -> etc.
+    called by the entry point, creating a single unified call stack trace with 
+    execution edges in proper DFS order for complete workflow representation.
 
     Returns:
-        str: The Cypher query string
+        str: The Cypher query string with both nodes and ordered edges
     """
     return """
     // Find the entry point
+    WITH 20 AS maxDepth
     MATCH (entry:NODE {node_id: $entry_point_id, layer: 'code', entityId: $entity_id, repoId: $repo_id})
     
     // Expand with DFS; avoid revisiting nodes (NODE_PATH) to prevent recursion loops
     CALL apoc.path.expandConfig(entry, {
       relationshipFilter: "CALLS>",
-      minLevel: 0, maxLevel: 20,
+      minLevel: 0, maxLevel: maxDepth,
       bfs: false,                      // DFS traversal
       uniqueness: "NODE_PATH"
     }) YIELD path
     
     // Keep only root→leaf paths (or the 0-length path if there are no calls)
-    WITH path
-    WHERE length(path) = 0 OR NOT (last(nodes(path)))-[:CALLS]->()
+    WITH path, relationships(path) AS pathRels, nodes(path) AS pathNodes
+    WHERE length(path) = 0 OR NOT (last(pathNodes))-[:CALLS]->()
     
     // Build a lexicographic ordering key from call-site (line/column) pairs.
     // This yields the same ordering as doing DFS while choosing the next edge
     // by the smallest (startLine, referenceCharacter) at each branch.
-    WITH path,
-         relationships(path) AS rels,
-         nodes(path) AS pathNodes
-    WITH path, rels, pathNodes,
-         [r IN rels | toString(coalesce(r.startLine, 999999)) + "/" +
-                      toString(coalesce(r.referenceCharacter, 999999))] AS sortKey
+    WITH path, pathRels, pathNodes,
+         [r IN pathRels | toString(coalesce(r.startLine, 999999)) + "/" +
+                          toString(coalesce(r.referenceCharacter, 999999))] AS sortKey
     ORDER BY sortKey  // lexicographic list ordering ≈ DFS-by-callsite order
     LIMIT 1  // Get the first (lexicographically smallest) execution path
     
-    // Create execution trace with proper DFS ordering
-    WITH pathNodes, rels, path,
+    // Create execution trace with proper DFS ordering for nodes
+    WITH pathNodes, pathRels, path,
          [i IN range(0, size(pathNodes)-1) | {
            id: pathNodes[i].node_id,
            name: pathNodes[i].name,
@@ -968,11 +967,29 @@ def find_independent_workflows_query() -> str:
            call_order: i,
            execution_step: i + 1,
            call_depth: i,
-           call_line: CASE WHEN i < size(rels) THEN rels[i].startLine ELSE null END,
-           call_character: CASE WHEN i < size(rels) THEN rels[i].referenceCharacter ELSE null END
+           call_line: CASE WHEN i < size(pathRels) THEN pathRels[i].startLine ELSE null END,
+           call_character: CASE WHEN i < size(pathRels) THEN pathRels[i].referenceCharacter ELSE null END
          }] as executionTrace
     
-    // Return DFS execution trace
+    // Create execution edges in proper DFS order
+    WITH pathNodes, pathRels, executionTrace, path,
+         CASE WHEN size(pathRels) > 0 THEN
+           [i IN range(0, size(pathRels)-1) | {
+             source_id: pathNodes[i].node_id,
+             target_id: pathNodes[i+1].node_id,
+             relationship_type: "CALLS",
+             order: i,
+             start_line: pathRels[i].startLine,
+             reference_character: pathRels[i].referenceCharacter,
+             source_name: pathNodes[i].name,
+             target_name: pathNodes[i+1].name,
+             source_path: pathNodes[i].path,
+             target_path: pathNodes[i+1].path
+           }]
+         ELSE []
+         END as executionEdges
+    
+    // Return DFS execution trace with both nodes and edges
     RETURN {
         entryPointId: pathNodes[0].node_id,
         entryPointName: pathNodes[0].name,
@@ -981,9 +998,11 @@ def find_independent_workflows_query() -> str:
         endPointName: last(pathNodes).name,
         endPointPath: last(pathNodes).path,
         workflowNodes: executionTrace,
+        executionEdges: executionEdges,
         pathLength: length(path),
         totalExecutionSteps: size(pathNodes),
-        workflowType: 'dfs_execution_trace',
+        totalEdges: size(pathRels),
+        workflowType: 'dfs_execution_trace_with_edges',
         discoveredBy: 'apoc_dfs_traversal'
     } AS workflow
     """

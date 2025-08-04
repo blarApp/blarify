@@ -1,12 +1,8 @@
-from typing import Optional
-
 from blarify.code_references.lsp_helper import LspQueryHelper
 from blarify.graph.graph import Graph
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.project_file_explorer.project_files_iterator import ProjectFilesIterator
 from blarify.project_graph_creator import ProjectGraphCreator
-from blarify.documentation.semantic_analyzer import LLMProvider
-from blarify.db_managers.abstract_db_manager import AbstractDbManager
 
 
 class GraphBuilder:
@@ -46,9 +42,6 @@ class GraphBuilder:
 
     def build(
         self,
-        include_documentation: bool = False,
-        llm_provider: Optional[LLMProvider] = None,
-        db_manager: Optional[AbstractDbManager] = None,
     ) -> Graph:
         """Build the code graph with optional documentation layer.
 
@@ -73,11 +66,6 @@ class GraphBuilder:
             graph = graph_creator.build()
 
         lsp_query_helper.shutdown_exit_close()
-
-        # Add documentation layer if requested
-        if include_documentation:
-            if not llm_provider or not db_manager:
-                raise ValueError("llm_provider and db_manager are required when include_documentation=True")
 
         return graph
 

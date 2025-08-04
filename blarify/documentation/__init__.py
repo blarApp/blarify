@@ -4,12 +4,16 @@ This module provides post-processing capabilities to extract and analyze
 documentation from codebases, creating semantic information nodes that
 can be efficiently retrieved by LLM agents.
 
-Phase 2 adds LangGraph workflow capabilities for semantic analysis.
+Uses method-based orchestration for documentation creation and workflow discovery,
+replacing the previous LangGraph approach with simpler, more performant patterns.
 """
 
-# Phase 2 components
-from .workflow import DocumentationWorkflow, DocumentationState
+# New architecture components
+from .documentation_creator import DocumentationCreator
+from .workflow_creator import WorkflowCreator
+from .result_models import DocumentationResult, WorkflowResult, WorkflowDiscoveryResult, FrameworkDetectionResult
 from .root_file_folder_processing_workflow import RooFileFolderProcessingWorkflow, RootFileFolderProcessingState
+from .utils.recursive_dfs_processor import RecursiveDFSProcessor, ProcessingResult
 from ..agents.llm_provider import LLMProvider
 from ..agents.prompt_templates import (
     PromptTemplate,
@@ -21,11 +25,18 @@ from ..agents.prompt_templates import (
 )
 
 __all__ = [
-    # Phase 2 workflow components
-    "DocumentationWorkflow",
-    "DocumentationState",
+    # New architecture components
+    "DocumentationCreator",
+    "WorkflowCreator",
+    "DocumentationResult",
+    "WorkflowResult",
+    "WorkflowDiscoveryResult",
+    "FrameworkDetectionResult",
+    # Core processing components
     "RooFileFolderProcessingWorkflow",
     "RootFileFolderProcessingState",
+    "RecursiveDFSProcessor",
+    "ProcessingResult",
     # LLM providers
     "LLMProvider",
     # Prompt templates

@@ -10,7 +10,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from ..db_managers.db_manager import AbstractDbManager
-from ..db_managers.queries import find_all_entry_points_hybrid, find_code_workflows
+from ..db_managers.queries import find_all_entry_points_hybrid, find_code_workflows, find_entry_points_for_node_path
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.node.workflow_node import WorkflowNode
 from ..graph.relationship.relationship_creator import RelationshipCreator
@@ -53,6 +53,7 @@ class WorkflowCreator:
         entry_points: Optional[List[str]] = None,
         max_depth: int = 20,
         save_to_database: bool = True,
+        node_path: Optional[str] = None,
     ) -> WorkflowDiscoveryResult:
         """
         Discover workflows without requiring DocumentationNodes first.
@@ -64,6 +65,9 @@ class WorkflowCreator:
             entry_points: Optional list of entry point IDs to analyze
             max_depth: Maximum depth for workflow traversal
             save_to_database: Whether to save discovered workflows to database
+            node_path: Optional path to a specific node (directory/file/class/function).
+                      When provided, discovers workflows that eventually reach this node.
+                      When None, discovers all workflows in the repository.
             
         Returns:
             WorkflowDiscoveryResult with all discovered workflows
@@ -75,7 +79,7 @@ class WorkflowCreator:
             
             # Step 1: Discover entry points if not provided
             if not entry_points:
-                entry_points_data = self._discover_entry_points()
+                entry_points_data = self._discover_entry_points(node_path)
                 entry_point_ids = [ep.get("id", "") for ep in entry_points_data if ep.get("id")]
             else:
                 entry_point_ids = entry_points
@@ -130,39 +134,68 @@ class WorkflowCreator:
                 discovery_time_seconds=time.time() - start_time,
             )
     
-    def _discover_entry_points(self) -> List[Dict[str, Any]]:
+    def _discover_entry_points(self, node_path: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Discover entry points using hybrid approach from existing implementation.
         
         This uses the existing find_all_entry_points_hybrid function which combines
         database relationship analysis with potential for agent exploration.
+        When node_path is provided, uses targeted discovery for that specific path.
+        
+        Args:
+            node_path: Optional path to a specific node. When provided, finds entry points
+                      that eventually reach this node. When None, finds all entry points.
         
         Returns:
             List of entry point dictionaries with id, name, path, etc.
         """
         try:
-            logger.info("Discovering entry points using hybrid approach")
-            
-            entry_points = find_all_entry_points_hybrid(
-                db_manager=self.db_manager,
-                entity_id=self.company_id,
-                repo_id=self.repo_id
-            )
-            
-            # Convert to standard format
-            standardized_entry_points = []
-            for ep in entry_points:
-                standardized_entry_points.append({
-                    "id": ep.get("id", ""),
-                    "name": ep.get("name", ""),
-                    "path": ep.get("path", ""),
-                    "labels": ep.get("labels", []),
-                    "description": f"Entry point: {ep.get('name', 'Unknown')}",
-                    "discovery_method": "hybrid_database_analysis",
-                })
-            
-            logger.info(f"Discovered {len(standardized_entry_points)} entry points")
-            return standardized_entry_points
+            if node_path is not None:
+                logger.info(f"Discovering entry points for node path: {node_path}")
+                entry_points = find_entry_points_for_node_path(
+                    db_manager=self.db_manager,
+                    entity_id=self.company_id,
+                    repo_id=self.repo_id,
+                    node_path=node_path
+                )
+                
+                # Convert to standard format (only id is returned from targeted search)
+                standardized_entry_points = []
+                for ep in entry_points:
+                    standardized_entry_points.append({
+                        "id": ep.get("id", ""),
+                        "name": f"Entry for {node_path}",
+                        "path": "",
+                        "labels": [],
+                        "description": f"Entry point that reaches: {node_path}",
+                        "discovery_method": "targeted_node_path_analysis",
+                    })
+                
+                logger.info(f"Discovered {len(standardized_entry_points)} targeted entry points")
+                return standardized_entry_points
+            else:
+                logger.info("Discovering entry points using hybrid approach")
+                
+                entry_points = find_all_entry_points_hybrid(
+                    db_manager=self.db_manager,
+                    entity_id=self.company_id,
+                    repo_id=self.repo_id
+                )
+                
+                # Convert to standard format
+                standardized_entry_points = []
+                for ep in entry_points:
+                    standardized_entry_points.append({
+                        "id": ep.get("id", ""),
+                        "name": ep.get("name", ""),
+                        "path": ep.get("path", ""),
+                        "labels": ep.get("labels", []),
+                        "description": f"Entry point: {ep.get('name', 'Unknown')}",
+                        "discovery_method": "hybrid_database_analysis",
+                    })
+                
+                logger.info(f"Discovered {len(standardized_entry_points)} entry points")
+                return standardized_entry_points
             
         except Exception as e:
             logger.exception(f"Error discovering entry points: {e}")

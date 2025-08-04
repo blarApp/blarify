@@ -2192,3 +2192,71 @@ def detect_function_cycles(
     except Exception as e:
         logger.exception(f"Error detecting cycles for function '{node_id}': {e}")
         return []
+
+
+def find_entry_points_for_node_path_query() -> str:
+    """
+    Find entry points that eventually reach a specific node path.
+    
+    Uses reverse traversal: starts from nodes matching node_path,
+    traverses upward through CALLS relationships to find nodes
+    with no incoming CALLS (true entry points).
+    
+    Returns:
+        Cypher query string for finding targeted entry points.
+    """
+    return """
+    // Find the target node by path
+    MATCH (target:NODE {entityId: $entity_id, repoId: $repo_id, layer: 'code'})
+    WHERE target.node_path = $node_path
+    
+    // Find all nodes that can reach the target through CALLS relationships
+    CALL apoc.path.expandConfig(target, {
+        relationshipFilter: "<CALLS",
+        uniqueness: "NODE_GLOBAL"
+    }) YIELD path
+    
+    WITH last(nodes(path)) AS potential_entry
+    
+    // Filter to only nodes that have no incoming CALLS relationships (true entry points)
+    WHERE NOT (potential_entry)<-[:CALLS]-()
+    
+    // Return only the node_id
+    RETURN DISTINCT potential_entry.node_id as id
+    ORDER BY potential_entry.node_id
+    """
+
+
+def find_entry_points_for_node_path(
+    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_path: str
+) -> List[Dict[str, Any]]:
+    """
+    Find entry points that eventually reach a specific node path.
+    
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query  
+        node_path: The node path to find entry points for
+        
+    Returns:
+        List of entry point dictionaries with id.
+    """
+    try:
+        query = find_entry_points_for_node_path_query()
+        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_path": node_path}
+        
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+        
+        entry_points = []
+        for record in query_result:
+            entry_points.append({
+                "id": record.get("id", ""),
+            })
+        
+        logger.info(f"Found {len(entry_points)} entry points for node path '{node_path}'")
+        return entry_points
+        
+    except Exception as e:
+        logger.exception(f"Error finding entry points for node path '{node_path}': {e}")
+        return []

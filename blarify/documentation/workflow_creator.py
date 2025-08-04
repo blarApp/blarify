@@ -419,8 +419,9 @@ class WorkflowCreator:
                                 "caller_id": edge.get("caller_id"),
                                 "callee_id": edge.get("callee_id"),
                                 "relationship_type": edge.get("relationship_type"),
-                                "call_line": edge.get("start_line"),
-                                "call_character": edge.get("reference_character"),
+                                "depth": edge.get("depth"),
+                                "call_line": edge.get("call_line"),
+                                "call_character": edge.get("call_character"),
                             }
                             for edge in workflow_result.workflow_edges
                         ],

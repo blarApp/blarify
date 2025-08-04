@@ -1138,69 +1138,104 @@ def find_independent_workflows(
 
 def find_code_workflows_query() -> str:
     """
-    Returns a Cypher query for finding workflow execution traces without documentation dependencies.
+    Returns a Cypher query for finding workflow execution traces using proper DFS traversal.
     
-    This query works directly with code nodes and their CALLS relationships, eliminating
-    the need for documentation nodes to exist before workflow discovery. This makes it
-    much faster for SWE benchmarks and targeted analysis.
+    This query builds a complete execution trace by enumerating all DFS paths and creating
+    a unified node and edge stream that represents the full workflow execution sequence.
     
     Returns:
-        str: The Cypher query string for code-based workflow discovery
+        str: The Cypher query string that returns executionNodes and executionEdges
     """
     return """
-    // Entry code node - no documentation dependency
+    WITH $maxDepth AS maxDepth
+
+    // Entry
     MATCH (entry:NODE {
       node_id: $entry_point_id,
       layer: 'code', 
       entityId: $entity_id, 
       repoId: $repo_id
     })
-    
-    // Direct traversal through code relationships
+
+    // Enumerate DFS paths
     CALL apoc.path.expandConfig(entry, {
-        relationshipFilter: "CALLS>",
-        minLevel: 0, 
-        maxLevel: $maxDepth,
-        bfs: false,
-        uniqueness: "NODE_PATH"
+      relationshipFilter: "CALLS>",
+      minLevel: 0, maxLevel: maxDepth,
+      bfs: false,
+      uniqueness: "NODE_PATH"
     }) YIELD path
-    
-    // Return code nodes with workflow structure
-    WITH entry, path, nodes(path) AS workflow_nodes, relationships(path) AS workflow_edges
-    WHERE length(path) = 0 OR length(path) <= $maxDepth
-    
-    // Filter out empty workflows (single node with no calls)
-    WITH entry, path, workflow_nodes, workflow_edges
-    WHERE length(path) > 0 OR (length(path) = 0 AND size([(entry)-[:CALLS]->() | 1]) = 0)
-    
-    RETURN {
-        entryPointId: entry.node_id,
-        entryPointName: entry.name,
-        entryPointPath: entry.path,
-        endPointId: CASE WHEN size(workflow_nodes) > 1 THEN last(workflow_nodes).node_id ELSE entry.node_id END,
-        endPointName: CASE WHEN size(workflow_nodes) > 1 THEN last(workflow_nodes).name ELSE entry.name END,
-        endPointPath: CASE WHEN size(workflow_nodes) > 1 THEN last(workflow_nodes).path ELSE entry.path END,
-        workflowNodes: [n IN workflow_nodes | {
-            id: n.node_id,
-            name: n.name,
-            path: n.path,
-            labels: labels(n),
-            start_line: n.start_line,
-            end_line: n.end_line
-        }],
-        workflowEdges: [r IN workflow_edges | {
-            caller_id: startNode(r).node_id,
-            callee_id: endNode(r).node_id,
-            relationship_type: type(r),
-            start_line: r.startLine,
-            reference_character: r.referenceCharacter
-        }],
-        pathLength: length(path),
-        totalExecutionSteps: size(workflow_nodes),
-        workflowType: 'code_based_workflow',
-        discoveredBy: 'apoc_dfs_code_only'
-    } AS workflow
-    ORDER BY workflow.pathLength ASC
+
+    // Keep leaves or frontier-at-maxDepth (keep 0-length path too; we handle it below)
+    WITH entry, path, last(nodes(path)) AS leaf, maxDepth
+    WHERE length(path) = 0
+       OR coalesce(apoc.node.degree.out(leaf,'CALLS'),0) = 0
+       OR length(path) = maxDepth
+
+    // Sort paths by per-edge (line,col) to fix traversal order
+    WITH entry, path,
+         [r IN relationships(path) |
+            [coalesce(r.startLine, 999999), coalesce(r.referenceCharacter, 999999)]
+         ] AS sortKey
+    ORDER BY sortKey
+
+    // Work with ordered paths
+    WITH entry, collect({ns: nodes(path), rels: relationships(path)}) AS paths
+
+    // For each path, emit only the suffix beyond the LCP with previous path
+    UNWIND range(0, size(paths)-1) AS k
+    WITH entry, paths[k] AS cur,
+         CASE WHEN k = 0 THEN null ELSE paths[k-1] END AS prev
+
+    // 1) Alias pieces we need
+    WITH entry,
+         cur.ns   AS ns,
+         cur.rels AS rels,
+         (CASE WHEN prev IS NULL THEN [] ELSE prev.ns END)   AS prevNs,
+         (CASE WHEN prev IS NULL THEN 0  ELSE size(prev.rels) END) AS prevRelsSize
+
+    // 2) Compute LCP length; if previous path had no rels (0-length), start at 0
+    WITH entry, ns, rels, prevNs, prevRelsSize,
+         CASE
+           WHEN prevRelsSize = 0 THEN 0
+           ELSE
+             coalesce(
+               last([
+                 i IN range(0, apoc.coll.min([size(prevNs), size(ns)]) - 1)
+                 WHERE prevNs[i].node_id = ns[i].node_id | i
+               ]),
+               -1
+             ) + 1
+         END AS lcpLen
+
+    UNWIND range(lcpLen, size(rels)-1) AS i
+    WITH entry,
+         ns[i]   AS caller,
+         ns[i+1] AS callee,
+         rels[i] AS r,
+         i       AS depthWithinPath
+
+    // Collect the DFS edge stream
+    WITH entry,
+         collect({
+           caller_id: caller.node_id, caller: caller.name, caller_path: caller.path,
+           callee_id: callee.node_id, callee: callee.name, callee_path: callee.path,
+           call_line: r.startLine, call_character: r.referenceCharacter,
+           depth: depthWithinPath + 1
+         }) AS calls
+
+    // Build the node stream (includes repeats)
+    RETURN
+      ([{
+         id: entry.node_id, name: entry.name, path: entry.path,
+         start_line: entry.start_line, end_line: entry.end_line,
+         depth: 0, call_line: null, call_character: null
+       }] +
+       [c IN calls | {
+         id: c.callee_id, name: c.callee, path: c.callee_path,
+         depth: c.depth, call_line: c.call_line, call_character: c.call_character
+       }]
+      ) AS executionNodes,
+      calls AS executionEdges
     """
 
 
@@ -1245,8 +1280,30 @@ def find_code_workflows(
         
         workflows = []
         for record in query_result:
-            workflow_data = record.get("workflow", {})
-            if workflow_data and workflow_data.get("workflowNodes"):
+            execution_nodes = record.get("executionNodes", [])
+            execution_edges = record.get("executionEdges", [])
+            
+            if execution_nodes:
+                # Extract entry and end point from execution nodes
+                entry_node = execution_nodes[0] if execution_nodes else {}
+                end_node = execution_nodes[-1] if len(execution_nodes) > 1 else entry_node
+                
+                # Build workflow data structure expected by downstream code
+                workflow_data = {
+                    "entryPointId": entry_node.get("id", ""),
+                    "entryPointName": entry_node.get("name", ""),
+                    "entryPointPath": entry_node.get("path", ""),
+                    "endPointId": end_node.get("id", ""),
+                    "endPointName": end_node.get("name", ""),
+                    "endPointPath": end_node.get("path", ""),
+                    "workflowNodes": execution_nodes,  # Keep as executionNodes data structure
+                    "workflowEdges": execution_edges,  # Keep as executionEdges data structure
+                    "pathLength": len(execution_edges),
+                    "totalExecutionSteps": len(execution_edges),
+                    "totalEdges": len(execution_edges),
+                    "workflowType": "dfs_execution_trace_with_edges",
+                    "discoveredBy": "apoc_dfs_traversal",
+                }
                 workflows.append(workflow_data)
         
         logger.info(f"Found {len(workflows)} code-based workflows for entry point {entry_point_id}")

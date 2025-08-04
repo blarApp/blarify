@@ -8,7 +8,7 @@ from blarify.stats.complexity import CodeComplexityCalculator, NestingStats
 if TYPE_CHECKING:
     from ..class_node import ClassNode
     from ..function_node import FunctionNode
-    from blarify.graph.relationship import Relationship, RelationshipCreator
+    from blarify.graph.relationship import Relationship
     from blarify.code_references.types import Reference
     from tree_sitter import Node as TreeSitterNode
     from blarify.graph.graph_environment import GraphEnvironment

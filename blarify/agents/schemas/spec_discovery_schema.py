@@ -5,7 +5,7 @@ This module provides schemas for the spec discovery process to ensure
 consistent, validated responses from LLM spec analysis.
 """
 
-from typing import List, Dict, Any
+from typing import List
 from pydantic import BaseModel, Field
 
 

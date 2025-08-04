@@ -107,121 +107,45 @@ class RelationshipCreator:
         )
 
     @staticmethod
-    def create_belongs_to_workflow_relationships_for_code_nodes(
-        workflow_node: "Node", workflow_code_node_ids: List[str], db_manager
+    def create_belongs_to_workflow_relationships_for_documentation_nodes(
+        workflow_node: "Node", documentation_node_ids: List[str]
     ) -> List[dict]:
         """
         Create BELONGS_TO_WORKFLOW relationships from documentation nodes to workflow node.
 
-        Finds all documentation nodes that describe the given code nodes and creates
-        BELONGS_TO_WORKFLOW relationships from documentation nodes to the workflow node.
-
         Args:
             workflow_node: The workflow InformationNode
-            workflow_code_node_ids: List of code node IDs that are part of the workflow
-            db_manager: Database manager to query for documentation nodes
+            documentation_node_ids: List of documentation node IDs in the workflow
 
         Returns:
             List of relationship dicts suitable for database insertion via create_edges()
         """
-        # Query to find documentation nodes that describe these code nodes
-        doc_query = """
-        UNWIND $workflow_code_node_ids AS codeNodeId
-        MATCH (doc:INFORMATION {layer: 'documentation'})-[:DESCRIBES]->(code:NODE {node_id: codeNodeId})
-        RETURN doc.node_id as doc_id
-        """
-        doc_result = db_manager.query(
-            cypher_query=doc_query, parameters={"workflow_code_node_ids": workflow_code_node_ids}
-        )
-
-        # Create BELONGS_TO_WORKFLOW relationships from documentation nodes to workflow node
         relationships = []
-        doc_node_ids = [doc["doc_id"] for doc in doc_result if doc.get("doc_id")]
 
-        for doc_node_id in doc_node_ids:
-            relationships.append(
-                {
-                    "sourceId": doc_node_id,  # Documentation node
-                    "targetId": workflow_node.hashed_id,  # Workflow node
-                    "type": RelationshipType.BELONGS_TO_WORKFLOW.name,
-                    "scopeText": "",
-                }
-            )
-
-        return relationships
-
-    @staticmethod
-    def create_workflow_step_relationships_for_code_sequence(
-        workflow_node: "Node", workflow_code_node_ids: List[str], db_manager
-    ) -> List[dict]:
-        """
-        Create WORKFLOW_STEP relationships between documentation nodes for a workflow sequence.
-
-        Finds documentation nodes that describe the code nodes and creates WORKFLOW_STEP
-        relationships between consecutive documentation nodes with workflow_id in scope.
-
-        Args:
-            workflow_node: The workflow InformationNode
-            workflow_code_node_ids: List of code node IDs in execution order
-            db_manager: Database manager to query for documentation nodes
-
-        Returns:
-            List of relationship dicts suitable for database insertion via create_edges()
-        """
-        if len(workflow_code_node_ids) < 2:
-            return []
-
-        # Query to find documentation nodes that describe these code nodes, maintaining order
-        doc_query = """
-        UNWIND range(0, size($workflow_code_node_ids)-1) AS idx
-        WITH idx, $workflow_code_node_ids[idx] AS codeNodeId
-        MATCH (doc:INFORMATION {layer: 'documentation'})-[:DESCRIBES]->(code:NODE {node_id: codeNodeId})
-        RETURN idx, doc.node_id as doc_id
-        ORDER BY idx
-        """
-        doc_result = db_manager.query(
-            cypher_query=doc_query, parameters={"workflow_code_node_ids": workflow_code_node_ids}
-        )
-
-        # Create ordered list of documentation node IDs
-        doc_nodes_by_order = {}
-        for result in doc_result:
-            if result.get("doc_id"):
-                doc_nodes_by_order[result["idx"]] = result["doc_id"]
-
-        # Create WORKFLOW_STEP relationships between consecutive documentation nodes
-        relationships = []
-        for i in range(len(workflow_code_node_ids) - 1):
-            current_doc_id = doc_nodes_by_order.get(i)
-            next_doc_id = doc_nodes_by_order.get(i + 1)
-
-            if current_doc_id and next_doc_id:
-                scope_text = f"step_order:{i + 1},workflow_id:{workflow_node.hashed_id}"
+        for doc_node_id in documentation_node_ids:
+            if doc_node_id:  # Ensure valid ID
                 relationships.append(
                     {
-                        "sourceId": current_doc_id,  # Current documentation node
-                        "targetId": next_doc_id,  # Next documentation node
-                        "type": RelationshipType.WORKFLOW_STEP.name,
-                        "scopeText": scope_text,
+                        "sourceId": doc_node_id,  # Documentation node
+                        "targetId": workflow_node.hashed_id,  # Workflow node
+                        "type": RelationshipType.BELONGS_TO_WORKFLOW.name,
+                        "scopeText": "",
                     }
                 )
 
         return relationships
 
+
     @staticmethod
     def create_workflow_step_relationships_from_execution_edges(
-        workflow_node: "Node", execution_edges: List[Dict[str, Any]], db_manager
+        workflow_node: "Node", execution_edges: List[Dict[str, Any]]
     ) -> List[dict]:
         """
         Create WORKFLOW_STEP relationships between documentation nodes based on execution edges.
 
-        This method processes execution edges from the enhanced workflow query to create
-        WORKFLOW_STEP relationships that maintain the exact execution order.
-
         Args:
             workflow_node: The workflow InformationNode
-            execution_edges: List of execution edge dicts with source_id, target_id, order
-            db_manager: Database manager to query for documentation nodes
+            execution_edges: List of execution edge dicts with caller_id, callee_id as doc IDs
 
         Returns:
             List of relationship dicts suitable for database insertion via create_edges()
@@ -230,43 +154,27 @@ class RelationshipCreator:
             return []
 
         relationships = []
-        
-        # Sort edges by order to ensure proper sequencing
-        sorted_edges = sorted(execution_edges, key=lambda x: x.get("order", 0))
-        
+
+        # Sort edges by depth to ensure proper sequencing (depth represents execution order)
+        sorted_edges = sorted(execution_edges, key=lambda x: x.get("depth", 0))
+
         for edge in sorted_edges:
-            source_code_id = edge.get("source_id")
-            target_code_id = edge.get("target_id")
-            edge_order = edge.get("order", 0)
-            
-            if not source_code_id or not target_code_id:
+            source_doc_id = edge.get("caller_id")  # Already documentation node ID
+            target_doc_id = edge.get("callee_id")  # Already documentation node ID
+            edge_order = edge.get("depth", 0)
+
+            if not source_doc_id or not target_doc_id:
                 continue
-                
-            # Find documentation nodes for source and target code nodes
-            doc_query = """
-            MATCH (sourceDoc:INFORMATION {layer: 'documentation'})-[:DESCRIBES]->(sourceCode:NODE {node_id: $source_id})
-            MATCH (targetDoc:INFORMATION {layer: 'documentation'})-[:DESCRIBES]->(targetCode:NODE {node_id: $target_id})
-            RETURN sourceDoc.node_id as source_doc_id, targetDoc.node_id as target_doc_id
-            """
-            
-            doc_result = db_manager.query(
-                cypher_query=doc_query, 
-                parameters={"source_id": source_code_id, "target_id": target_code_id}
+
+            scope_text = f"step_order:{edge_order},workflow_id:{workflow_node.hashed_id},edge_based:true"
+
+            relationships.append(
+                {
+                    "sourceId": source_doc_id,  # Source documentation node
+                    "targetId": target_doc_id,  # Target documentation node
+                    "type": RelationshipType.WORKFLOW_STEP.name,
+                    "scopeText": scope_text,
+                }
             )
-            
-            if doc_result and doc_result[0].get("source_doc_id") and doc_result[0].get("target_doc_id"):
-                source_doc_id = doc_result[0]["source_doc_id"]
-                target_doc_id = doc_result[0]["target_doc_id"]
-                
-                scope_text = f"step_order:{edge_order},workflow_id:{workflow_node.hashed_id},edge_based:true"
-                
-                relationships.append(
-                    {
-                        "sourceId": source_doc_id,  # Source documentation node
-                        "targetId": target_doc_id,  # Target documentation node  
-                        "type": RelationshipType.WORKFLOW_STEP.name,
-                        "scopeText": scope_text,
-                    }
-                )
 
         return relationships

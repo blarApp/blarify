@@ -3,7 +3,7 @@ from blarify.graph.node.file_node import FileNode
 from typing import Union, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from blarify.graph.relationship import RelationshipCreator, Relationship
+    from blarify.graph.relationship import Relationship
 
 
 class FolderNode(Node):

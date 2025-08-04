@@ -356,7 +356,7 @@ def test_workflow_discovery_only(root_path: str = None):
                 print(f"   {i + 1}. {workflow.entry_point_name} -> {workflow.end_point_name or 'N/A'} ({workflow.total_execution_steps} steps)")
 
             # Show analysis details
-            print(f"\n🔍 Analysis Details:")
+            print("\n🔍 Analysis Details:")
             print(f"   - Entry points analyzed: {result.total_entry_points}")
             print(f"   - Total workflows discovered: {result.total_workflows}")
             print(f"   - Discovery time: {result.discovery_time_seconds:.2f} seconds")

@@ -28,6 +28,8 @@ class RootFileFolderProcessingState(TypedDict):
     
     # Results aggregation
     all_information_nodes: List[Dict[str, Any]]
+    all_documentation_nodes: List[Any]  # Will store actual DocumentationNode objects
+    all_source_nodes: List[Any]  # Will store actual Node objects
     
     # Control flow
     error: Optional[str]
@@ -117,21 +119,25 @@ class RooFileFolderProcessingWorkflow:
                     goto="process_next_root"
                 )
             
-            # Save results to database immediately
-            if result.information_nodes:
-                logger.info(f"Saving {len(result.information_nodes)} nodes for root: {root_path}")
-                self._save_information_nodes(result.information_nodes, result.node_source_mapping)
+            # Results will be saved by DocumentationCreator, no need to save here
                 
             # Aggregate results
-            current_nodes = state.get("all_information_nodes", [])
-            updated_nodes = current_nodes + result.information_nodes
+            current_info_nodes = state.get("all_information_nodes", [])
+            current_doc_nodes = state.get("all_documentation_nodes", [])
+            current_source_nodes = state.get("all_source_nodes", [])
+            
+            updated_info_nodes = current_info_nodes + result.information_nodes
+            updated_doc_nodes = current_doc_nodes + result.documentation_nodes
+            updated_source_nodes = current_source_nodes + result.source_nodes
             
             logger.info(f"Completed processing for root: {root_path} ({len(result.information_nodes)} nodes)")
             
             return Command(
                 update={
                     "current_root_index": current_index + 1,
-                    "all_information_nodes": updated_nodes,
+                    "all_information_nodes": updated_info_nodes,
+                    "all_documentation_nodes": updated_doc_nodes,
+                    "all_source_nodes": updated_source_nodes,
                 },
                 goto="process_next_root"
             )
@@ -153,57 +159,6 @@ class RooFileFolderProcessingWorkflow:
         
         return Command(update={"complete": True}, goto=END)
 
-    def _save_information_nodes(
-        self, information_nodes: List[Dict[str, Any]], node_source_mapping: Dict[str, str]
-    ) -> Dict[str, Any]:
-        """
-        Save information nodes to the database and create DESCRIBES relationships.
-
-        Args:
-            information_nodes: List of InformationNode dictionaries (from .as_object())
-            node_source_mapping: Mapping of info_node_id -> source_node_id
-
-        Returns:
-            Dictionary with save status including counts and any errors
-        """
-        save_status = {"nodes_saved": 0, "relationships_created": 0, "errors": [], "success": False}
-
-        try:
-            # Save nodes to database
-            if information_nodes:
-                logger.info(f"Saving {len(information_nodes)} information nodes to database")
-                self.db_manager.create_nodes(information_nodes)
-                save_status["nodes_saved"] = len(information_nodes)
-
-                # Create DESCRIBES relationships
-                edges_list = []
-                for node_dict in information_nodes:
-                    node_id = node_dict.get("attributes", {}).get("node_id")
-                    if node_id and node_id in node_source_mapping:
-                        edge = {
-                            "sourceId": node_id,  # Information node
-                            "targetId": node_source_mapping[node_id],  # Target code node
-                            "type": "DESCRIBES",
-                            "scopeText": "semantic_documentation",
-                        }
-                        edges_list.append(edge)
-
-                if edges_list:
-                    logger.info(f"Creating {len(edges_list)} DESCRIBES relationships")
-                    self.db_manager.create_edges(edges_list)
-                    save_status["relationships_created"] = len(edges_list)
-
-            save_status["success"] = True
-            logger.info(
-                f"Successfully saved {save_status['nodes_saved']} nodes and created {save_status['relationships_created']} relationships"
-            )
-
-        except Exception as e:
-            logger.exception(f"Error saving information nodes: {e}")
-            save_status["errors"].append(f"Database save error: {str(e)}")
-            save_status["success"] = False
-
-        return save_status
 
     def run(self) -> ProcessingResult:
         """
@@ -230,6 +185,8 @@ class RooFileFolderProcessingWorkflow:
                 current_root_index=0,
                 root_paths=self.root_paths,
                 all_information_nodes=[],
+                all_documentation_nodes=[],
+                all_source_nodes=[],
                 error=None,
                 complete=False,
             )
@@ -242,8 +199,10 @@ class RooFileFolderProcessingWorkflow:
             if response.get("error"):
                 return ProcessingResult(node_path="root_processing", error=response["error"])
 
-            # Get aggregated information nodes
+            # Get aggregated nodes
             all_information_nodes = response.get("all_information_nodes", [])
+            all_documentation_nodes = response.get("all_documentation_nodes", [])
+            all_source_nodes = response.get("all_source_nodes", [])
 
             logger.info(
                 f"Root processing completed: {len(all_information_nodes)} total information nodes from {len(self.root_paths)} root paths"
@@ -257,6 +216,8 @@ class RooFileFolderProcessingWorkflow:
                 error=None,
                 node_source_mapping={},  # Not aggregated at this level
                 information_nodes=all_information_nodes,
+                documentation_nodes=all_documentation_nodes,
+                source_nodes=all_source_nodes,
             )
 
             return result

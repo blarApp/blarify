@@ -13,8 +13,11 @@ import contextvars
 import functools
 import threading
 import queue
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, TYPE_CHECKING
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from ...graph.node.types.node import Node
 
 from ...agents.llm_provider import LLMProvider
 from ...agents.prompt_templates import (
@@ -33,6 +36,10 @@ from ...db_managers.queries import (
     get_existing_documentation_for_node,
 )
 from ...graph.node.documentation_node import DocumentationNode
+from ...graph.node.file_node import FileNode
+from ...graph.node.folder_node import FolderNode
+from ...graph.node.function_node import FunctionNode
+from ...graph.node.class_node import ClassNode
 from ...graph.graph_environment import GraphEnvironment
 
 logger = logging.getLogger(__name__)
@@ -47,7 +54,14 @@ class ProcessingResult(BaseModel):
     error: Optional[str] = None
     node_source_mapping: Dict[str, str] = Field(default_factory=dict)  # Maps info_node_id -> source_node_id
     save_status: Optional[Dict[str, Any]] = None  # Optional save status information
-    information_nodes: List[Dict[str, Any]] = Field(default_factory=list)  # DocumentationNode objects
+    information_nodes: List[Dict[str, Any]] = Field(default_factory=list)  # DocumentationNode objects (as dicts)
+    
+    # New fields for proper Node object handling
+    documentation_nodes: List[DocumentationNode] = Field(default_factory=list)  # Actual DocumentationNode objects
+    source_nodes: List["Node"] = Field(default_factory=list)  # Actual source code Node objects
+    
+    class Config:
+        arbitrary_types_allowed = True  # Allow Node objects
 
 
 class RecursiveDFSProcessor:
@@ -88,6 +102,7 @@ class RecursiveDFSProcessor:
         self.max_workers = max_workers
         self.node_descriptions: Dict[str, DocumentationNode] = {}  # Cache processed nodes
         self.node_source_mapping: Dict[str, str] = {}  # Maps info_node_id -> source_node_id
+        self.source_nodes_cache: Dict[str, "Node"] = {}  # Cache actual source Node objects by node_id
         self.source_to_description: Dict[str, str] = {}  # Maps source_node_id -> description content
         self.processing_queues: Dict[str, queue.Queue] = {}  # Per-node result queues for coordination
         self.queue_lock = threading.Lock()  # Protects the processing_queues dictionary
@@ -133,6 +148,8 @@ class RecursiveDFSProcessor:
 
             # Collect all processed descriptions and convert to dicts
             all_descriptions_as_dicts = [node.as_object() for node in self.node_descriptions.values()]
+            all_documentation_nodes = list(self.node_descriptions.values())
+            all_source_nodes = list(self.source_nodes_cache.values())
 
             logger.info(f"Completed recursive DFS processing. Generated {len(all_descriptions_as_dicts)} descriptions")
 
@@ -141,6 +158,8 @@ class RecursiveDFSProcessor:
                 hierarchical_analysis={"complete": True, "root_description": root_description.as_object()},
                 node_source_mapping=self.node_source_mapping,
                 information_nodes=all_descriptions_as_dicts,
+                documentation_nodes=all_documentation_nodes,
+                source_nodes=all_source_nodes,
             )
 
         except Exception as e:
@@ -445,6 +464,8 @@ class RecursiveDFSProcessor:
 
             # Track mapping using the node's hashed_id (protected by per-node lock)
             self.node_source_mapping[info_node.hashed_id] = node.id
+            # Cache the actual source Node object
+            self.source_nodes_cache[node.id] = self._convert_to_node(node)
             # Also track for efficient child lookup during skeleton replacement
             self.source_to_description[node.id] = response_content
 
@@ -466,6 +487,8 @@ class RecursiveDFSProcessor:
 
             # Track mapping using the node's hashed_id (protected by per-node lock)
             self.node_source_mapping[info_node.hashed_id] = node.id
+            # Cache the actual source Node object
+            self.source_nodes_cache[node.id] = self._convert_to_node(node)
             # Also track for efficient child lookup during skeleton replacement
             self.source_to_description[node.id] = (
                 f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
@@ -654,6 +677,8 @@ class RecursiveDFSProcessor:
 
         # Track mapping using the node's hashed_id (protected by per-node lock)
         self.node_source_mapping[info_node.hashed_id] = node.id
+        # Cache the actual source Node object
+        self.source_nodes_cache[node.id] = self._convert_to_node(node)
         self.source_to_description[node.id] = response_content
 
         return info_node
@@ -676,6 +701,8 @@ class RecursiveDFSProcessor:
 
         # Track mapping using the node's hashed_id (protected by per-node lock)
         self.node_source_mapping[info_node.hashed_id] = node.id
+        # Cache the actual source Node object
+        self.source_nodes_cache[node.id] = self._convert_to_node(node)
         self.source_to_description[node.id] = (
             f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}"
         )
@@ -926,3 +953,72 @@ class RecursiveDFSProcessor:
                 f"Error checking database for existing documentation for node {node.name} ({node.id}): {e}"
             )
             return None
+
+    def _convert_to_node(self, node_dto: NodeWithContentDto) -> "Node":
+        """
+        Convert NodeWithContentDto to appropriate Node object.
+        
+        Args:
+            node_dto: The NodeWithContentDto to convert
+            
+        Returns:
+            Appropriate Node object (FileNode, FolderNode, FunctionNode, or ClassNode)
+        """
+        # Determine node type from labels
+        if "FOLDER" in node_dto.labels:
+            return FolderNode(
+                path=node_dto.path,
+                name=node_dto.name,
+                level=0,  # Level not preserved in DTO
+                parent=None,  # Parent relationship not preserved
+                graph_environment=self.graph_environment,
+            )
+        elif "FILE" in node_dto.labels:
+            return FileNode(
+                path=node_dto.path,
+                name=node_dto.name,
+                level=0,  # Level not preserved in DTO
+                node_range=None,  # Range not preserved in DTO
+                definition_range=None,  # Range not preserved in DTO
+                code_text=node_dto.content,
+                parent=None,  # Parent relationship not preserved
+                graph_environment=self.graph_environment,
+            )
+        elif "FUNCTION" in node_dto.labels:
+            return FunctionNode(
+                name=node_dto.name,
+                path=node_dto.path,
+                definition_range=None,  # Range not preserved in DTO
+                node_range=None,  # Range not preserved in DTO
+                code_text=node_dto.content,
+                body_node=None,  # TreeSitter node not preserved
+                level=0,  # Level not preserved in DTO
+                tree_sitter_node=None,  # TreeSitter node not preserved
+                parent=None,  # Parent relationship not preserved
+                graph_environment=self.graph_environment,
+            )
+        elif "CLASS" in node_dto.labels:
+            return ClassNode(
+                name=node_dto.name,
+                path=node_dto.path,
+                definition_range=None,  # Range not preserved in DTO
+                node_range=None,  # Range not preserved in DTO
+                code_text=node_dto.content,
+                body_node=None,  # TreeSitter node not preserved
+                level=0,  # Level not preserved in DTO
+                tree_sitter_node=None,  # TreeSitter node not preserved
+                parent=None,  # Parent relationship not preserved
+                graph_environment=self.graph_environment,
+            )
+        else:
+            # Default to FileNode for unknown types
+            return FileNode(
+                path=node_dto.path,
+                name=node_dto.name,
+                level=0,
+                node_range=None,
+                definition_range=None,
+                code_text=node_dto.content,
+                parent=None,
+                graph_environment=self.graph_environment,
+            )

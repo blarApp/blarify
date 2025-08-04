@@ -8,12 +8,17 @@ ProjectGraphCreator patterns.
 
 import time
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from blarify.graph.node import Node
+    from blarify.graph.node.documentation_node import DocumentationNode
 
 from ..agents.llm_provider import LLMProvider
 from ..db_managers.db_manager import AbstractDbManager
 from ..db_managers.queries import get_root_folders_and_files
 from ..graph.graph_environment import GraphEnvironment
+from ..graph.relationship.relationship_creator import RelationshipCreator
 from .utils.recursive_dfs_processor import RecursiveDFSProcessor
 from .root_file_folder_processing_workflow import RooFileFolderProcessingWorkflow
 from .result_models import DocumentationResult, FrameworkDetectionResult
@@ -95,8 +100,8 @@ class DocumentationCreator:
                 result = self._create_full_documentation()
 
             # Step 4: Save to database if requested
-            if save_to_database and result.information_nodes:
-                self._save_documentation_to_database(result.information_nodes)
+            if save_to_database and result.documentation_nodes:
+                self._save_documentation_to_database(result.documentation_nodes, result.source_nodes)
 
             # Add timing and metadata
             result.processing_time_seconds = time.time() - start_time
@@ -181,6 +186,8 @@ class DocumentationCreator:
             logger.info(f"Creating targeted documentation for {len(target_paths)} paths")
 
             all_information_nodes = []
+            all_documentation_nodes = []
+            all_source_nodes = []
             analyzed_nodes = []
             warnings = []
 
@@ -195,6 +202,8 @@ class DocumentationCreator:
 
                     # Collect results
                     all_information_nodes.extend(processor_result.information_nodes)
+                    all_documentation_nodes.extend(processor_result.documentation_nodes)
+                    all_source_nodes.extend(processor_result.source_nodes)
                     analyzed_nodes.append(
                         {
                             "path": path,
@@ -214,6 +223,8 @@ class DocumentationCreator:
 
             return DocumentationResult(
                 information_nodes=all_information_nodes,
+                documentation_nodes=all_documentation_nodes,
+                source_nodes=all_source_nodes,
                 analyzed_nodes=analyzed_nodes,
                 warnings=warnings,
             )
@@ -264,8 +275,10 @@ class DocumentationCreator:
                 logger.exception(f"Error in parallel root processing workflow: {workflow_result.error}")
                 return DocumentationResult(error=workflow_result.error)
 
-            # Get all information nodes from parallel processing
+            # Get all nodes from parallel processing
             all_information_nodes = workflow_result.information_nodes or []
+            all_documentation_nodes = workflow_result.documentation_nodes or []
+            all_source_nodes = workflow_result.source_nodes or []
 
             logger.info(
                 f"Full documentation completed: {len(all_information_nodes)} nodes from {len(root_paths)} root paths"
@@ -273,6 +286,8 @@ class DocumentationCreator:
 
             return DocumentationResult(
                 information_nodes=all_information_nodes,
+                documentation_nodes=all_documentation_nodes,
+                source_nodes=all_source_nodes,
                 analyzed_nodes=[
                     {
                         "type": "full_codebase",
@@ -286,40 +301,36 @@ class DocumentationCreator:
             logger.exception(f"Error in full documentation creation: {e}")
             return DocumentationResult(error=str(e))
 
-    def _save_documentation_to_database(self, information_nodes: List[Dict[str, Any]]) -> None:
+    def _save_documentation_to_database(
+        self, documentation_nodes: List["DocumentationNode"], source_nodes: List["Node"]
+    ) -> None:
         """
-        Save documentation nodes to the database and create DESCRIBES relationships.
+        Save documentation nodes to the database and create DESCRIBES relationships using RelationshipCreator.
 
         Args:
-            information_nodes: List of DocumentationNode objects as dictionaries
+            documentation_nodes: List of actual DocumentationNode objects
+            source_nodes: List of actual source code Node objects
         """
         try:
-            if not information_nodes:
+            if not documentation_nodes:
                 return
 
-            logger.info(f"Saving {len(information_nodes)} documentation nodes to database")
+            logger.info(f"Saving {len(documentation_nodes)} documentation nodes to database")
 
-            # Collect DESCRIBES relationships while processing nodes
-            describes_relationships = []
-            
-            for node_dict in information_nodes:
-                attributes = node_dict.get("attributes", {})
-                node_id = attributes.get("node_id")
-                source_node_id = attributes.get("source_node_id")
-                
-                if node_id and source_node_id:
-                    describes_relationships.append({
-                        "sourceId": node_id,  # Documentation node
-                        "targetId": source_node_id,  # Target code node
-                        "type": "DESCRIBES",
-                        "scopeText": "semantic_documentation",
-                    })
+            # Convert DocumentationNode objects to dictionaries for database storage
+            information_node_dicts = [node.as_object() for node in documentation_nodes]
 
             # Batch save nodes
-            self.db_manager.create_nodes(information_nodes)
-            logger.info(f"Saved {len(information_nodes)} documentation nodes")
+            self.db_manager.create_nodes(information_node_dicts)
+            logger.info(f"Saved {len(information_node_dicts)} documentation nodes")
             
-            # Batch save DESCRIBES relationships
+            # Create DESCRIBES relationships using the existing RelationshipCreator method
+            describes_relationships = RelationshipCreator.create_describes_relationships(
+                documentation_nodes=documentation_nodes,
+                source_nodes=source_nodes
+            )
+            
+            # Save relationships to database (already as dictionaries)
             if describes_relationships:
                 self.db_manager.create_edges(describes_relationships)
                 logger.info(f"Created {len(describes_relationships)} DESCRIBES relationships")

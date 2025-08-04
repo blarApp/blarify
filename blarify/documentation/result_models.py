@@ -5,8 +5,12 @@ This module provides Pydantic models for representing the results of documentati
 and workflow creation processes, replacing the complex LangGraph state management.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from blarify.graph.node import Node
+    from blarify.graph.node.documentation_node import DocumentationNode
 
 
 class DocumentationResult(BaseModel):
@@ -16,11 +20,21 @@ class DocumentationResult(BaseModel):
     information_nodes: List[Dict[str, Any]] = Field(default_factory=list)
     """List of generated DocumentationNode objects (as dictionaries)"""
 
+    # New fields for proper Node object handling
+    documentation_nodes: List["DocumentationNode"] = Field(default_factory=list)
+    """List of actual DocumentationNode objects"""
+
+    source_nodes: List["Node"] = Field(default_factory=list)
+    """List of actual source code Node objects"""
+
     semantic_relationships: List[Dict[str, Any]] = Field(default_factory=list)
     """Semantic relationships between nodes"""
 
     code_references: List[Dict[str, Any]] = Field(default_factory=list)
     """Precise code location mappings"""
+
+    class Config:
+        arbitrary_types_allowed = True  # Allow Node objects
 
     # Analysis metadata
     analyzed_nodes: List[Dict[str, Any]] = Field(default_factory=list)

@@ -47,3 +47,53 @@ class Relationship:
 
     def __str__(self) -> str:
         return f"{self.start_node} --[{self.rel_type}]-> {self.end_node}"
+
+
+class WorkflowStepRelationship(Relationship):
+    """Specialized relationship for WORKFLOW_STEP with additional workflow-specific attributes."""
+    
+    step_order: Optional[int]
+    depth: Optional[int]
+    call_line: Optional[int]
+    call_character: Optional[int]
+    relationship_type: Optional[str]
+    
+    def __init__(
+        self,
+        start_node: "Node",
+        end_node: "Node", 
+        rel_type: "RelationshipType",
+        scope_text: str = "",
+        step_order: Optional[int] = None,
+        depth: Optional[int] = None,
+        call_line: Optional[int] = None,
+        call_character: Optional[int] = None,
+        relationship_type: Optional[str] = None
+    ):
+        super().__init__(start_node, end_node, rel_type, scope_text)
+        self.step_order = step_order
+        self.depth = depth
+        self.call_line = call_line
+        self.call_character = call_character
+        self.relationship_type = relationship_type
+    
+    def as_object(self) -> dict:
+        obj = super().as_object()
+        
+        # Add workflow-specific attributes if they exist
+        if self.step_order is not None:
+            obj["step_order"] = self.step_order
+        if self.depth is not None:
+            obj["depth"] = self.depth
+        if self.call_line is not None:
+            obj["call_line"] = self.call_line
+        if self.call_character is not None:
+            obj["call_character"] = self.call_character
+        if self.relationship_type is not None:
+            obj["relationship_type"] = self.relationship_type
+            
+        return obj
+    
+    def __str__(self) -> str:
+        step_info = f" (step {self.step_order})" if self.step_order is not None else ""
+        return f"{self.start_node} --[{self.rel_type}{step_info}]-> {self.end_node}"

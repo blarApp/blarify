@@ -10,8 +10,8 @@ from blarify.code_references import LspQueryHelper
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.utils.file_remover import FileRemover
 from blarify.agents.llm_provider import LLMProvider
-from blarify.documentation.workflow import DocumentationWorkflow
-from blarify.documentation.spec_analysis_workflow import SpecAnalysisWorkflow
+from blarify.documentation.documentation_creator import DocumentationCreator
+from blarify.documentation.workflow_creator import WorkflowCreator
 
 import dotenv
 import os
@@ -55,38 +55,43 @@ def main_with_documentation(root_path: str = None, blarignore_path: str = None):
     # Step 2: Run documentation generation workflow
     print("\n📚 Phase 2: Generating documentation layer...")
     try:
-        # Initialize the documentation workflow
+        # Initialize the documentation creator (new architecture)
         llm_provider = LLMProvider()
         graph_environment = GraphEnvironment("dev", "main", root_path)
-        documentation_workflow = DocumentationWorkflow(
-            company_id=entity_id,
-            company_graph_manager=graph_manager,
-            repo_id=repoId,
-            graph_environment=graph_environment,
+        documentation_creator = DocumentationCreator(
+            db_manager=graph_manager,
             agent_caller=llm_provider,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
         )
 
-        print("📝 Starting documentation generation workflow...")
+        print("📝 Starting documentation generation...")
 
-        # Run the workflow
-        result = documentation_workflow.run()
+        # Run the documentation creation
+        result = documentation_creator.create_documentation()
 
-        print("✅ Documentation generation completed successfully!")
+        if result.error:
+            print(f"❌ Documentation generation failed: {result.error}")
+        else:
+            print("✅ Documentation generation completed successfully!")
 
-        # Print results summary
-        generated_docs = result.get("generated_docs", [])
-        print("\n📋 Documentation Results:")
-        print(f"   - Generated docs: {len(generated_docs)}")
-        print(
-            f"   - Framework detected: {result.get('detected_framework', {}).get('framework', {}).get('name', 'unknown')}"
-        )
-        print(f"   - Key components: {len(result.get('key_components', []))}")
-        print(f"   - Analyzed nodes: {len(result.get('analyzed_nodes', []))}")
+            # Print results summary
+            print("\n📋 Documentation Results:")
+            print(f"   - Generated nodes: {len(result.information_nodes)}")
+            print(f"   - Processing time: {result.processing_time_seconds:.2f} seconds")
+            print(f"   - Framework detected: {result.detected_framework.get('primary_framework', 'unknown')}")
+            print(f"   - Total nodes processed: {result.total_nodes_processed}")
+            
+            if result.warnings:
+                print(f"   - Warnings: {len(result.warnings)}")
+                for warning in result.warnings[:3]:  # Show first 3 warnings
+                    print(f"     * {warning}")
 
         # Print sample documentation
-        if generated_docs:
+        if result.information_nodes:
             print("\n📄 Sample Documentation:")
-            for i, doc in enumerate(generated_docs[:2]):  # Show first 2 docs
+            for i, doc in enumerate(result.information_nodes[:2]):  # Show first 2 docs
                 doc_type = doc.get("type", "unknown")
                 content = doc.get("content", doc.get("documentation", ""))[:200]
                 print(f"   {i + 1}. [{doc_type}] {content}...")
@@ -118,21 +123,18 @@ def test_documentation_only(root_path: str = None):
         # Initialize the documentation workflow
         llm_provider = LLMProvider()
         graph_environment = GraphEnvironment("dev", "main", root_path)
-        documentation_workflow = DocumentationWorkflow(
-            company_id=entity_id,
-            company_graph_manager=graph_manager,
-            repo_id=repoId,
-            graph_environment=graph_environment,
+        documentation_creator = DocumentationCreator(
+            db_manager=graph_manager,
             agent_caller=llm_provider,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
         )
 
-        print("📝 Compiling do        cumentation workflow...")
-        documentation_workflow.compile_graph()
+        print("📝 Starting documentation creation...")
 
-        print("🔄 Starting documentation generation...")
-
-        # Run the workflow
-        result = documentation_workflow.run()
+        # Run the documentation creation
+        result = documentation_creator.create_documentation()
 
         print("✅ Documentation generation completed successfully!")
 
@@ -317,9 +319,9 @@ def main_diff_with_previous(
     lsp_query_helper.shutdown_exit_close()
 
 
-def test_spec_analysis_only(root_path: str = None):
-    """Test only the SpecAnalysisWorkflow with real framework data and InformationNodes."""
-    print("🔬 Testing SpecAnalysisWorkflow independently...")
+def test_workflow_discovery_only(root_path: str = None):
+    """Test only the WorkflowCreator with real framework data."""
+    print("🔬 Testing WorkflowCreator independently...")
 
     # Setup infrastructure
     repoId = "test"
@@ -327,77 +329,46 @@ def test_spec_analysis_only(root_path: str = None):
     graph_manager = Neo4jManager(repoId, entity_id)
 
     try:
-        # Real framework detection data (from actual run)
-        detected_framework = {
-            "description": "This project is a modern, modular Python application focused on multi-language code analysis and graph building using the Language Server Protocol (LSP). The technology stack centers on Python 3.10+, Poetry for dependency management, and a heavy use of libraries for syntax analysis (tree-sitter and multiple language grammars), code intelligence (jedi-language-server, multilspy), and graph database integration (Neo4j, falkordb). The architecture is built for extensibility and multi-language support, emphasizing code parsing, semantic enrichment, and transformation workflows. There is no web, frontend, or desktop/mobile GUI aspect: the project is a sophisticated backend service or developer tool. The directory structure is highly modular, with clear separations for graph database management (db_managers/), core graph modeling (graph/), LSP/code analysis and cross-referencing (code_hierarchy/, code_references/), AI-driven or agent workflows (agents/), and key supporting infrastructure (utils/, vendor/). This points to a component-based, layered architecture designed for maintainability and easy extension to new code languages or analysis features. The integration with LLM frameworks (langchain, langgraph) suggests advanced capabilities for semantic code search, summarization, or transformation. The project's primary purpose is to abstract, parse, and represent codebases from multiple languages as rich graphs of entities and relationships. It leverages LSP servers and tree-sitter grammars to extract code structure, then stores and analyzes this information in an external graph database. The system can be used for code exploration, documentation, refactoring assistance, or as a foundation for more advanced developer tools. Test files in the root and the presence of extensive documentation indicate a mature, well-structured project workflow. Development environment expectations assume familiarity with Poetry, graph/Neo4j ecosystems, and code intelligence libraries. For strategic analysis, focus should be given to the main business logic and graph orchestration folders: db_managers/ for database interaction, graph/ for core graph computation and modeling, agents/ for automation/AI/LSP integrations, code_hierarchy/ and code_references/ for code structure and semantic relationships, project_file_explorer/ for code/project abstraction, and utils/ and vendor/ for supporting infrastructure. This modular breakup is essential for understanding how the system ingests code, builds graphs, and orchestrates external intelligence.",
-            "name": "Python LSP Code Analysis Framework",
-            "type": "Python Backend Service",
-        }
-
-        # Real main folders (from actual run)
-        main_folders = [
-            "blarify/blarify/graph/",
-            "blarify/blarify/db_managers/",
-            "blarify/blarify/agents/",
-            "blarify/blarify/code_hierarchy/",
-            "blarify/blarify/code_references/",
-            "blarify/blarify/project_file_explorer/",
-            "blarify/blarify/utils/",
-            "blarify/blarify/vendor/",
-        ]
-
-        # Create SpecAnalysisWorkflow
-        print("🔧 Setting up SpecAnalysisWorkflow...")
-        llm_provider = LLMProvider()
+        # Create WorkflowCreator
+        print("🔧 Setting up WorkflowCreator...")
         graph_environment = GraphEnvironment("dev", "main", root_path)
-        spec_analysis = SpecAnalysisWorkflow(
-            company_id=entity_id,
-            company_graph_manager=graph_manager,
-            repo_id=repoId,
+        workflow_creator = WorkflowCreator(
+            db_manager=graph_manager,
             graph_environment=graph_environment,
-            agent_caller=llm_provider,
+            company_id=entity_id,
+            repo_id=repoId,
         )
 
-        # Prepare input data
-        spec_input = {
-            "main_folders": main_folders,
-            "detected_framework": detected_framework,
-        }
-
-        # Run the spec analysis
-        print(f"🚀 Running SpecAnalysisWorkflow with {len(main_folders)} main folders...")
-        result = spec_analysis.run(spec_input)
+        # Run workflow discovery
+        print("🚀 Running WorkflowCreator...")
+        result = workflow_creator.discover_workflows()
 
         # Display results
-        discovered_specs = result.get("discovered_specs", [])
-        error = result.get("error")
+        error = result.error
 
         if error:
-            print(f"❌ SpecAnalysisWorkflow encountered error: {error}")
+            print(f"❌ WorkflowCreator encountered error: {error}")
         else:
-            print("✅ SpecAnalysisWorkflow completed successfully!")
-            print(f"📋 Results: {len(discovered_specs)} specs discovered")
+            print("✅ WorkflowCreator completed successfully!")
 
-            if discovered_specs:
-                print("\n🔍 Discovered Specs:")
-                for i, spec in enumerate(discovered_specs):
-                    name = spec.get("name", "Unknown")
-                    description = spec.get("description", "No description")
-                    entry_points = spec.get("entry_points", [])
-                    scope = spec.get("scope", "Unknown")
+            print(f"\n📋 Discovered {len(result.discovered_workflows)} workflows:")
+            for i, workflow in enumerate(result.discovered_workflows[:5]):  # Show first 5
+                print(f"   {i + 1}. {workflow.entry_point_name} -> {workflow.end_point_name or 'N/A'} ({workflow.total_execution_steps} steps)")
 
-                    print(f"   {i + 1}. **{name}**")
-                    print(f"      Description: {description[:150]}{'...' if len(description) > 150 else ''}")
-                    print(f"      Entry Points: {', '.join(entry_points) if entry_points else 'None'}")
-                    print(f"      Scope: {scope}")
-                    print()
-            else:
-                print("📋 No specs were discovered.")
+            # Show analysis details
+            print(f"\n🔍 Analysis Details:")
+            print(f"   - Entry points analyzed: {result.total_entry_points}")
+            print(f"   - Total workflows discovered: {result.total_workflows}")
+            print(f"   - Discovery time: {result.discovery_time_seconds:.2f} seconds")
+            
+            if result.warnings:
+                print(f"   - Warnings: {len(result.warnings)}")
+                for warning in result.warnings[:3]:
+                    print(f"     * {warning}")
 
     except Exception as e:
-        print(f"❌ SpecAnalysisWorkflow test failed: {e}")
+        print(f"❌ WorkflowCreator test failed: {e}")
         import traceback
-
         traceback.print_exc()
 
     finally:
@@ -416,7 +387,7 @@ if __name__ == "__main__":
     # main(root_path=root_path, blarignore_path=blarignore_path)
 
     # Test the SpecAnalysisWorkflow only (assuming InformationNodes exist)
-    test_spec_analysis_only(root_path=root_path)
+    test_workflow_discovery_only(root_path=root_path)
 
     # Other test options (commented out):
     # test_documentation_only(root_path=root_path)  # Test full documentation workflow

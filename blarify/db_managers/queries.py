@@ -919,92 +919,130 @@ def get_root_folders_and_files(db_manager: AbstractDbManager, entity_id: str, re
 
 def find_independent_workflows_query() -> str:
     """
-    Returns a Cypher query for finding a single complete execution trace from an entry point
-    with ordered execution edges for complete flow representation.
+    Returns a Cypher query for finding workflow execution traces with documentation nodes.
 
-    This query builds ONE comprehensive execution trace that includes ALL functions
-    called by the entry point, creating a single unified call stack trace with 
-    execution edges in proper DFS order for complete workflow representation.
+    This query builds execution traces through code nodes but returns documentation node IDs
+    for workflow relationships. The caller_id and callee_id in edges refer to documentation 
+    node IDs, eliminating the need for separate queries during relationship creation.
 
     Returns:
-        str: The Cypher query string with both nodes and ordered edges
+        str: The Cypher query string with documentation nodes and their relationships
     """
     return """
-    // Find the entry point
     WITH 20 AS maxDepth
-    MATCH (entry:NODE {node_id: $entry_point_id, layer: 'code', entityId: $entity_id, repoId: $repo_id})
-    
-    // Expand with DFS; avoid revisiting nodes (NODE_PATH) to prevent recursion loops
+
+    // Entry code node
+    MATCH (entry:NODE {
+      node_id: $entry_point_id,
+      layer: 'code', entityId: $entity_id, repoId: $repo_id
+    })
+
+    // Enumerate DFS paths through code nodes
     CALL apoc.path.expandConfig(entry, {
-      relationshipFilter: "CALLS>",
-      minLevel: 0, maxLevel: maxDepth,
-      bfs: false,                      // DFS traversal
-      uniqueness: "NODE_PATH"
+    relationshipFilter: "CALLS>",
+    minLevel: 0, maxLevel: maxDepth,
+    bfs: false,
+    uniqueness: "NODE_PATH"
     }) YIELD path
+
+    // Keep leaves or frontier-at-maxDepth
+    WITH entry, path, last(nodes(path)) AS leaf, maxDepth
+    WHERE length(path) = 0
+    OR coalesce(apoc.node.degree.out(leaf,'CALLS'),0) = 0
+    OR length(path) = maxDepth
+
+    // Sort paths by call order
+    WITH entry, path,
+        [r IN relationships(path) |
+            [coalesce(r.startLine, 999999), coalesce(r.referenceCharacter, 999999)]
+        ] AS sortKey
+    ORDER BY sortKey
+
+    // Work with ordered paths
+    WITH entry, collect({ns: nodes(path), rels: relationships(path)}) AS paths
+
+    // For each path, emit only the suffix beyond the LCP with previous path
+    UNWIND range(0, size(paths)-1) AS k
+    WITH entry, paths[k] AS cur,
+        CASE WHEN k = 0 THEN null ELSE paths[k-1] END AS prev
+
+    WITH entry,
+        cur.ns   AS ns,
+        cur.rels AS rels,
+        (CASE WHEN prev IS NULL THEN [] ELSE prev.ns END)   AS prevNs,
+        (CASE WHEN prev IS NULL THEN 0  ELSE size(prev.rels) END) AS prevRelsSize
+
+    // Compute LCP length
+    WITH entry, ns, rels, prevNs, prevRelsSize,
+        CASE
+        WHEN prevRelsSize = 0 THEN 0
+        ELSE
+            coalesce(
+            last([
+                i IN range(0, apoc.coll.min([size(prevNs), size(ns)]) - 1)
+                WHERE prevNs[i].node_id = ns[i].node_id | i
+            ]),
+            -1
+            ) + 1
+        END AS lcpLen
+
+    UNWIND range(lcpLen, size(rels)-1) AS i
+    WITH entry,
+        ns[i]   AS callerCode,
+        ns[i+1] AS calleeCode,
+        rels[i] AS r,
+        i       AS depthWithinPath
+
+    // Find documentation nodes for caller and callee
+    OPTIONAL MATCH (callerDoc:DOCUMENTATION {layer: 'documentation'})-[:DESCRIBES]->(callerCode)
+    OPTIONAL MATCH (calleeDoc:DOCUMENTATION {layer: 'documentation'})-[:DESCRIBES]->(calleeCode)
+
+    // Collect edges with documentation IDs and code node info
+    WITH entry, callerCode, calleeCode, callerDoc, calleeDoc, r, depthWithinPath
+    WHERE callerDoc IS NOT NULL AND calleeDoc IS NOT NULL
+
+    WITH entry,
+        collect({
+        caller_id: callerDoc.node_id, caller: callerCode.name, caller_path: callerCode.path,
+        callee_id: calleeDoc.node_id, callee: calleeCode.name, callee_path: calleeCode.path,
+        caller_code_node: callerCode, callee_code_node: calleeCode,
+        call_line: r.startLine, call_character: r.referenceCharacter,
+        depth: depthWithinPath + 1
+        }) AS docCalls
+
+    // Get all unique code nodes in execution and their documentation
+    WITH entry, docCalls,
+        [entry] + [c IN docCalls | c.caller_code_node] + [c IN docCalls | c.callee_code_node] AS allCodeNodes
     
-    // Keep only root→leaf paths (or the 0-length path if there are no calls)
-    WITH path, relationships(path) AS pathRels, nodes(path) AS pathNodes
-    WHERE length(path) = 0 OR NOT (last(pathNodes))-[:CALLS]->()
-    
-    // Build a lexicographic ordering key from call-site (line/column) pairs.
-    // This yields the same ordering as doing DFS while choosing the next edge
-    // by the smallest (startLine, referenceCharacter) at each branch.
-    WITH path, pathRels, pathNodes,
-         [r IN pathRels | toString(coalesce(r.startLine, 999999)) + "/" +
-                          toString(coalesce(r.referenceCharacter, 999999))] AS sortKey
-    ORDER BY sortKey  // lexicographic list ordering ≈ DFS-by-callsite order
-    LIMIT 1  // Get the first (lexicographically smallest) execution path
-    
-    // Create execution trace with proper DFS ordering for nodes
-    WITH pathNodes, pathRels, path,
-         [i IN range(0, size(pathNodes)-1) | {
-           id: pathNodes[i].node_id,
-           name: pathNodes[i].name,
-           path: pathNodes[i].path,
-           labels: labels(pathNodes[i]),
-           start_line: pathNodes[i].start_line,
-           end_line: pathNodes[i].end_line,
-           call_order: i,
-           execution_step: i + 1,
-           call_depth: i,
-           call_line: CASE WHEN i < size(pathRels) THEN pathRels[i].startLine ELSE null END,
-           call_character: CASE WHEN i < size(pathRels) THEN pathRels[i].referenceCharacter ELSE null END
-         }] as executionTrace
-    
-    // Create execution edges in proper DFS order
-    WITH pathNodes, pathRels, executionTrace, path,
-         CASE WHEN size(pathRels) > 0 THEN
-           [i IN range(0, size(pathRels)-1) | {
-             source_id: pathNodes[i].node_id,
-             target_id: pathNodes[i+1].node_id,
-             relationship_type: "CALLS",
-             order: i,
-             start_line: pathRels[i].startLine,
-             reference_character: pathRels[i].referenceCharacter,
-             source_name: pathNodes[i].name,
-             target_name: pathNodes[i+1].name,
-             source_path: pathNodes[i].path,
-             target_path: pathNodes[i+1].path
-           }]
-         ELSE []
-         END as executionEdges
-    
-    // Return DFS execution trace with both nodes and edges
-    RETURN {
-        entryPointId: pathNodes[0].node_id,
-        entryPointName: pathNodes[0].name,
-        entryPointPath: pathNodes[0].path,
-        endPointId: last(pathNodes).node_id,
-        endPointName: last(pathNodes).name,
-        endPointPath: last(pathNodes).path,
-        workflowNodes: executionTrace,
-        executionEdges: executionEdges,
-        pathLength: length(path),
-        totalExecutionSteps: size(pathNodes),
-        totalEdges: size(pathRels),
-        workflowType: 'dfs_execution_trace_with_edges',
-        discoveredBy: 'apoc_dfs_traversal'
-    } AS workflow
+    UNWIND allCodeNodes AS codeNode
+    OPTIONAL MATCH (doc:DOCUMENTATION {layer: 'documentation'})-[:DESCRIBES]->(codeNode)
+    WITH entry, docCalls, 
+        collect(DISTINCT {
+            id: codeNode.node_id, 
+            name: codeNode.name, 
+            path: codeNode.path,
+            start_line: codeNode.start_line, 
+            end_line: codeNode.end_line,
+            doc_node_id: CASE WHEN doc IS NOT NULL THEN doc.node_id ELSE null END,
+            depth: CASE WHEN codeNode.node_id = entry.node_id THEN 0 ELSE null END
+        }) AS allNodes
+
+    // Filter nodes that have documentation and build execution nodes
+    WITH entry, docCalls,
+        [n IN allNodes WHERE n.doc_node_id IS NOT NULL] AS documentedNodes
+
+    // Clean up docCalls to remove code node references
+    WITH documentedNodes,
+        [c IN docCalls | {
+            caller_id: c.caller_id, caller: c.caller, caller_path: c.caller_path,
+            callee_id: c.callee_id, callee: c.callee, callee_path: c.callee_path,
+            call_line: c.call_line, call_character: c.call_character,
+            depth: c.depth
+        }] AS cleanDocCalls
+
+    RETURN
+    documentedNodes AS executionNodes,
+    cleanDocCalls AS executionEdges;
     """
 
 
@@ -1012,14 +1050,11 @@ def find_independent_workflows(
     db_manager: AbstractDbManager, entity_id: str, repo_id: str, entry_point_id: str
 ) -> List[Dict[str, Any]]:
     """
-    Finds complete execution traces starting from a single entry point.
+    Finds workflow execution traces with documentation node relationships.
 
-    This function discovers the ENTIRE execution flow by following CALLS relationships
-    to build complete call stack traces. Each trace represents the full sequence of
-    function calls that would occur when the entry point is invoked.
-
-    Similar to the Julia example:
-    main() -> first_function() -> second_function() -> third_function() -> ... (and back)
+    This function discovers execution flow through code nodes but returns documentation
+    node IDs for relationship creation. Each trace represents a complete workflow with
+    documentation nodes that can be directly used for creating WORKFLOW_STEP relationships.
 
     Args:
         db_manager: Database manager instance
@@ -1028,29 +1063,69 @@ def find_independent_workflows(
         entry_point_id: Single code node ID that is an entry point
 
     Returns:
-        List of execution trace dictionaries, each including:
-        - entryPointId, entryPointName, entryPointPath: Entry point details
-        - endPointId, endPointName, endPointPath: Final function in call chain
-        - workflowNodes: Ordered list of all functions in execution sequence
+        List of workflow dictionaries, each including:
+        - entryPointId, entryPointName, entryPointPath: Entry point details (code node)
+        - endPointId, endPointName, endPointPath: Final function in call chain (code node)
+        - executionNodes: List of code nodes with doc_node_id field for documentation
+        - executionEdges: List of edges with caller_id/callee_id as documentation node IDs
+        - documentationNodeIds: List of all documentation node IDs in the workflow
         - pathLength: Number of function calls in the chain
         - totalExecutionSteps: Total number of execution steps
-        - workflowType: 'execution_trace' to indicate complete call flow
-        - discoveredBy: 'complete_call_flow'
+        - workflowType: 'documentation_based_workflow' to indicate optimization
+        - discoveredBy: 'apoc_dfs_with_documentation'
     """
-    if entry_point_id == "93f77d77e170620b2d73c5caca19c49d":
-        logger.info("hi")
-
     try:
         query = find_independent_workflows_query()
         parameters = {"entity_id": entity_id, "repo_id": repo_id, "entry_point_id": entry_point_id}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
-        # Extract workflows
+        # Process new documentation-based query result format
         workflows = []
         for record in query_result:
-            workflow = record.get("workflow", {})
-            if workflow:
+            execution_nodes = record.get("executionNodes", [])
+            execution_edges = record.get("executionEdges", [])
+
+            if execution_nodes:
+                # Extract entry and end point information (code node details)
+                entry_node = execution_nodes[0]
+                end_node = execution_nodes[-1] if execution_nodes else entry_node
+
+                # Extract all documentation node IDs from execution nodes and edges
+                documentation_node_ids = []
+                
+                # Get documentation IDs from execution nodes
+                for node in execution_nodes:
+                    doc_id = node.get("doc_node_id")
+                    if doc_id and doc_id not in documentation_node_ids:
+                        documentation_node_ids.append(doc_id)
+                
+                # Get documentation IDs from execution edges (should already be included above)
+                for edge in execution_edges:
+                    caller_doc_id = edge.get("caller_id")  # This is already a documentation ID
+                    callee_doc_id = edge.get("callee_id")  # This is already a documentation ID
+                    if caller_doc_id and caller_doc_id not in documentation_node_ids:
+                        documentation_node_ids.append(caller_doc_id)
+                    if callee_doc_id and callee_doc_id not in documentation_node_ids:
+                        documentation_node_ids.append(callee_doc_id)
+
+                # Format workflow data in expected structure
+                workflow = {
+                    "entryPointId": entry_node.get("id", ""),
+                    "entryPointName": entry_node.get("name", ""),
+                    "entryPointPath": entry_node.get("path", ""),
+                    "endPointId": end_node.get("id", ""),
+                    "endPointName": end_node.get("name", ""),
+                    "endPointPath": end_node.get("path", ""),
+                    "executionNodes": execution_nodes,
+                    "executionEdges": execution_edges,
+                    "documentationNodeIds": documentation_node_ids,  # New field for direct access
+                    "pathLength": len(execution_edges),
+                    "totalExecutionSteps": len(execution_nodes),
+                    "totalEdges": len(execution_edges),
+                    "workflowType": "documentation_based_workflow",
+                    "discoveredBy": "apoc_dfs_with_documentation",
+                }
                 workflows.append(workflow)
 
         logger.info(f"Found {len(workflows)} independent workflows for entry point {entry_point_id}")
@@ -1058,6 +1133,127 @@ def find_independent_workflows(
 
     except Exception as e:
         logger.exception(f"Error finding independent workflows for entry point {entry_point_id}: {e}")
+        return []
+
+
+def find_code_workflows_query() -> str:
+    """
+    Returns a Cypher query for finding workflow execution traces without documentation dependencies.
+    
+    This query works directly with code nodes and their CALLS relationships, eliminating
+    the need for documentation nodes to exist before workflow discovery. This makes it
+    much faster for SWE benchmarks and targeted analysis.
+    
+    Returns:
+        str: The Cypher query string for code-based workflow discovery
+    """
+    return """
+    // Entry code node - no documentation dependency
+    MATCH (entry:NODE {
+      node_id: $entry_point_id,
+      layer: 'code', 
+      entityId: $entity_id, 
+      repoId: $repo_id
+    })
+    
+    // Direct traversal through code relationships
+    CALL apoc.path.expandConfig(entry, {
+        relationshipFilter: "CALLS>",
+        minLevel: 0, 
+        maxLevel: $maxDepth,
+        bfs: false,
+        uniqueness: "NODE_PATH"
+    }) YIELD path
+    
+    // Return code nodes with workflow structure
+    WITH entry, path, nodes(path) AS workflow_nodes, relationships(path) AS workflow_edges
+    WHERE length(path) = 0 OR length(path) <= $maxDepth
+    
+    // Filter out empty workflows (single node with no calls)
+    WITH entry, path, workflow_nodes, workflow_edges
+    WHERE length(path) > 0 OR (length(path) = 0 AND size([(entry)-[:CALLS]->() | 1]) = 0)
+    
+    RETURN {
+        entryPointId: entry.node_id,
+        entryPointName: entry.name,
+        entryPointPath: entry.path,
+        endPointId: CASE WHEN size(workflow_nodes) > 1 THEN last(workflow_nodes).node_id ELSE entry.node_id END,
+        endPointName: CASE WHEN size(workflow_nodes) > 1 THEN last(workflow_nodes).name ELSE entry.name END,
+        endPointPath: CASE WHEN size(workflow_nodes) > 1 THEN last(workflow_nodes).path ELSE entry.path END,
+        workflowNodes: [n IN workflow_nodes | {
+            id: n.node_id,
+            name: n.name,
+            path: n.path,
+            labels: labels(n),
+            start_line: n.start_line,
+            end_line: n.end_line
+        }],
+        workflowEdges: [r IN workflow_edges | {
+            caller_id: startNode(r).node_id,
+            callee_id: endNode(r).node_id,
+            relationship_type: type(r),
+            start_line: r.startLine,
+            reference_character: r.referenceCharacter
+        }],
+        pathLength: length(path),
+        totalExecutionSteps: size(workflow_nodes),
+        workflowType: 'code_based_workflow',
+        discoveredBy: 'apoc_dfs_code_only'
+    } AS workflow
+    ORDER BY workflow.pathLength ASC
+    """
+
+
+def find_code_workflows(
+    db_manager: AbstractDbManager, entity_id: str, repo_id: str, entry_point_id: str, max_depth: int = 20
+) -> List[Dict[str, Any]]:
+    """
+    Finds workflow execution traces using direct code analysis without documentation dependencies.
+    
+    This function provides fast workflow discovery that works directly with code structure,
+    making it ideal for SWE benchmarks where you need targeted workflow analysis without
+    expensive full documentation creation.
+    
+    Args:
+        db_manager: Database manager instance
+        entity_id: The entity ID to query
+        repo_id: The repository ID to query
+        entry_point_id: Code node ID that is an entry point
+        max_depth: Maximum depth for workflow traversal (default: 20)
+        
+    Returns:
+        List of workflow dictionaries, each including:
+        - entryPointId, entryPointName, entryPointPath: Entry point details
+        - endPointId, endPointName, endPointPath: Final function in call chain
+        - workflowNodes: List of code nodes in execution order
+        - workflowEdges: List of CALLS relationships between nodes
+        - pathLength: Number of function calls in the chain
+        - totalExecutionSteps: Total number of execution steps
+        - workflowType: 'code_based_workflow'
+        - discoveredBy: 'apoc_dfs_code_only'
+    """
+    try:
+        query = find_code_workflows_query()
+        parameters = {
+            "entity_id": entity_id,
+            "repo_id": repo_id,
+            "entry_point_id": entry_point_id,
+            "maxDepth": max_depth,
+        }
+        
+        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+        
+        workflows = []
+        for record in query_result:
+            workflow_data = record.get("workflow", {})
+            if workflow_data and workflow_data.get("workflowNodes"):
+                workflows.append(workflow_data)
+        
+        logger.info(f"Found {len(workflows)} code-based workflows for entry point {entry_point_id}")
+        return workflows
+        
+    except Exception as e:
+        logger.exception(f"Error finding code workflows for entry point {entry_point_id}: {e}")
         return []
 
 
@@ -1769,10 +1965,10 @@ def get_code_by_id(db_manager: AbstractDbManager, node_id: str, entity_id: str) 
 def get_call_stack_children_query() -> str:
     """
     Returns a Cypher query for retrieving functions/modules called or used by a function.
-    
+
     This query finds all nodes that are called or used by the given function through
     CALLS and USES relationships, including the precise call locations.
-    
+
     Returns:
         str: The Cypher query string
     """
@@ -1798,24 +1994,24 @@ def get_call_stack_children(
 ) -> List[NodeWithContentDto]:
     """
     Retrieves functions/modules called or used by a function.
-    
+
     Args:
         db_manager: Database manager instance
         entity_id: The entity ID to query
         repo_id: The repository ID to query
         node_id: The function node ID to get call stack children for
-        
+
     Returns:
         List of NodeWithContentDto objects representing called/used functions
     """
     try:
         query = get_call_stack_children_query()
         parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
-        
+
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
-        
+
         return format_children_with_content_result(query_result)
-        
+
     except Exception as e:
         logger.exception(f"Error retrieving call stack children for node '{node_id}': {e}")
         return []
@@ -1824,7 +2020,7 @@ def get_call_stack_children(
 def get_function_cycle_detection_query() -> str:
     """
     Query to detect if a function participates in a call cycle.
-    
+
     Returns:
         Cypher query string for cycle detection
     """
@@ -1843,9 +2039,9 @@ def get_function_cycle_detection_query() -> str:
 def get_existing_documentation_for_node_query() -> str:
     """
     Returns a Cypher query for retrieving existing documentation for a specific code node.
-    
+
     This query checks if a code node already has documentation through DESCRIBES relationships.
-    
+
     Returns:
         str: The Cypher query string
     """
@@ -1870,25 +2066,25 @@ def get_existing_documentation_for_node(
 ) -> Optional[Dict[str, Any]]:
     """
     Retrieves existing documentation for a specific code node.
-    
+
     Args:
         db_manager: Database manager instance
         entity_id: The entity ID to query
         repo_id: The repository ID to query
         node_id: The code node ID to check for existing documentation
-        
+
     Returns:
         Dictionary with documentation data or None if not found
     """
     try:
         query = get_existing_documentation_for_node_query()
         parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
-        
+
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
-        
+
         if not query_result:
             return None
-            
+
         # Return the documentation data
         record = query_result[0]
         return {
@@ -1902,7 +2098,7 @@ def get_existing_documentation_for_node(
             "enhanced_content": record.get("enhanced_content"),
             "children_count": record.get("children_count"),
         }
-        
+
     except Exception as e:
         logger.exception(f"Error retrieving existing documentation for node '{node_id}': {e}")
         return None
@@ -1913,29 +2109,29 @@ def detect_function_cycles(
 ) -> List[List[str]]:
     """
     Detect if a function participates in call cycles.
-    
+
     Args:
         db_manager: Database manager instance
         entity_id: Entity/company ID
         repo_id: Repository ID
         node_id: Function node ID to check for cycles
-        
+
     Returns:
         List of cycle paths (each path is a list of function names)
     """
     try:
         query = get_function_cycle_detection_query()
         parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
-        
+
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
-        
+
         cycles = []
         for record in query_result:
             cycle_path = record["function_names"]
             cycles.append(cycle_path)
-        
+
         return cycles
-        
+
     except Exception as e:
         logger.exception(f"Error detecting cycles for function '{node_id}': {e}")
         return []

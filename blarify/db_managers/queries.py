@@ -528,7 +528,7 @@ def get_node_by_path_query() -> str:
     """
     return """
     MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.path CONTAINS $folder_path AND (n:FOLDER OR n:FILE)
+    WHERE n.node_path CONTAINS $node_path
     RETURN n.node_id as id,
            n.name as name,
            labels(n) as labels,
@@ -650,7 +650,7 @@ def get_node_by_path(
         normalized_path = node_path.rstrip("/")
 
         query = get_node_by_path_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "folder_path": normalized_path}
+        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_path": normalized_path}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -1869,7 +1869,7 @@ def find_potential_entry_points_query() -> str:
     """
 
 
-def find_all_entry_points_hybrid(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[Dict[str, Any]]:
+def find_all_entry_points(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[Dict[str, Any]]:
     """
     Finds all potential entry points using comprehensive relationship checking.
 
@@ -2432,7 +2432,7 @@ def find_entry_points_for_node_path_query() -> str:
     WHERE NOT (potential_entry)<-[:CALLS]-()
     
     // Return only the node_id
-    RETURN DISTINCT potential_entry.node_id as id
+    RETURN DISTINCT potential_entry.node_id as id, potential_entry.node_path as path
     ORDER BY potential_entry.node_id
     """
 
@@ -2463,6 +2463,7 @@ def find_entry_points_for_node_path(
             entry_points.append(
                 {
                     "id": record.get("id", ""),
+                    "path": record.get("path", ""),
                 }
             )
 

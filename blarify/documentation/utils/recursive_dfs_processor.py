@@ -13,11 +13,8 @@ import contextvars
 import functools
 import threading
 import queue
-from typing import Dict, List, Optional, Any, Set, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, Set, Union
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    from ...graph.node.types.node import Node
 
 from ...agents.llm_provider import LLMProvider
 from ...agents.prompt_templates import (
@@ -55,11 +52,13 @@ class ProcessingResult(BaseModel):
     node_source_mapping: Dict[str, str] = Field(default_factory=dict)  # Maps info_node_id -> source_node_id
     save_status: Optional[Dict[str, Any]] = None  # Optional save status information
     information_nodes: List[Dict[str, Any]] = Field(default_factory=list)  # DocumentationNode objects (as dicts)
-    
+
     # New fields for proper Node object handling
     documentation_nodes: List[DocumentationNode] = Field(default_factory=list)  # Actual DocumentationNode objects
-    source_nodes: List["Node"] = Field(default_factory=list)  # Actual source code Node objects
-    
+    source_nodes: List[Union[FileNode, FolderNode, FunctionNode, ClassNode]] = Field(
+        default_factory=list
+    )  # Actual source code Node objects
+
     class Config:
         arbitrary_types_allowed = True  # Allow Node objects
 
@@ -102,7 +101,9 @@ class RecursiveDFSProcessor:
         self.max_workers = max_workers
         self.node_descriptions: Dict[str, DocumentationNode] = {}  # Cache processed nodes
         self.node_source_mapping: Dict[str, str] = {}  # Maps info_node_id -> source_node_id
-        self.source_nodes_cache: Dict[str, "Node"] = {}  # Cache actual source Node objects by node_id
+        self.source_nodes_cache: Dict[
+            str, Union[FileNode, FolderNode, FunctionNode, ClassNode]
+        ] = {}  # Cache actual source Node objects by node_id
         self.source_to_description: Dict[str, str] = {}  # Maps source_node_id -> description content
         self.processing_queues: Dict[str, queue.Queue] = {}  # Per-node result queues for coordination
         self.queue_lock = threading.Lock()  # Protects the processing_queues dictionary
@@ -954,13 +955,13 @@ class RecursiveDFSProcessor:
             )
             return None
 
-    def _convert_to_node(self, node_dto: NodeWithContentDto) -> "Node":
+    def _convert_to_node(self, node_dto: NodeWithContentDto) -> Union[FileNode, FolderNode, FunctionNode, ClassNode]:
         """
         Convert NodeWithContentDto to appropriate Node object.
-        
+
         Args:
             node_dto: The NodeWithContentDto to convert
-            
+
         Returns:
             Appropriate Node object (FileNode, FolderNode, FunctionNode, or ClassNode)
         """

@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union, TYPE_CHECKING, Dict
+from typing import List, Optional, Tuple, Union, TYPE_CHECKING, Dict, Any
 from blarify.graph.node.types.node import Node
 
 import re
@@ -20,14 +20,21 @@ class DefinitionNode(Node):
     node_range: "Reference"
     code_text: str
     _is_diff: bool
-    extra_labels = List[str]
-    extra_attributes = Dict[str, str]
+    extra_labels: List[str]
+    extra_attributes: Dict[str, str]
     body_node: Optional["TreeSitterNode"] = None
     _tree_sitter_node: Optional["TreeSitterNode"] = None
 
     def __init__(
-        self, definition_range, node_range, code_text, body_node, tree_sitter_node: "TreeSitterNode", *args, **kwargs
-    ):
+        self, 
+        definition_range: "Reference", 
+        node_range: "Reference", 
+        code_text: str, 
+        body_node: Optional["TreeSitterNode"], 
+        tree_sitter_node: "TreeSitterNode", 
+        *args, 
+        **kwargs
+    ) -> None:
         self._defines: List[Union["ClassNode", "FunctionNode"]] = []
         self.definition_range = definition_range
         self.node_range = node_range
@@ -53,13 +60,13 @@ class DefinitionNode(Node):
 
     def get_relationships(self) -> List["Relationship"]:
         from blarify.graph.relationship import RelationshipCreator
-        relationships = []
+        relationships: List["Relationship"] = []
         for node in self._defines:
             relationships.append(RelationshipCreator.create_defines_relationship(self, node))
 
         return relationships
 
-    def get_start_and_end_line(self):
+    def get_start_and_end_line(self) -> Tuple[int, int]:
         return self.node_range.range.start.line, self.node_range.range.end.line
 
     def reference_search(self, reference: "Reference") -> "DefinitionNode":

@@ -35,7 +35,9 @@ class Neo4jManager(AbstractDbManager):
         retries = 3
         for attempt in range(retries):
             try:
-                self.driver = GraphDatabase.driver(uri, auth=(user, password), max_connection_pool_size=max_connections)
+                self.driver = GraphDatabase.driver(
+                    uri, auth=(user, password), max_connection_pool_size=max_connections
+                )
                 break
             except exceptions.ServiceUnavailable as e:
                 if attempt < retries - 1:
@@ -57,15 +59,25 @@ class Neo4jManager(AbstractDbManager):
     def create_nodes(self, nodeList: List[Any]):
         # Function to create nodes in the Neo4j database
         with self.driver.session() as session:
-            session.execute_write(self._create_nodes_txn, nodeList, 100, repoId=self.repo_id, entityId=self.entity_id)
+            session.execute_write(
+                self._create_nodes_txn,
+                nodeList,
+                1000,
+                repoId=self.repo_id,
+                entityId=self.entity_id,
+            )
 
     def create_edges(self, edgesList: List[Any]):
         # Function to create edges between nodes in the Neo4j database
         with self.driver.session() as session:
-            session.execute_write(self._create_edges_txn, edgesList, 100, entityId=self.entity_id)
+            session.execute_write(
+                self._create_edges_txn, edgesList, 1000, entityId=self.entity_id
+            )
 
     @staticmethod
-    def _create_nodes_txn(tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
+    def _create_nodes_txn(
+        tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str
+    ):
         node_creation_query = """
         CALL apoc.periodic.iterate(
             "UNWIND $nodeList AS node RETURN node",
@@ -82,7 +94,13 @@ class Neo4jManager(AbstractDbManager):
         RETURN batches, total, errorMessages, updateStatistics
         """
 
-        result = tx.run(node_creation_query, nodeList=nodeList, batchSize=batch_size, repoId=repoId, entityId=entityId)
+        result = tx.run(
+            node_creation_query,
+            nodeList=nodeList,
+            batchSize=batch_size,
+            repoId=repoId,
+            entityId=entityId,
+        )
 
         # Fetch the result
         for record in result:
@@ -90,13 +108,15 @@ class Neo4jManager(AbstractDbManager):
             print(record)
 
     @staticmethod
-    def _create_edges_txn(tx, edgesList: List[Any], batch_size: int, entityId: str):
+    def _create_edges_txn(
+        tx, edgesList: List[Any], batch_size: int, entityId: str, repoId: str
+    ):
         # Cypher query using apoc.periodic.iterate for creating edges
         edge_creation_query = """
         CALL apoc.periodic.iterate(
             'WITH $edgesList AS edges UNWIND edges AS edgeObject RETURN edgeObject',
-            'MATCH (node1:NODE {node_id: edgeObject.sourceId}) 
-            MATCH (node2:NODE {node_id: edgeObject.targetId}) 
+            'MATCH (node1:NODE {node_id: edgeObject.sourceId, repoId: $repoId, entityId: $entityId}) 
+            MATCH (node2:NODE {node_id: edgeObject.targetId, repoId: $repoId, entityId: $entityId}) 
             CALL apoc.merge.relationship(
             node1, 
             edgeObject.type, 
@@ -106,13 +126,19 @@ class Neo4jManager(AbstractDbManager):
             {}
             ) 
             YIELD rel RETURN rel',
-            {batchSize:$batchSize, parallel:false, iterateList: true, params:{edgesList: $edgesList, entityId: $entityId}}
+            {batchSize:$batchSize, parallel:false, iterateList: true, params:{edgesList: $edgesList, entityId: $entityId, repoId: $repoId}}
         )
         YIELD batches, total, errorMessages, updateStatistics
         RETURN batches, total, errorMessages, updateStatistics
         """
         # Execute the query
-        result = tx.run(edge_creation_query, edgesList=edgesList, batchSize=batch_size, entityId=entityId)
+        result = tx.run(
+            edge_creation_query,
+            edgesList=edgesList,
+            batchSize=batch_size,
+            entityId=entityId,
+            repoId=repoId,
+        )
 
         # Fetch the result
         for record in result:
@@ -130,7 +156,9 @@ class Neo4jManager(AbstractDbManager):
             )
             return result.data()
 
-    def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    def query(
+        self, cypher_query: str, parameters: Dict[str, Any] = None
+    ) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return the results.
 

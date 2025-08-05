@@ -34,6 +34,7 @@ langchain-openai = "^0.3.28"
 langchain-anthropic = "^0.3.17"
 tree-sitter-php = "^0.23.11"
 tree-sitter-java = "^0.23.5"
+protobuf = "6.30.0"
 json-repair = "^0.47.7"
 langchain-google-genai = "^2.1.7"
 

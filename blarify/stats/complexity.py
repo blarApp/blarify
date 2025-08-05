@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from statistics import stdev, mean
-import blarify.code_references.lsp_helper as lsp_helper
 from tree_sitter import Node
 
 
@@ -23,7 +22,9 @@ class CodeComplexityCalculator:
 
     @staticmethod
     def calculate_nesting_stats(node: Node, extension: str) -> NestingStats:
-        language_definitions = lsp_helper.LspQueryHelper.get_language_definition_for_extension(extension)
+        # Import here to avoid circular import
+        from blarify.code_references.lsp_helper import LspQueryHelper
+        language_definitions = LspQueryHelper.get_language_definition_for_extension(extension)
 
         indentation_per_line = CodeComplexityCalculator.__get_nesting_levels(node, language_definitions)
 

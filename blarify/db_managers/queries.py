@@ -5,7 +5,7 @@ This module contains pre-defined Cypher queries and helper functions for
 retrieving structured data from the graph database.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import logging
 import json
 
@@ -1143,9 +1143,11 @@ def _create_bridge_edges(
     Create bridge edges to connect consecutive DFS paths for continuous execution traces.
 
     This function addresses the gap problem where consecutive DFS paths are independent,
-    preventing LLM agents from understanding complete execution flows. Bridge edges
-    connect the last callee of one path to the first callee of the next path.
-
+    preventing LLM agents from understanding complete execution flows. It uses a hybrid
+    approach:
+    1. Detects path boundaries based on depth decreases
+    2. Connects nodes at the same depth level within paths
+    
     Bridge edges have identical structure to CALLS edges and are created only in memory
     (not stored in the database), ensuring database integrity while providing continuous
     traces for LLM analysis.
@@ -1158,12 +1160,11 @@ def _create_bridge_edges(
         Combined list of original and bridge edges with proper step ordering
 
     Example:
-        Input paths:
-        Path 1: a → b → x (edges: a→b, b→x)
-        Path 2: a → c     (edges: a→c)
-
-        Bridge edge created: x → c (connecting paths)
-        Result: [a→b, b→x, x→c, a→c] with continuous flow
+        Input: main_diff calls both start and build at depth 1
+        Edges: main_diff→start, build→_create_code_hierarchy
+        
+        Bridge edge created: start→build (connecting same-depth nodes)
+        Result enables continuous trace through all execution paths
     """
     if not execution_nodes or not execution_edges:
         return execution_edges
@@ -1174,112 +1175,114 @@ def _create_bridge_edges(
     # Create a copy of original edges to avoid modifying input
     all_edges = execution_edges.copy()
 
-    # Track path boundaries by analyzing node patterns
-    # In DFS traversal, new paths start when we see the entry point again (depth 0)
-    # after having processed nodes at deeper levels
-    path_boundaries: List[int] = []  # Indices where new paths start
-    entry_point_id = execution_nodes[0].get("id", "") if execution_nodes else ""
+    # Build a map of existing edges for quick lookup
+    edge_map = set()
+    for edge in execution_edges:
+        edge_map.add((edge.get("caller_id"), edge.get("callee_id")))
 
-    # First pass: detect depth-based boundaries (major backtracking)
+    bridge_edges = []
+    
+    # Step 1: Detect path boundaries based on depth decreases
+    path_boundaries = [0]  # First node is always start of a path
     for i in range(1, len(execution_nodes)):
-        current_node = execution_nodes[i]
-        previous_node = execution_nodes[i - 1]
-        current_depth = current_node.get("depth", 0)
-        previous_depth = previous_node.get("depth", 0)
-
-        # New path starts when depth decreases (we've backtracked to a shallower level)
+        current_depth = execution_nodes[i].get("depth", 0)
+        previous_depth = execution_nodes[i - 1].get("depth", 0)
+        
+        # New path starts when depth decreases
         if current_depth < previous_depth:
             path_boundaries.append(i)
-
-    # Second pass: detect edge-pattern boundaries (new branches from entry point)
-    # Look for edges where entry point calls different nodes
-    entry_point_calls = set()
-    first_entry_call_processed = False
-
-    for edge in execution_edges:
-        caller_id = edge.get("caller_id", "")
-        callee_id = edge.get("callee_id", "")
-
-        # If entry point calls a new node, this starts a new path
-        if caller_id == entry_point_id and callee_id not in entry_point_calls:
-            entry_point_calls.add(callee_id)
-
-            # Skip the first call from entry point (natural start of execution)
-            if not first_entry_call_processed:
-                first_entry_call_processed = True
+    
+    # Add end boundary
+    path_boundaries.append(len(execution_nodes))
+    
+    # Step 2: Create bridges between consecutive paths
+    for i in range(len(path_boundaries) - 2):
+        path_end_idx = path_boundaries[i + 1] - 1
+        path_start_idx = path_boundaries[i + 1]
+        
+        if path_end_idx >= 0 and path_start_idx < len(execution_nodes):
+            end_node = execution_nodes[path_end_idx]
+            start_node = execution_nodes[path_start_idx]
+            
+            end_id = end_node.get("id")
+            start_id = start_node.get("id")
+            
+            # Create bridge between paths if edge doesn't exist
+            if (end_id, start_id) not in edge_map and end_id != start_id:
+                bridge_edge = {
+                    "caller_id": end_id,
+                    "caller": end_node.get("name", ""),
+                    "caller_path": end_node.get("path", ""),
+                    "callee_id": start_id,
+                    "callee": start_node.get("name", ""),
+                    "callee_path": start_node.get("path", ""),
+                    "call_line": None,
+                    "call_character": None,
+                    "depth": 1,  # Bridge edges connect at top level
+                    "step_order": len(all_edges) + len(bridge_edges),
+                    "is_bridge_edge": True,
+                }
+                bridge_edges.append(bridge_edge)
+                edge_map.add((end_id, start_id))
+    
+    # Step 3: Within each path, connect nodes at the same depth
+    for i in range(len(path_boundaries) - 1):
+        path_start = path_boundaries[i]
+        path_end = path_boundaries[i + 1]
+        
+        # Group nodes by depth within this path
+        nodes_by_depth: Dict[int, List[Tuple[int, Dict[str, Any]]]] = {}
+        for idx in range(path_start, path_end):
+            node = execution_nodes[idx]
+            depth = node.get("depth", 0)
+            if depth not in nodes_by_depth:
+                nodes_by_depth[depth] = []
+            nodes_by_depth[depth].append((idx, node))
+        
+        # Connect nodes at the same depth
+        for depth, nodes_at_depth in nodes_by_depth.items():
+            if len(nodes_at_depth) < 2:
                 continue
-
-            # Find the node index for this callee
-            for j, node in enumerate(execution_nodes):
-                if node.get("id") == callee_id and j not in path_boundaries and j > 0:
-                    path_boundaries.append(j)
-                    break
-
-    # Remove duplicates and sort
-    path_boundaries = sorted(list(set(path_boundaries)))
-
-    if not path_boundaries:
-        # No path boundaries means linear execution - return original edges
-        return execution_edges
-
-    # Create continuous execution flow by reconstructing the edge sequence
-    # Goal: Transform [a→b, b→x, x→y, a→c, a→d] into [a→b, b→x, x→y, y→c, c→d]
-
-    continuous_edges = []
-
-    # Step 1: Identify edges that form the main execution path (before first boundary)
-    first_boundary = path_boundaries[0] if path_boundaries else len(execution_nodes)
-
-    # Find edges in the main path
-    main_path_edges = []
-    for edge in execution_edges:
-        caller_id = edge.get("caller_id")
-        callee_id = edge.get("callee_id")
-
-        # Find callee node index
-        callee_idx = next((i for i, node in enumerate(execution_nodes) if node.get("id") == callee_id), -1)
-
-        # Include edges that are part of the linear chain before boundaries
-        if callee_idx < first_boundary:
-            main_path_edges.append(edge.copy())
-
-    # Add main path edges
-    continuous_edges.extend(main_path_edges)
-
-    # Step 2: Create bridge edges to connect to subsequent paths
-    for i, boundary_idx in enumerate(path_boundaries):
-        if boundary_idx >= len(execution_nodes):
-            continue
-
-        # Find the last node of the previous path
-        previous_path_end_idx = boundary_idx - 1
-        if previous_path_end_idx < 0:
-            continue
-
-        # Connect to the boundary node (start of new path)
-        previous_node = execution_nodes[previous_path_end_idx]
-        current_node = execution_nodes[boundary_idx]
-
-        # Create bridge edge
-        bridge_edge = {
-            "caller_id": previous_node.get("id", ""),
-            "caller": previous_node.get("name", ""),
-            "caller_path": previous_node.get("path", ""),
-            "callee_id": current_node.get("id", ""),
-            "callee": current_node.get("name", ""),
-            "callee_path": current_node.get("path", ""),
-            "call_line": None,
-            "call_character": None,
-            "depth": 1,
-            "step_order": len(continuous_edges),  # Will be reassigned later
-            "is_bridge_edge": True,
-        }
-
-        continuous_edges.append(bridge_edge)
-
-    logger.debug(f"Created continuous execution trace with {len(continuous_edges)} total edges")
-
-    return continuous_edges
+                
+            # Sort by index to maintain execution order
+            nodes_at_depth.sort(key=lambda x: x[0])
+            
+            # Check consecutive nodes at this depth
+            for j in range(len(nodes_at_depth) - 1):
+                current_idx, current_node = nodes_at_depth[j]
+                next_idx, next_node = nodes_at_depth[j + 1]
+                
+                current_id = current_node.get("id")
+                next_id = next_node.get("id")
+                
+                # Skip if edge already exists or nodes are the same
+                if (current_id, next_id) in edge_map or current_id == next_id:
+                    continue
+                    
+                # Create bridge edge
+                bridge_edge = {
+                    "caller_id": current_id,
+                    "caller": current_node.get("name", ""),
+                    "caller_path": current_node.get("path", ""),
+                    "callee_id": next_id,
+                    "callee": next_node.get("name", ""),
+                    "callee_path": next_node.get("path", ""),
+                    "call_line": None,
+                    "call_character": None,
+                    "depth": depth + 1,  # Depth of the edge is one more than the nodes
+                    "step_order": len(all_edges) + len(bridge_edges),
+                    "is_bridge_edge": True,
+                }
+                
+                bridge_edges.append(bridge_edge)
+                edge_map.add((current_id, next_id))
+    
+    # Add bridge edges to the result
+    all_edges.extend(bridge_edges)
+    
+    logger.debug(f"Created {len(bridge_edges)} bridge edges for path connectivity")
+    
+    return all_edges
 
 
 def find_code_workflows_query() -> str:

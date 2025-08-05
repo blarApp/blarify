@@ -35,9 +35,7 @@ class Neo4jManager(AbstractDbManager):
         retries = 3
         for attempt in range(retries):
             try:
-                self.driver = GraphDatabase.driver(
-                    uri, auth=(user, password), max_connection_pool_size=max_connections
-                )
+                self.driver = GraphDatabase.driver(uri, auth=(user, password), max_connection_pool_size=max_connections)
                 break
             except exceptions.ServiceUnavailable as e:
                 if attempt < retries - 1:
@@ -70,14 +68,10 @@ class Neo4jManager(AbstractDbManager):
     def create_edges(self, edgesList: List[Any]):
         # Function to create edges between nodes in the Neo4j database
         with self.driver.session() as session:
-            session.execute_write(
-                self._create_edges_txn, edgesList, 1000, entityId=self.entity_id
-            )
+            session.execute_write(self._create_edges_txn, edgesList, 1000, entityId=self.entity_id, repoId=self.repo_id)
 
     @staticmethod
-    def _create_nodes_txn(
-        tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str
-    ):
+    def _create_nodes_txn(tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
         node_creation_query = """
         CALL apoc.periodic.iterate(
             "UNWIND $nodeList AS node RETURN node",
@@ -108,9 +102,7 @@ class Neo4jManager(AbstractDbManager):
             print(record)
 
     @staticmethod
-    def _create_edges_txn(
-        tx, edgesList: List[Any], batch_size: int, entityId: str, repoId: str
-    ):
+    def _create_edges_txn(tx, edgesList: List[Any], batch_size: int, entityId: str, repoId: str):
         # Cypher query using apoc.periodic.iterate for creating edges
         edge_creation_query = """
         CALL apoc.periodic.iterate(
@@ -156,9 +148,7 @@ class Neo4jManager(AbstractDbManager):
             )
             return result.data()
 
-    def query(
-        self, cypher_query: str, parameters: Dict[str, Any] = None
-    ) -> List[Dict[str, Any]]:
+    def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return the results.
 

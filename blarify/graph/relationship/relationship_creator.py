@@ -230,17 +230,25 @@ class RelationshipCreator:
 
             scope_text = f"workflow_id:{workflow_node.hashed_id},edge_based:true"
 
-            relationships.append(
-                {
-                    "sourceId": source_doc_id,  # Source documentation node
-                    "targetId": target_doc_id,  # Target documentation node
-                    "type": RelationshipType.WORKFLOW_STEP.name,
-                    "scopeText": scope_text,
-                    "step_order": step_order,  # Store step_order as individual property
-                    "depth": edge.get("depth", 0),  # Store depth as individual property
-                    "call_line": edge.get("call_line"),  # Store call_line as individual property
-                    "call_character": edge.get("call_character"),  # Store call_character as individual property
-                }
-            )
+            # Only include call_line and call_character if they are not None
+            relationship_dict = {
+                "sourceId": source_doc_id,  # Source documentation node
+                "targetId": target_doc_id,  # Target documentation node
+                "type": RelationshipType.WORKFLOW_STEP.name,
+                "scopeText": scope_text,
+                "step_order": step_order,  # Store step_order as individual property
+                "depth": edge.get("depth", 0),  # Store depth as individual property
+            }
+            
+            # Only add call_line and call_character if they have non-null values
+            call_line = edge.get("call_line")
+            call_character = edge.get("call_character")
+            
+            if call_line is not None:
+                relationship_dict["call_line"] = call_line
+            if call_character is not None:
+                relationship_dict["call_character"] = call_character
+                
+            relationships.append(relationship_dict)
 
         return relationships

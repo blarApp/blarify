@@ -57,14 +57,12 @@ class Neo4jManager(AbstractDbManager):
     def create_nodes(self, nodeList: List[Any]):
         # Function to create nodes in the Neo4j database
         with self.driver.session() as session:
-            session.write_transaction(
-                self._create_nodes_txn, nodeList, 100, repoId=self.repo_id, entityId=self.entity_id
-            )
+            session.execute_write(self._create_nodes_txn, nodeList, 100, repoId=self.repo_id, entityId=self.entity_id)
 
     def create_edges(self, edgesList: List[Any]):
         # Function to create edges between nodes in the Neo4j database
         with self.driver.session() as session:
-            session.write_transaction(self._create_edges_txn, edgesList, 100, entityId=self.entity_id)
+            session.execute_write(self._create_edges_txn, edgesList, 100, entityId=self.entity_id)
 
     @staticmethod
     def _create_nodes_txn(tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
@@ -119,6 +117,7 @@ class Neo4jManager(AbstractDbManager):
         # Fetch the result
         for record in result:
             logger.info(f"Created {record['total']} edges")
+            print(record)
 
     def detatch_delete_nodes_with_path(self, path: str):
         with self.driver.session() as session:
@@ -154,7 +153,6 @@ class Neo4jManager(AbstractDbManager):
             logger.exception(f"Query: {cypher_query}")
             logger.exception(f"Parameters: {parameters}")
             raise
-
 
     def get_node_by_name_and_type(
         self, name: str, type: str, company_id: str, repo_id: str, diff_identifier: str

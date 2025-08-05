@@ -20,3 +20,9 @@ class RelationshipType(Enum):
     MODIFIED = "MODIFIED"
     DELETED = "DELETED"
     ADDED = "ADDED"
+
+    # Workflow relationships
+    WORKFLOW_STEP = "WORKFLOW_STEP"  # Execution flow between components with step_order
+    BELONGS_TO_WORKFLOW = "BELONGS_TO_WORKFLOW"  # Documentation node belongs to workflow
+    BELONGS_TO_SPEC = "BELONGS_TO_SPEC"  # Workflow node belongs to specification
+    DESCRIBES = "DESCRIBES"  # Documentation node describes code node

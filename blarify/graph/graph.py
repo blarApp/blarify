@@ -1,7 +1,6 @@
 from collections import defaultdict
 from blarify.graph.node import Node, NodeLabels
 from blarify.graph.node import FileNode
-from blarify.graph.node.types.definition_node import DefinitionNode
 from blarify.graph.relationship import Relationship
 
 from typing import List, Dict, Set, DefaultDict, Optional

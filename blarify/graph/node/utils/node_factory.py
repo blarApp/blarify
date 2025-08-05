@@ -38,7 +38,7 @@ class NodeFactory:
         definition_range: "Reference",
         code_text: str,
         parent: FolderNode,
-        tree_sitter_node: "TreeSitterNode",
+        tree_sitter_node: Optional["TreeSitterNode"] = None,
         body_node: Optional["TreeSitterNode"] = None,
         graph_environment: "GraphEnvironment" = None,
     ) -> FileNode:

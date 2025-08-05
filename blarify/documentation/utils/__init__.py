@@ -1,0 +1,13 @@
+"""
+Utility classes and functions for the documentation system.
+
+This package contains helper classes that are used by the LangGraph workflows
+but are not workflows themselves.
+"""
+
+from .recursive_dfs_processor import RecursiveDFSProcessor, ProcessingResult
+
+__all__ = [
+    "RecursiveDFSProcessor",
+    "ProcessingResult"
+]

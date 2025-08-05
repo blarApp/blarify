@@ -1,0 +1,9 @@
+[2025-08-01T21:51:12Z] Starting agent update check...
+[2025-08-01T21:51:13Z] Updating repository: gadugi-core
+[2025-08-01T21:51:14Z] Successfully updated gadugi-core
+[2025-08-01T21:51:14Z] Checked workflow-master v2.0.0
+Checked prompt-writer v1.2.0
+Checked code-reviewer v1.5.0
+Checked agent-manager v1.0.0
+Found 0 agents with updates available
+[2025-08-01T21:51:14Z] Agent update check completed. Updated 1 repositories.

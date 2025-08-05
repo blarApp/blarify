@@ -1,22 +1,28 @@
+from typing import Optional
+
 from blarify.project_graph_creator import ProjectGraphCreator
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.project_file_explorer import ProjectFileStats
 from blarify.project_graph_updater import ProjectGraphUpdater
-from blarify.project_graph_diff_creator import PreviousNodeState, ProjectGraphDiffCreator
+from blarify.project_graph_diff_creator import (
+    PreviousNodeState,
+    ProjectGraphDiffCreator,
+)
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from blarify.code_references import LspQueryHelper
-from blarify.code_references.hybrid_resolver import HybridReferenceResolver, ResolverMode
+from blarify.code_references.hybrid_resolver import (
+    HybridReferenceResolver,
+    ResolverMode,
+)
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.utils.file_remover import FileRemover
+from blarify.agents.llm_provider import LLMProvider
+from blarify.documentation.documentation_creator import DocumentationCreator
+from blarify.documentation.workflow_creator import WorkflowCreator
 
 import dotenv
 import os
 import time
-import tracemalloc
-import psutil
-import gc
-from contextlib import contextmanager
-from dataclasses import dataclass
 
 import logging
 
@@ -24,82 +30,176 @@ URI = os.getenv("NEO4J_URI")
 USER = os.getenv("NEO4J_USERNAME")
 PASSWORD = os.getenv("NEO4J_PASSWORD")
 
-logger = logging.getLogger(__name__)
 
+def main_with_documentation(root_path: str = None, blarignore_path: str = None):
+    """Main function that builds the graph and then runs the documentation generation workflow."""
+    print("🚀 Starting integrated graph building and documentation generation...")
 
-@dataclass
-class BenchmarkResult:
-    """Container for benchmark results"""
-    total_time: float
-    memory_peak: float
-    memory_current: float
-    cpu_percent: float
-    node_count: int
-    relationship_count: int
-    file_count: int
-    
-    def __str__(self) -> str:
-        return (
-            f"Benchmark Results:\n"
-            f"  Total Time: {self.total_time:.2f}s\n"
-            f"  Peak Memory: {self.memory_peak:.2f} MB\n"
-            f"  Current Memory: {self.memory_current:.2f} MB\n"
-            f"  CPU Usage: {self.cpu_percent:.1f}%\n"
-            f"  Node Count: {self.node_count:,}\n"
-            f"  Relationship Count: {self.relationship_count:,}\n"
-            f"  File Count: {self.file_count:,}\n"
+    # Step 1: Build the graph using existing infrastructure
+    print("\n📊 Phase 1: Building code graph...")
+    lsp_query_helper = LspQueryHelper(root_uri=root_path)
+    lsp_query_helper.start()
+
+    project_files_iterator = ProjectFilesIterator(
+        root_path=root_path,
+        blarignore_path=blarignore_path,
+        extensions_to_skip=[".json", ".xml"],
+    )
+
+    ProjectFileStats(project_files_iterator).print(limit=10)
+    FileRemover.soft_delete_if_exists(root_path, "Gemfile")
+
+    repoId = "test"
+    entity_id = "test"
+    graph_manager = Neo4jManager(repoId, entity_id)
+
+    graph_creator = ProjectGraphCreator(
+        root_path, lsp_query_helper, project_files_iterator
+    )
+    graph = graph_creator.build()
+
+    relationships = graph.get_relationships_as_objects()
+    nodes = graph.get_nodes_as_objects()
+
+    print(
+        f"✅ Graph building completed: {len(nodes)} nodes and {len(relationships)} relationships"
+    )
+    graph_manager.save_graph(nodes, relationships)
+
+    # Step 2: Run documentation generation workflow
+    print("\n📚 Phase 2: Generating documentation layer...")
+    try:
+        # Initialize the documentation creator (new architecture)
+        llm_provider = LLMProvider()
+        graph_environment = GraphEnvironment("dev", "main", root_path)
+        documentation_creator = DocumentationCreator(
+            db_manager=graph_manager,
+            agent_caller=llm_provider,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
         )
 
+        print("📝 Starting documentation generation...")
 
-class PerformanceProfiler:
-    """Performance profiling context manager"""
-    
-    def __init__(self):
-        self.process = psutil.Process()
-        
-    @contextmanager
-    def profile(self):
-        """Context manager for performance profiling"""
-        tracemalloc.start()
-        gc.collect()
-        initial_memory = self.process.memory_info().rss / 1024 / 1024
-        cpu_start = self.process.cpu_percent()
-        start_time = time.perf_counter()
-        
-        try:
-            yield
-        finally:
-            end_time = time.perf_counter()
-            cpu_end = self.process.cpu_percent()
-            current, peak = tracemalloc.get_traced_memory()
-            tracemalloc.stop()
-            final_memory = self.process.memory_info().rss / 1024 / 1024
-            
-            self.stats = {
-                'total_time': end_time - start_time,
-                'peak_mb': peak / 1024 / 1024,
-                'current_mb': current / 1024 / 1024,
-                'initial_memory_mb': initial_memory,
-                'final_memory_mb': final_memory,
-                'cpu_percent': (cpu_start + cpu_end) / 2
-            }
+        # Run the documentation creation
+        result = documentation_creator.create_documentation()
+
+        if result.error:
+            print(f"❌ Documentation generation failed: {result.error}")
+        else:
+            print("✅ Documentation generation completed successfully!")
+
+            # Print results summary
+            print("\n📋 Documentation Results:")
+            print(f"   - Generated nodes: {len(result.information_nodes)}")
+            print(f"   - Processing time: {result.processing_time_seconds:.2f} seconds")
+            print(
+                f"   - Framework detected: {result.detected_framework.get('primary_framework', 'unknown')}"
+            )
+            print(f"   - Total nodes processed: {result.total_nodes_processed}")
+
+            if result.warnings:
+                print(f"   - Warnings: {len(result.warnings)}")
+                for warning in result.warnings[:3]:  # Show first 3 warnings
+                    print(f"     * {warning}")
+
+        # Print sample documentation
+        if result.information_nodes:
+            print("\n📄 Sample Documentation:")
+            for i, doc in enumerate(result.information_nodes[:2]):  # Show first 2 docs
+                doc_type = doc.get("type", "unknown")
+                content = doc.get("content", doc.get("documentation", ""))[:200]
+                print(f"   {i + 1}. [{doc_type}] {content}...")
+
+        return result
+
+    except Exception as e:
+        print(f"❌ Documentation generation failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+    finally:
+        # Clean up resources
+        graph_manager.close()
+        lsp_query_helper.shutdown_exit_close()
 
 
-def main(root_path: str = None, blarignore_path: str = None, enable_profiling: bool = False):
-    """Main function with optional profiling"""
-    if enable_profiling:
-        return main_with_profiling(root_path, blarignore_path)
-    else:
-        return main_without_profiling(root_path, blarignore_path)
+def test_documentation_only(root_path: str = None):
+    """Test only the documentation workflow, assuming the graph already exists in the database."""
+    print("📚 Testing documentation generation workflow only...")
+
+    repoId = "test"
+    entity_id = "test"
+    graph_manager = Neo4jManager(repoId, entity_id)
+
+    try:
+        # Initialize the documentation workflow
+        llm_provider = LLMProvider()
+        graph_environment = GraphEnvironment("dev", "main", root_path)
+        documentation_creator = DocumentationCreator(
+            db_manager=graph_manager,
+            agent_caller=llm_provider,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
+        )
+
+        print("📝 Starting documentation creation...")
+
+        # Run the documentation creation
+        result = documentation_creator.create_documentation()
+
+        print("✅ Documentation generation completed successfully!")
+
+        # Print results summary
+        generated_docs = result.get("generated_docs", [])
+        print("\n📋 Documentation Results:")
+        print(f"   - Generated docs: {len(generated_docs)}")
+        print(
+            f"   - Framework detected: {result.get('detected_framework', {}).get('framework', {}).get('name', 'unknown')}"
+        )
+        print(f"   - Key components: {len(result.get('key_components', []))}")
+        print(f"   - Analyzed nodes: {len(result.get('analyzed_nodes', []))}")
+
+        # Print sample documentation
+        if generated_docs:
+            print("\n📄 Sample Documentation:")
+            for i, doc in enumerate(generated_docs[:2]):  # Show first 2 docs
+                doc_type = doc.get("type", "unknown")
+                content = doc.get("content", doc.get("documentation", ""))[:200]
+                print(f"   {i + 1}. [{doc_type}] {content}...")
+
+        return result
+
+    except Exception as e:
+        print(f"❌ Documentation generation failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+    finally:
+        # Clean up resources
+        graph_manager.close()
 
 
-def main_without_profiling(root_path: str = None, blarignore_path: str = None):
-    lsp_query_helper = LspQueryHelper(root_uri=root_path, max_lsp_instances=10)
+def main(
+    root_path: str = None,
+    blarignore_path: str = None,
+    include_documentation: bool = False,
+    llm_provider: Optional[LLMProvider] = None,
+):
+    lsp_query_helper = LspQueryHelper(root_uri=root_path)
 
     lsp_query_helper.start()
 
     project_files_iterator = ProjectFilesIterator(
-        root_path=root_path, blarignore_path=blarignore_path, extensions_to_skip=[".json", ".xml", ".pyi"]
+        root_path=root_path,
+        blarignore_path=blarignore_path,
+        extensions_to_skip=[".json", ".xml", ".pyi"],
     )
 
     ProjectFileStats(project_files_iterator).print(limit=10)
@@ -110,7 +210,9 @@ def main_without_profiling(root_path: str = None, blarignore_path: str = None):
     entity_id = "test"
     graph_manager = Neo4jManager(repoId, entity_id)
 
-    graph_creator = ProjectGraphCreator(root_path, lsp_query_helper, project_files_iterator)
+    graph_creator = ProjectGraphCreator(
+        root_path, lsp_query_helper, project_files_iterator
+    )
 
     graph = graph_creator.build()
 
@@ -127,10 +229,10 @@ def main_without_profiling(root_path: str = None, blarignore_path: str = None):
 def main_with_profiling(root_path: str = None, blarignore_path: str = None):
     """Main function with detailed profiling and timing"""
     print(f"🚀 Starting profiled graph creation for: {root_path}")
-    
+
     profiler = PerformanceProfiler()
     step_times = {}
-    
+
     with profiler.profile():
         # Reference Resolver Setup (SCIP + LSP Hybrid)
         print("⏱️  Setting up Hybrid Reference Resolver (SCIP + LSP)...")
@@ -143,143 +245,171 @@ def main_with_profiling(root_path: str = None, blarignore_path: str = None):
             resolver_mode = ResolverMode.SCIP_ONLY
         else:
             resolver_mode = ResolverMode.AUTO
-            
+
         reference_resolver = HybridReferenceResolver(
             root_uri=root_path,
             mode=resolver_mode,
-            max_lsp_instances=8  # LSP fallback configuration
+            max_lsp_instances=8,  # LSP fallback configuration
         )
-        step_times['resolver_setup'] = time.perf_counter() - step_start
-        logger.info(f"Reference resolver setup completed in {step_times['resolver_setup']:.2f}s")
-        
+        step_times["resolver_setup"] = time.perf_counter() - step_start
+        logger.info(
+            f"Reference resolver setup completed in {step_times['resolver_setup']:.2f}s"
+        )
+
         # Log resolver configuration
         resolver_info = reference_resolver.get_resolver_info()
         logger.info(f"📊 Resolver config: {resolver_info}")
-        
+
         # File Iterator Setup
         print("📁 Setting up Project Files Iterator...")
         step_start = time.perf_counter()
         project_files_iterator = ProjectFilesIterator(
-            root_path=root_path, 
-            blarignore_path=blarignore_path, 
-            extensions_to_skip=[".json", ".xml", ".pyi"]
+            root_path=root_path,
+            blarignore_path=blarignore_path,
+            extensions_to_skip=[".json", ".xml", ".pyi"],
         )
-        
+
         ProjectFileStats(project_files_iterator).print(limit=10)
         FileRemover.soft_delete_if_exists(root_path, "Gemfile")
-        step_times['file_iterator'] = time.perf_counter() - step_start
-        logger.info(f"File iterator setup completed in {step_times['file_iterator']:.2f}s")
-        
+        step_times["file_iterator"] = time.perf_counter() - step_start
+        logger.info(
+            f"File iterator setup completed in {step_times['file_iterator']:.2f}s"
+        )
+
         # Database Setup
         print("💾 Setting up database connection...")
         step_start = time.perf_counter()
         repoId = os.getenv("RESOLVER_MODE", "AUTO")
         entity_id = os.getenv("RESOLVER_MODE", "AUTO")
         graph_manager = Neo4jManager(repoId, entity_id)
-        step_times['db_setup'] = time.perf_counter() - step_start
+        step_times["db_setup"] = time.perf_counter() - step_start
         logger.info(f"Database setup completed in {step_times['db_setup']:.2f}s")
-        
+
         # Graph Creation (Main Operation)
         print("🏗️  Creating Project Graph...")
         step_start = time.perf_counter()
-        graph_creator = ProjectGraphCreator(root_path, reference_resolver, project_files_iterator)
+        graph_creator = ProjectGraphCreator(
+            root_path, reference_resolver, project_files_iterator
+        )
         graph = graph_creator.build()
-        step_times['graph_creation'] = time.perf_counter() - step_start
+        step_times["graph_creation"] = time.perf_counter() - step_start
         logger.info(f"Graph creation completed in {step_times['graph_creation']:.2f}s")
-        
+
         # Data Extraction
         print("📊 Extracting graph data...")
         step_start = time.perf_counter()
         relationships = graph.get_relationships_as_objects()
         nodes = graph.get_nodes_as_objects()
-        step_times['data_extraction'] = time.perf_counter() - step_start
-        logger.info(f"Data extraction completed in {step_times['data_extraction']:.2f}s")
-        
+        step_times["data_extraction"] = time.perf_counter() - step_start
+        logger.info(
+            f"Data extraction completed in {step_times['data_extraction']:.2f}s"
+        )
+
         # Database Save
-        print(f"💾 Saving graph with {len(nodes)} nodes and {len(relationships)} relationships")
+        print(
+            f"💾 Saving graph with {len(nodes)} nodes and {len(relationships)} relationships"
+        )
         step_start = time.perf_counter()
         # graph_manager.save_graph(nodes, relationships)
         # graph_manager.close()
-        step_times['db_save'] = time.perf_counter() - step_start
+        step_times["db_save"] = time.perf_counter() - step_start
         logger.info(f"Database save completed in {step_times['db_save']:.2f}s")
-        
+
         # Reference Resolver Shutdown
         print("🔄 Shutting down Reference Resolver...")
         step_start = time.perf_counter()
         reference_resolver.shutdown()
-        step_times['resolver_shutdown'] = time.perf_counter() - step_start
-        logger.info(f"Reference resolver shutdown completed in {step_times['resolver_shutdown']:.2f}s")
-    
+        step_times["resolver_shutdown"] = time.perf_counter() - step_start
+        logger.info(
+            f"Reference resolver shutdown completed in {step_times['resolver_shutdown']:.2f}s"
+        )
+
     # Create benchmark result
-    file_count = len([n for n in nodes if n.get('label') == 'FILE'])
+    file_count = len([n for n in nodes if n.get("label") == "FILE"])
     result = BenchmarkResult(
-        total_time=profiler.stats['total_time'],
-        memory_peak=profiler.stats['peak_mb'],
-        memory_current=profiler.stats['current_mb'],
-        cpu_percent=profiler.stats['cpu_percent'],
+        total_time=profiler.stats["total_time"],
+        memory_peak=profiler.stats["peak_mb"],
+        memory_current=profiler.stats["current_mb"],
+        cpu_percent=profiler.stats["cpu_percent"],
         node_count=len(nodes),
         relationship_count=len(relationships),
-        file_count=file_count
+        file_count=file_count,
     )
-    
+
     # Print detailed results
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("🏁 PERFORMANCE RESULTS")
-    print("="*60)
+    print("=" * 60)
     print(str(result))
-    
+
     # Timing breakdown
-    total_time = profiler.stats['total_time']
-    print(f"\n⏱️  TIMING BREAKDOWN:")
-    print(f"  Resolver Setup: {step_times['resolver_setup']:.2f}s ({step_times['resolver_setup']/total_time*100:.1f}%)")
-    print(f"  File Iterator: {step_times['file_iterator']:.2f}s ({step_times['file_iterator']/total_time*100:.1f}%)")
-    print(f"  Database Setup: {step_times['db_setup']:.2f}s ({step_times['db_setup']/total_time*100:.1f}%)")
-    print(f"  Graph Creation: {step_times['graph_creation']:.2f}s ({step_times['graph_creation']/total_time*100:.1f}%)")
-    print(f"  Data Extraction: {step_times['data_extraction']:.2f}s ({step_times['data_extraction']/total_time*100:.1f}%)")
-    print(f"  Database Save: {step_times['db_save']:.2f}s ({step_times['db_save']/total_time*100:.1f}%)")
-    print(f"  Resolver Shutdown: {step_times['resolver_shutdown']:.2f}s ({step_times['resolver_shutdown']/total_time*100:.1f}%)")
-    
+    total_time = profiler.stats["total_time"]
+    print("\n⏱️  TIMING BREAKDOWN:")
+    print(
+        f"  Resolver Setup: {step_times['resolver_setup']:.2f}s ({step_times['resolver_setup'] / total_time * 100:.1f}%)"
+    )
+    print(
+        f"  File Iterator: {step_times['file_iterator']:.2f}s ({step_times['file_iterator'] / total_time * 100:.1f}%)"
+    )
+    print(
+        f"  Database Setup: {step_times['db_setup']:.2f}s ({step_times['db_setup'] / total_time * 100:.1f}%)"
+    )
+    print(
+        f"  Graph Creation: {step_times['graph_creation']:.2f}s ({step_times['graph_creation'] / total_time * 100:.1f}%)"
+    )
+    print(
+        f"  Data Extraction: {step_times['data_extraction']:.2f}s ({step_times['data_extraction'] / total_time * 100:.1f}%)"
+    )
+    print(
+        f"  Database Save: {step_times['db_save']:.2f}s ({step_times['db_save'] / total_time * 100:.1f}%)"
+    )
+    print(
+        f"  Resolver Shutdown: {step_times['resolver_shutdown']:.2f}s ({step_times['resolver_shutdown'] / total_time * 100:.1f}%)"
+    )
+
     # Performance insights
-    print(f"\n🔍 PERFORMANCE INSIGHTS:")
-    if step_times['graph_creation'] > total_time * 0.8:
+    print("\n🔍 PERFORMANCE INSIGHTS:")
+    if step_times["graph_creation"] > total_time * 0.8:
         print("  📈 Graph creation dominates execution time - focus optimization here")
-    if step_times['resolver_setup'] > 10:
+    if step_times["resolver_setup"] > 10:
         print("  ⚠️  Reference resolver setup is slow - check SCIP index generation")
-    
+
     # Add SCIP-specific insights
-    if resolver_info.get('scip_enabled'):
-        scip_stats = resolver_info.get('scip_stats', {})
-        print(f"  📚 SCIP index: {scip_stats.get('documents', 0)} docs, {scip_stats.get('symbols', 0)} symbols")
-        print(f"  🚀 Using SCIP for faster reference resolution!")
-    elif resolver_info.get('lsp_enabled'):
-        print(f"  🔧 Using LSP fallback - SCIP index may be missing or invalid")
+    if resolver_info.get("scip_enabled"):
+        scip_stats = resolver_info.get("scip_stats", {})
+        print(
+            f"  📚 SCIP index: {scip_stats.get('documents', 0)} docs, {scip_stats.get('symbols', 0)} symbols"
+        )
+        print("  🚀 Using SCIP for faster reference resolution!")
+    elif resolver_info.get("lsp_enabled"):
+        print("  🔧 Using LSP fallback - SCIP index may be missing or invalid")
     if result.memory_peak > 1000:
         print("  🧠 High memory usage detected - consider memory optimization")
     if file_count > 0:
-        files_per_second = file_count / step_times['graph_creation']
+        files_per_second = file_count / step_times["graph_creation"]
         print(f"  📁 Processing rate: {files_per_second:.1f} files/second")
         if files_per_second < 10:
             print("  ⚠️  Low file processing rate - check for bottlenecks")
-    
+
     # Save detailed report
     report_file = f"performance_report_{int(time.time())}.txt"
-    with open(report_file, 'w') as f:
+    with open(report_file, "w") as f:
         f.write("BLARIFY PERFORMANCE REPORT\n")
-        f.write("="*60 + "\n")
+        f.write("=" * 60 + "\n")
         f.write(f"Project Path: {root_path}\n")
         f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         f.write(str(result) + "\n\n")
         f.write("TIMING BREAKDOWN:\n")
         for step, duration in step_times.items():
-            f.write(f"{step}: {duration:.2f}s ({duration/total_time*100:.1f}%)\n")
-        
+            f.write(f"{step}: {duration:.2f}s ({duration / total_time * 100:.1f}%)\n")
+
         # Add resolver information to report
-        f.write(f"\nRESOLVER CONFIGURATION:\n")
+        f.write("\nRESOLVER CONFIGURATION:\n")
         for key, value in resolver_info.items():
             f.write(f"{key}: {value}\n")
-    
+
     print(f"\n📝 Detailed report saved to: {report_file}")
-    
+
     return result
 
 
@@ -310,7 +440,9 @@ def main_diff(file_diffs: list, root_uri: str = None, blarignore_path: str = Non
     relationships = graph.get_relationships_as_objects()
     nodes = graph.get_nodes_as_objects()
 
-    print(f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships")
+    print(
+        f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships"
+    )
     graph_manager.save_graph(nodes, relationships)
     graph_manager.close()
     lsp_query_helper.shutdown_exit_close()
@@ -344,7 +476,9 @@ def main_update(updated_files: list, root_uri: str = None, blarignore_path: str 
     relationships = graph.get_relationships_as_objects()
     nodes = graph.get_nodes_as_objects()
 
-    print(f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships")
+    print(
+        f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships"
+    )
     graph_manager.save_graph(nodes, relationships)
     graph_manager.close()
     lsp_query_helper.shutdown_exit_close()
@@ -382,12 +516,16 @@ def main_diff_with_previous(
         pr_environment=GraphEnvironment("dev", "pr-123", root_uri),
     )
 
-    graph = graph_diff_creator.build_with_previous_node_states(previous_node_states=previous_node_states)
+    graph = graph_diff_creator.build_with_previous_node_states(
+        previous_node_states=previous_node_states
+    )
 
     relationships = graph.get_relationships_as_objects()
     nodes = graph.get_nodes_as_objects()
 
-    print(f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships")
+    print(
+        f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships"
+    )
 
     # batch create nodes and relationships
 
@@ -396,75 +534,120 @@ def main_diff_with_previous(
     lsp_query_helper.shutdown_exit_close()
 
 
+def test_workflow_discovery_only(root_path: str = None):
+    """Test only the WorkflowCreator with real framework data."""
+    print("🔬 Testing WorkflowCreator independently...")
+
+    # Setup infrastructure
+    repoId = "test"
+    entity_id = "test"
+    graph_manager = Neo4jManager(repoId, entity_id)
+
+    try:
+        # Create WorkflowCreator
+        print("🔧 Setting up WorkflowCreator...")
+        graph_environment = GraphEnvironment("dev", "main", root_path)
+        workflow_creator = WorkflowCreator(
+            db_manager=graph_manager,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
+        )
+
+        # Run workflow discovery
+        print("🚀 Running WorkflowCreator...")
+        result = workflow_creator.discover_workflows()
+
+        # Display results
+        error = result.error
+
+        if error:
+            print(f"❌ WorkflowCreator encountered error: {error}")
+        else:
+            print("✅ WorkflowCreator completed successfully!")
+
+            print(f"\n📋 Discovered {len(result.discovered_workflows)} workflows:")
+            for i, workflow in enumerate(
+                result.discovered_workflows[:5]
+            ):  # Show first 5
+                print(
+                    f"   {i + 1}. {workflow.entry_point_name} -> {workflow.end_point_name or 'N/A'} ({workflow.total_execution_steps} steps)"
+                )
+
+            # Show analysis details
+            print("\n🔍 Analysis Details:")
+            print(f"   - Entry points analyzed: {result.total_entry_points}")
+            print(f"   - Total workflows discovered: {result.total_workflows}")
+            print(f"   - Discovery time: {result.discovery_time_seconds:.2f} seconds")
+
+            if result.warnings:
+                print(f"   - Warnings: {len(result.warnings)}")
+                for warning in result.warnings[:3]:
+                    print(f"     * {warning}")
+
+    except Exception as e:
+        print(f"❌ WorkflowCreator test failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+    finally:
+        print("🧹 Cleaning up resources...")
+        graph_manager.close()
+
+
+def test_targeted_workflow_discovery(root_path: str = None):
+    """Test targeted workflow discovery with specific node_path."""
+    print("🎯 Testing targeted workflow discovery...")
+
+    repoId = "test"
+    entity_id = "test"
+    graph_manager = Neo4jManager(repoId, entity_id)
+
+    test_node_path = "/blarify/0/blarify/blarify/project_graph_diff_creator.py#ProjectGraphDiffCreator.add_deleted_relationships_and_nodes"
+
+    try:
+        graph_environment = GraphEnvironment("dev", "main", root_path)
+        workflow_creator = WorkflowCreator(
+            db_manager=graph_manager,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
+        )
+
+        print(f"🎯 Running targeted discovery for: {test_node_path}")
+        result = workflow_creator.discover_workflows(node_path=test_node_path)
+
+        if result.error:
+            print(f"❌ Error: {result.error}")
+        else:
+            print("✅ Success!")
+            print(f"   - Entry points: {result.total_entry_points}")
+            print(f"   - Workflows: {result.total_workflows}")
+            print(f"   - Time: {result.discovery_time_seconds:.2f}s")
+
+    except Exception as e:
+        print(f"❌ Failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+    finally:
+        graph_manager.close()
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     dotenv.load_dotenv()
-    
-    # Get configuration from environment
-    root_path = os.getenv("ROOT_PATH") or "/Users/pepemanu/Desktop/Trabajo/Blar/Dev/django"
+    # Use current blarify repository for testing
+    root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blarify"
+    # root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blar-django-server"
     blarignore_path = os.getenv("BLARIGNORE_PATH")
-    
-    # Enable profiling by setting ENABLE_PROFILING=1 in environment or .env file
-    enable_profiling = True
-    main(root_path=root_path, blarignore_path=blarignore_path, enable_profiling=enable_profiling)
-    # main_diff(
-    #     file_diffs=[
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/lsp-poc/blarify/graph/node/utils/node_factory.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.ADDED,
-    #         ),
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/lsp-poc/blarify/graph/relationship/relationship_type.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.ADDED,
-    #         ),
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/lsp-poc/blarify/graph/relationship/relationship_creator.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.DELETED,
-    #         ),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    # )
+    # Comment out regular main() and use documentation integration
+    # main(root_path=root_path, blarignore_path=blarignore_path)
 
-    print("Updating")
-    # main_update(
-    #     updated_files=[
-    #         # UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/schemas.py"),
-    #         # UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/models.py"),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    # )
-    # main_update(
-    #     updated_files=[
-    #         UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/schemas.py"),
-    #         UpdatedFile("file:///temp/repos/development/main/0/encuadrado-web/encuadrado-web/models.py"),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    # )
+    # Test the targeted workflow discovery with node_path
+    test_targeted_workflow_discovery(root_path=root_path)
 
-    # main_diff_with_previous(
-    #     file_diffs=[
-    #         FileDiff(
-    #             path="file:///home/juan/devel/blar/blar-qa/blar/agents/tasks.py",
-    #             diff_text="diff+++",
-    #             change_type=ChangeType.MODIFIED,
-    #         ),
-    #     ],
-    #     root_uri=root_path,
-    #     blarignore_path=blarignore_path,
-    #     previous_node_states=[
-    #         PreviousNodeState(
-    #             "/dev/MAIN/blar-qa/blar/agents/tasks.py.execute_pr_report_agent_task",
-    #             open("/home/juan/devel/blar/lsp-poc/blarify/example", "r").read(),
-    #         ),
-    #         PreviousNodeState(
-    #             "/dev/MAIN/blar-qa/blar/agents/tasks.py.execute_pr_report_agent_taski",
-    #             open("/home/juan/devel/blar/lsp-poc/blarify/example", "r").read(),
-    #         ),
-    #     ],
-    # )
+    # Other test options (commented out):
+    # test_documentation_only(root_path=root_path)  # Test full documentation workflow
+    # main_with_documentation(root_path=root_path, blarignore_path=blarignore_path)  # Full pipeline

@@ -18,7 +18,6 @@ from blarify.vendor.multilspy.language_server import LanguageServer
 from blarify.vendor.multilspy.lsp_protocol_handler.server import ProcessLaunchInfo
 from blarify.vendor.multilspy.lsp_protocol_handler.lsp_types import InitializeParams
 from blarify.vendor.multilspy.multilspy_config import MultilspyConfig
-from blarify.vendor.multilspy.multilspy_utils import FileUtils
 from blarify.vendor.multilspy.multilspy_utils import PlatformUtils, PlatformId
 
 

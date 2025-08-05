@@ -376,6 +376,44 @@ def test_workflow_discovery_only(root_path: str = None):
         graph_manager.close()
 
 
+def test_targeted_workflow_discovery(root_path: str = None):
+    """Test targeted workflow discovery with specific node_path."""
+    print("🎯 Testing targeted workflow discovery...")
+
+    repoId = "test"
+    entity_id = "test"
+    graph_manager = Neo4jManager(repoId, entity_id)
+    
+    test_node_path = "/blarify/0/blarify/blarify/project_graph_diff_creator.py#ProjectGraphDiffCreator.add_deleted_relationships_and_nodes"
+
+    try:
+        graph_environment = GraphEnvironment("dev", "main", root_path)
+        workflow_creator = WorkflowCreator(
+            db_manager=graph_manager,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
+        )
+
+        print(f"🎯 Running targeted discovery for: {test_node_path}")
+        result = workflow_creator.discover_workflows(node_path=test_node_path)
+
+        if result.error:
+            print(f"❌ Error: {result.error}")
+        else:
+            print("✅ Success!")
+            print(f"   - Entry points: {result.total_entry_points}")
+            print(f"   - Workflows: {result.total_workflows}")
+            print(f"   - Time: {result.discovery_time_seconds:.2f}s")
+
+    except Exception as e:
+        print(f"❌ Failed: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        graph_manager.close()
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     dotenv.load_dotenv()
@@ -386,8 +424,8 @@ if __name__ == "__main__":
     # Comment out regular main() and use documentation integration
     # main(root_path=root_path, blarignore_path=blarignore_path)
 
-    # Test the SpecAnalysisWorkflow only (assuming InformationNodes exist)
-    test_workflow_discovery_only(root_path=root_path)
+    # Test the targeted workflow discovery with node_path
+    test_targeted_workflow_discovery(root_path=root_path)
 
     # Other test options (commented out):
     # test_documentation_only(root_path=root_path)  # Test full documentation workflow

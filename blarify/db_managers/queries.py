@@ -922,7 +922,7 @@ def find_independent_workflows_query() -> str:
     Returns a Cypher query for finding workflow execution traces with documentation nodes.
 
     This query builds execution traces through code nodes but returns documentation node IDs
-    for workflow relationships. The caller_id and callee_id in edges refer to documentation 
+    for workflow relationships. The caller_id and callee_id in edges refer to documentation
     node IDs, eliminating the need for separate queries during relationship creation.
 
     Returns:
@@ -1093,13 +1093,13 @@ def find_independent_workflows(
 
                 # Extract all documentation node IDs from execution nodes and edges
                 documentation_node_ids = []
-                
+
                 # Get documentation IDs from execution nodes
                 for node in execution_nodes:
                     doc_id = node.get("doc_node_id")
                     if doc_id and doc_id not in documentation_node_ids:
                         documentation_node_ids.append(doc_id)
-                
+
                 # Get documentation IDs from execution edges (should already be included above)
                 for edge in execution_edges:
                     caller_doc_id = edge.get("caller_id")  # This is already a documentation ID
@@ -1139,10 +1139,10 @@ def find_independent_workflows(
 def find_code_workflows_query() -> str:
     """
     Returns a Cypher query for finding workflow execution traces using proper DFS traversal.
-    
+
     This query builds a complete execution trace by enumerating all DFS paths and creating
     a unified node and edge stream that represents the full workflow execution sequence.
-    
+
     Returns:
         str: The Cypher query string that returns executionNodes and executionEdges
     """
@@ -1244,18 +1244,18 @@ def find_code_workflows(
 ) -> List[Dict[str, Any]]:
     """
     Finds workflow execution traces using direct code analysis without documentation dependencies.
-    
+
     This function provides fast workflow discovery that works directly with code structure,
     making it ideal for SWE benchmarks where you need targeted workflow analysis without
     expensive full documentation creation.
-    
+
     Args:
         db_manager: Database manager instance
         entity_id: The entity ID to query
         repo_id: The repository ID to query
         entry_point_id: Code node ID that is an entry point
         max_depth: Maximum depth for workflow traversal (default: 20)
-        
+
     Returns:
         List of workflow dictionaries, each including:
         - entryPointId, entryPointName, entryPointPath: Entry point details
@@ -1275,19 +1275,22 @@ def find_code_workflows(
             "entry_point_id": entry_point_id,
             "maxDepth": max_depth,
         }
-        
+
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
-        
+
         workflows = []
         for record in query_result:
             execution_nodes = record.get("executionNodes", [])
             execution_edges = record.get("executionEdges", [])
-            
+
+            for index, edge in enumerate(execution_edges):
+                edge["step_order"] = index  # Set step_order based on index
+
             if execution_nodes:
                 # Extract entry and end point from execution nodes
                 entry_node = execution_nodes[0] if execution_nodes else {}
                 end_node = execution_nodes[-1] if len(execution_nodes) > 1 else entry_node
-                
+
                 # Build workflow data structure expected by downstream code
                 workflow_data = {
                     "entryPointId": entry_node.get("id", ""),
@@ -1305,10 +1308,10 @@ def find_code_workflows(
                     "discoveredBy": "apoc_dfs_traversal",
                 }
                 workflows.append(workflow_data)
-        
+
         logger.info(f"Found {len(workflows)} code-based workflows for entry point {entry_point_id}")
         return workflows
-        
+
     except Exception as e:
         logger.exception(f"Error finding code workflows for entry point {entry_point_id}: {e}")
         return []
@@ -2197,11 +2200,11 @@ def detect_function_cycles(
 def find_entry_points_for_node_path_query() -> str:
     """
     Find entry points that eventually reach a specific node path.
-    
+
     Uses reverse traversal: starts from nodes matching node_path,
     traverses upward through CALLS relationships to find nodes
     with no incoming CALLS (true entry points).
-    
+
     Returns:
         Cypher query string for finding targeted entry points.
     """
@@ -2232,31 +2235,33 @@ def find_entry_points_for_node_path(
 ) -> List[Dict[str, Any]]:
     """
     Find entry points that eventually reach a specific node path.
-    
+
     Args:
         db_manager: Database manager instance
         entity_id: The entity ID to query
-        repo_id: The repository ID to query  
+        repo_id: The repository ID to query
         node_path: The node path to find entry points for
-        
+
     Returns:
         List of entry point dictionaries with id.
     """
     try:
         query = find_entry_points_for_node_path_query()
         parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_path": node_path}
-        
+
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
-        
+
         entry_points = []
         for record in query_result:
-            entry_points.append({
-                "id": record.get("id", ""),
-            })
-        
+            entry_points.append(
+                {
+                    "id": record.get("id", ""),
+                }
+            )
+
         logger.info(f"Found {len(entry_points)} entry points for node path '{node_path}'")
         return entry_points
-        
+
     except Exception as e:
         logger.exception(f"Error finding entry points for node path '{node_path}': {e}")
         return []

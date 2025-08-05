@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, TYPE_CHECKING
-from blarify.graph.relationship import Relationship, RelationshipType
+from blarify.graph.relationship import Relationship, WorkflowStepRelationship, RelationshipType
 from blarify.graph.node import NodeLabels
 
 if TYPE_CHECKING:
@@ -97,13 +97,14 @@ class RelationshipCreator:
     @staticmethod
     def create_workflow_step_relationship(
         current_step_node: "Node", next_step_node: "Node", step_order: int = None
-    ) -> Relationship:
-        scope_text = f"step_order:{step_order}" if step_order is not None else ""
-        return Relationship(
+    ) -> WorkflowStepRelationship:
+        scope_text = ""  # Keep scope_text empty for workflow metadata
+        return WorkflowStepRelationship(
             current_step_node,
             next_step_node,
             RelationshipType.WORKFLOW_STEP,
             scope_text,
+            step_order=step_order,
         )
 
     @staticmethod
@@ -193,12 +194,12 @@ class RelationshipCreator:
         for edge in sorted_edges:
             source_doc_id = edge.get("caller_id")  # Already documentation node ID
             target_doc_id = edge.get("callee_id")  # Already documentation node ID
-            edge_order = edge.get("depth", 0)
+            step_order = edge.get("step_order", edge.get("depth", 0))  # Use step_order if available, fallback to depth
 
             if not source_doc_id or not target_doc_id:
                 continue
 
-            scope_text = f"step_order:{edge_order},workflow_id:{workflow_node.hashed_id},edge_based:true"
+            scope_text = f"workflow_id:{workflow_node.hashed_id},edge_based:true"
 
             relationships.append(
                 {
@@ -206,6 +207,10 @@ class RelationshipCreator:
                     "targetId": target_doc_id,  # Target documentation node
                     "type": RelationshipType.WORKFLOW_STEP.name,
                     "scopeText": scope_text,
+                    "step_order": step_order,  # Store step_order as individual property
+                    "depth": edge.get("depth", 0),  # Store depth as individual property
+                    "call_line": edge.get("call_line"),  # Store call_line as individual property
+                    "call_character": edge.get("call_character"),  # Store call_character as individual property
                 }
             )
 

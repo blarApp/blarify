@@ -1136,6 +1136,110 @@ def find_independent_workflows(
         return []
 
 
+def _create_bridge_edges(
+    execution_nodes: List[Dict[str, Any]], 
+    execution_edges: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Create bridge edges to connect consecutive DFS paths for continuous execution traces.
+    
+    This function addresses the gap problem where consecutive DFS paths are independent,
+    preventing LLM agents from understanding complete execution flows. Bridge edges
+    connect the last callee of one path to the first callee of the next path.
+    
+    Bridge edges have identical structure to CALLS edges and are created only in memory
+    (not stored in the database), ensuring database integrity while providing continuous
+    traces for LLM analysis.
+    
+    Args:
+        execution_nodes: Ordered list of execution nodes from DFS traversal
+        execution_edges: Original execution edges from the Cypher query
+        
+    Returns:
+        Combined list of original and bridge edges with proper step ordering
+        
+    Example:
+        Input paths:
+        Path 1: a → b → x (edges: a→b, b→x)  
+        Path 2: a → c     (edges: a→c)
+        
+        Bridge edge created: x → c (connecting paths)
+        Result: [a→b, b→x, x→c, a→c] with continuous flow
+    """
+    if not execution_nodes or not execution_edges:
+        return execution_edges
+        
+    if len(execution_nodes) <= 1:
+        return execution_edges
+    
+    # Create a copy of original edges to avoid modifying input
+    all_edges = execution_edges.copy()
+    
+    # Track path boundaries by analyzing node patterns
+    # In DFS traversal, new paths start when we see the entry point again (depth 0)
+    # after having processed nodes at deeper levels
+    path_boundaries: List[int] = []  # Indices where new paths start
+    entry_point_id = execution_nodes[0].get('id', '') if execution_nodes else ''
+    
+    for i in range(1, len(execution_nodes)):
+        current_node = execution_nodes[i]
+        current_depth = current_node.get('depth', 0)
+        current_id = current_node.get('id', '')
+        
+        # New path starts when we encounter the entry point again (depth 0)
+        # but skip the very first occurrence
+        if current_depth == 0 and current_id == entry_point_id:
+            path_boundaries.append(i)
+    
+    # Create bridge edges between consecutive paths
+    bridge_edges: List[Dict[str, Any]] = []
+    next_step_order = len(execution_edges)
+    
+    for boundary_idx in path_boundaries:
+        if boundary_idx >= len(execution_nodes):
+            continue
+            
+        # Find the last node of the previous path (node just before boundary)
+        previous_path_end_idx = boundary_idx - 1
+        if previous_path_end_idx < 0:
+            continue
+            
+        # The new path starts at boundary_idx (entry point)
+        # We want to connect to the first non-entry node of the new path
+        current_path_start_idx = boundary_idx + 1
+        if current_path_start_idx >= len(execution_nodes):
+            continue
+            
+        previous_node = execution_nodes[previous_path_end_idx]
+        current_node = execution_nodes[current_path_start_idx]
+        
+        # Create bridge edge with structure identical to CALLS edges
+        bridge_edge = {
+            "caller_id": previous_node.get("id", ""),
+            "caller": previous_node.get("name", ""),
+            "caller_path": previous_node.get("path", ""),
+            "callee_id": current_node.get("id", ""),
+            "callee": current_node.get("name", ""),
+            "callee_path": current_node.get("path", ""),
+            "call_line": None,  # Bridge edges don't have source location
+            "call_character": None,
+            "depth": 1,  # Bridge always connects at top level
+            "step_order": next_step_order,
+            "is_bridge_edge": True  # Mark as synthetic for debugging
+        }
+        
+        bridge_edges.append(bridge_edge)
+        next_step_order += 1
+    
+    # Combine original edges with bridge edges and re-sort by step_order
+    all_edges.extend(bridge_edges)
+    all_edges.sort(key=lambda edge: edge.get("step_order", 0))
+    
+    logger.debug(f"Created {len(bridge_edges)} bridge edges for continuous execution trace")
+    
+    return all_edges
+
+
 def find_code_workflows_query() -> str:
     """
     Returns a Cypher query for finding workflow execution traces using proper DFS traversal.
@@ -1243,11 +1347,21 @@ def find_code_workflows(
     db_manager: AbstractDbManager, entity_id: str, repo_id: str, entry_point_id: str, max_depth: int = 20
 ) -> List[Dict[str, Any]]:
     """
-    Finds workflow execution traces using direct code analysis without documentation dependencies.
+    Finds workflow execution traces using direct code analysis with continuous path sequencing.
 
     This function provides fast workflow discovery that works directly with code structure,
-    making it ideal for SWE benchmarks where you need targeted workflow analysis without
-    expensive full documentation creation.
+    creating continuous execution traces for LLM agent analysis. It addresses the DFS path
+    sequencing gap problem by adding bridge edges between consecutive paths, ensuring
+    complete workflow understanding without database pollution.
+
+    The function performs DFS traversal to discover execution paths, then adds synthetic
+    "bridge edges" in memory to connect the last callee of one path to the first callee
+    of the next path. This creates continuous execution traces while maintaining database
+    integrity (synthetic edges are never stored).
+
+    Bridge edges have identical structure to CALLS edges, ensuring uniform processing
+    by downstream LLM agents and analysis tools. They are marked with `is_bridge_edge: True`
+    for debugging purposes.
 
     Args:
         db_manager: Database manager instance
@@ -1261,11 +1375,25 @@ def find_code_workflows(
         - entryPointId, entryPointName, entryPointPath: Entry point details
         - endPointId, endPointName, endPointPath: Final function in call chain
         - workflowNodes: List of code nodes in execution order
-        - workflowEdges: List of CALLS relationships between nodes
+        - workflowEdges: List of CALLS relationships between nodes (includes bridge edges)
         - pathLength: Number of function calls in the chain
-        - totalExecutionSteps: Total number of execution steps
-        - workflowType: 'code_based_workflow'
-        - discoveredBy: 'apoc_dfs_code_only'
+        - totalExecutionSteps: Total number of execution steps (includes bridge edges)
+        - workflowType: 'dfs_execution_trace_with_edges'
+        - discoveredBy: 'apoc_dfs_traversal'
+
+    Note:
+        Bridge edges are synthetic connections created in memory only. They connect
+        consecutive DFS paths to provide continuous execution traces for LLM analysis
+        while preserving database integrity. Bridge edges have `call_line` and
+        `call_character` set to None since they don't correspond to actual source code locations.
+
+    Example:
+        For DFS paths:
+        - Path 1: main → process → validate
+        - Path 2: main → cleanup
+
+        A bridge edge is created: validate → cleanup, resulting in continuous flow:
+        main → process → validate → cleanup → main → cleanup
     """
     try:
         query = find_code_workflows_query()
@@ -1283,8 +1411,12 @@ def find_code_workflows(
             execution_nodes = record.get("executionNodes", [])
             execution_edges = record.get("executionEdges", [])
 
+            # Set initial step_order for original edges
             for index, edge in enumerate(execution_edges):
-                edge["step_order"] = index  # Set step_order based on index
+                edge["step_order"] = index
+            
+            # Create bridge edges to connect consecutive DFS paths for continuous traces
+            execution_edges = _create_bridge_edges(execution_nodes, execution_edges)
 
             if execution_nodes:
                 # Extract entry and end point from execution nodes

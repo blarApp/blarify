@@ -1,0 +1,16 @@
+{
+  "include": ["blarify", "tests"],
+  "exclude": ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor"],
+  "typeCheckingMode": "strict",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "reportUnnecessaryTypeIgnoreComment": true,
+  "reportUnusedImport": true,
+  "reportUnusedVariable": true,
+  "reportDuplicateImport": true,
+  "strictListInference": true,
+  "strictDictionaryInference": true,
+  "strictSetInference": true
+}

@@ -16,7 +16,9 @@ delete.py
 *.json
 static/
 easy/
+gadugi/
 
 
 !blarify/vendor/**/*.json
+!pyrightconfig.json
 

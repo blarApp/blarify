@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 from ..agents.llm_provider import LLMProvider
 from ..db_managers.db_manager import AbstractDbManager
-from ..db_managers.queries import get_root_folders_and_files
+from ..db_managers.queries import find_all_entry_points, find_entry_points_for_node_path, get_root_folders_and_files
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.relationship.relationship_creator import RelationshipCreator
 from .utils.recursive_dfs_processor import RecursiveDFSProcessor
@@ -81,7 +81,7 @@ class DocumentationCreator:
         Main entry point - creates documentation using simple method orchestration.
 
         Args:
-            target_paths: Optional list of specific paths to document (for SWE benchmarks)
+            target_paths: Optional list of specific paths to nodes (for SWE benchmarks)
             include_framework_detection: Whether to run framework detection
             save_to_database: Whether to save results to database
 
@@ -168,6 +168,53 @@ class DocumentationCreator:
             analysis_method="llm_analysis_basic_parsing",
         )
 
+    def _discover_entry_points(self, node_path: Optional[str] = None) -> List[str]:
+        """
+        Discover entry points using hybrid approach from existing implementation.
+
+        This uses the existing find_all_entry_points_hybrid function which combines
+        database relationship analysis with potential for agent exploration.
+        When node_path is provided, uses targeted discovery for that specific path.
+
+        Args:
+            node_path: Optional path to a specific node. When provided, finds entry points
+                      that eventually reach this node. When None, finds all entry points.
+
+        Returns:
+            List of entry point dictionaries with id, name, path, etc.
+        """
+        try:
+            if node_path is not None:
+                logger.info(f"Discovering entry points for node path: {node_path}")
+                entry_points = find_entry_points_for_node_path(
+                    db_manager=self.db_manager, entity_id=self.company_id, repo_id=self.repo_id, node_path=node_path
+                )
+                # Convert to standard format
+                standardized_entry_points = []
+                for ep in entry_points:
+                    standardized_entry_points.append(ep.get("path", ""))
+
+                logger.info(f"Discovered {len(standardized_entry_points)} targeted entry points")
+                return standardized_entry_points
+            else:
+                logger.info("Discovering entry points using hybrid approach")
+
+                entry_points = find_all_entry_points(
+                    db_manager=self.db_manager, entity_id=self.company_id, repo_id=self.repo_id
+                )
+
+                # Convert to standard format
+                standardized_entry_points = []
+                for ep in entry_points:
+                    standardized_entry_points.append(ep.get("path", ""))
+
+                logger.info(f"Discovered {len(standardized_entry_points)} entry points")
+                return standardized_entry_points
+
+        except Exception as e:
+            logger.exception(f"Error discovering entry points: {e}")
+            return []
+
     def _create_targeted_documentation(
         self,
         target_paths: List[str],
@@ -193,26 +240,31 @@ class DocumentationCreator:
 
             for path in target_paths:
                 try:
+                    entry_points_paths = self._discover_entry_points(node_path=path)
+
                     # Use RecursiveDFSProcessor for each target path
-                    processor_result = self.recursive_processor.process_node(path)
+                    for entry_point in entry_points_paths:
+                        processor_result = self.recursive_processor.process_node(entry_point)
 
-                    if processor_result.error:
-                        warnings.append(f"Error processing {path}: {processor_result.error}")
-                        continue
+                        if processor_result.error:
+                            warnings.append(
+                                f"Error processing path {path} entry point {entry_point}: {processor_result.error}"
+                            )
+                            continue
 
-                    # Collect results
-                    all_information_nodes.extend(processor_result.information_nodes)
-                    all_documentation_nodes.extend(processor_result.documentation_nodes)
-                    all_source_nodes.extend(processor_result.source_nodes)
-                    analyzed_nodes.append(
-                        {
-                            "path": path,
-                            "node_count": len(processor_result.information_nodes),
-                            "hierarchical_analysis": processor_result.hierarchical_analysis,
-                        }
-                    )
+                        # Collect results
+                        all_information_nodes.extend(processor_result.information_nodes)
+                        all_documentation_nodes.extend(processor_result.documentation_nodes)
+                        all_source_nodes.extend(processor_result.source_nodes)
+                        analyzed_nodes.append(
+                            {
+                                "path": entry_point,
+                                "node_count": len(processor_result.information_nodes),
+                                "hierarchical_analysis": processor_result.hierarchical_analysis,
+                            }
+                        )
 
-                    logger.info(f"Processed {path}: {len(processor_result.information_nodes)} nodes")
+                        logger.info(f"Processed {path}: {len(processor_result.information_nodes)} nodes")
 
                 except Exception as e:
                     error_msg = f"Error processing path {path}: {str(e)}"
@@ -323,13 +375,12 @@ class DocumentationCreator:
             # Batch save nodes
             self.db_manager.create_nodes(information_node_dicts)
             logger.info(f"Saved {len(information_node_dicts)} documentation nodes")
-            
+
             # Create DESCRIBES relationships using the existing RelationshipCreator method
             describes_relationships = RelationshipCreator.create_describes_relationships(
-                documentation_nodes=documentation_nodes,
-                source_nodes=source_nodes
+                documentation_nodes=documentation_nodes, source_nodes=source_nodes
             )
-            
+
             # Save relationships to database (already as dictionaries)
             if describes_relationships:
                 self.db_manager.create_edges(describes_relationships)

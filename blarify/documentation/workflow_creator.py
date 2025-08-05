@@ -10,7 +10,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from ..db_managers.db_manager import AbstractDbManager
-from ..db_managers.queries import find_all_entry_points_hybrid, find_code_workflows, find_entry_points_for_node_path
+from ..db_managers.queries import find_all_entry_points, find_code_workflows, find_entry_points_for_node_path
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.node.workflow_node import WorkflowNode
 from ..graph.relationship.relationship_creator import RelationshipCreator
@@ -173,7 +173,7 @@ class WorkflowCreator:
             else:
                 logger.info("Discovering entry points using hybrid approach")
 
-                entry_points = find_all_entry_points_hybrid(
+                entry_points = find_all_entry_points(
                     db_manager=self.db_manager, entity_id=self.company_id, repo_id=self.repo_id
                 )
 

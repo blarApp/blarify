@@ -1,0 +1,13 @@
+repositories:
+  - name: gadugi
+    url: https://github.com/rysweet/gadugi.git
+    type: github
+    auth: public
+settings:
+  auto_update: true
+  check_interval: "24h"
+  cache_ttl: "7d"
+  max_cache_size: "100MB"
+  offline_mode: false
+  verify_checksums: true
+  log_level: "info"

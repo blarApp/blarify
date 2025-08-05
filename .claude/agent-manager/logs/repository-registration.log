@@ -1,0 +1,11 @@
+[2025-08-01T17:57:00Z] INFO: Repository registration initiated
+[2025-08-01T17:57:00Z] INFO: Repository URL: https://github.com/blarApp/blarify
+[2025-08-01T17:57:00Z] INFO: Repository type: github
+[2025-08-01T17:57:00Z] INFO: Authentication type: public
+[2025-08-01T17:57:00Z] INFO: Successfully cloned repository to cache/repositories/blarify
+[2025-08-01T17:57:00Z] INFO: No manifest.yaml found, scanning for agent definitions
+[2025-08-01T17:57:00Z] INFO: No agent definition files found in repository
+[2025-08-01T17:57:00Z] INFO: Repository registered with 0 agents
+[2025-08-01T17:57:00Z] INFO: Updated agent-registry.json with new repository
+[2025-08-01T17:57:00Z] INFO: Updated config.yaml with new repository entry
+[2025-08-01T17:57:00Z] SUCCESS: Repository https://github.com/blarApp/blarify successfully registered as 'blarify'

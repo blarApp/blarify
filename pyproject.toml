@@ -28,10 +28,20 @@ typing-extensions = "^4.12.2"
 jedi-language-server = "^0.43.1"
 psutil = "^7.0.0"
 vendoring = "^1.2.0"
+langgraph = "^0.5.2"
+langchain = "^0.3.26"
+langchain-openai = "^0.3.28"
+langchain-anthropic = "^0.3.17"
 tree-sitter-php = "^0.23.11"
 tree-sitter-java = "^0.23.5"
+json-repair = "^0.47.7"
+langchain-google-genai = "^2.1.7"
 
 
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+ruff = "^0.12.5"
 
 [tool.vendoring]
 destination = "blarify/vendor"

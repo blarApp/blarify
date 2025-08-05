@@ -1,17 +1,20 @@
 import os
 import time
-from typing import Any, List
+from typing import Any, List, Dict
 
 from dotenv import load_dotenv
 from neo4j import Driver, GraphDatabase, exceptions
 import logging
+
+from blarify.db_managers.db_manager import AbstractDbManager
+from blarify.db_managers.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
 
 logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 
-class Neo4jManager:
+class Neo4jManager(AbstractDbManager):
     entity_id: str
     repo_id: str
     driver: Driver
@@ -99,7 +102,7 @@ class Neo4jManager:
             CALL apoc.merge.relationship(
             node1, 
             edgeObject.type, 
-            {scopeText: edgeObject.scopeText}, 
+            apoc.map.removeKeys(edgeObject, ["sourceId", "targetId", "type"]), 
             {}, 
             node2, 
             {}
@@ -127,3 +130,73 @@ class Neo4jManager:
                 path=path,
             )
             return result.data()
+
+    def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """
+        Execute a Cypher query and return the results.
+
+        Args:
+            cypher_query: The Cypher query string to execute
+            parameters: Optional dictionary of parameters for the query
+
+        Returns:
+            List of dictionaries containing the query results
+        """
+        if parameters is None:
+            parameters = {}
+
+        try:
+            with self.driver.session() as session:
+                result = session.run(cypher_query, parameters)
+                return [record.data() for record in result]
+        except Exception as e:
+            logger.exception(f"Error executing Neo4j query: {e}")
+            logger.exception(f"Query: {cypher_query}")
+            logger.exception(f"Parameters: {parameters}")
+            raise
+
+
+    def get_node_by_name_and_type(
+        self, name: str, type: str, company_id: str, repo_id: str, diff_identifier: str
+    ) -> List[NodeFoundByNameTypeDto]:
+        query = """
+        MATCH (n:NODE {name: $name, entityId: $entity_id, repoId: $repo_id})
+        WHERE (n.diff_identifier = $diff_identifier OR n.diff_identifier = "0") AND $type IN labels(n)
+        AND NOT (n)-[:DELETED]->()
+        AND NOT ()-[:MODIFIED]->(n)
+        RETURN n.node_id as node_id, n.name as name, n.label as label,
+               n.diff_text as diff_text, n.diff_identifier as diff_identifier,
+               n.node_path as node_path, n.text as text
+
+        LIMIT 100;
+        """
+        params = {
+            "name": str(name),
+            "entity_id": str(company_id),
+            "repo_id": str(repo_id),
+            "type": str(type),
+            "diff_identifier": str(diff_identifier),
+        }
+        record = self.query(
+            query,
+            parameters=params,
+            result_format="data",
+        )
+
+        if record is None:
+            return []
+
+        found_nodes = [
+            NodeFoundByNameTypeDto(
+                id=node.get("node_id"),
+                name=node.get("name"),
+                label=node.get("label"),
+                diff_text=node.get("diff_text"),
+                node_path=node.get("node_path"),
+                text=node.get("text"),
+                diff_identifier=node.get("diff_identifier"),
+            )
+            for node in record
+        ]
+
+        return found_nodes

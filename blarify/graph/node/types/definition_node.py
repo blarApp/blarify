@@ -1,5 +1,4 @@
 from typing import List, Optional, Tuple, Union, TYPE_CHECKING, Dict
-from blarify.graph.relationship import RelationshipCreator
 from blarify.graph.node.types.node import Node
 
 import re
@@ -20,11 +19,11 @@ class DefinitionNode(Node):
     definition_range: "Reference"
     node_range: "Reference"
     code_text: str
-    body_node: Optional["TreeSitterNode"]
-    _tree_sitter_node: "TreeSitterNode"
     _is_diff: bool
     extra_labels = List[str]
     extra_attributes = Dict[str, str]
+    body_node: Optional["TreeSitterNode"] = None
+    _tree_sitter_node: Optional["TreeSitterNode"] = None
 
     def __init__(
         self, definition_range, node_range, code_text, body_node, tree_sitter_node: "TreeSitterNode", *args, **kwargs
@@ -53,6 +52,7 @@ class DefinitionNode(Node):
         self._defines.extend(nodes)
 
     def get_relationships(self) -> List["Relationship"]:
+        from blarify.graph.relationship import RelationshipCreator
         relationships = []
         for node in self._defines:
             relationships.append(RelationshipCreator.create_defines_relationship(self, node))

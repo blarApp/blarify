@@ -165,7 +165,7 @@ class OmniSharp(LanguageServer):
         runtime_dependencies = [
             dependency
             for dependency in runtime_dependencies
-            if not ("dotnet_version" in dependency) or dependency["dotnet_version"] == dotnet_version.value
+            if "dotnet_version" not in dependency or dependency["dotnet_version"] == dotnet_version.value
         ]
         assert len(runtime_dependencies) == 2
         runtime_dependencies = {

@@ -1,0 +1,10 @@
+installation:
+  preferred_versions: {}
+  auto_install_categories: ["development"]  
+  excluded_agents: []
+  conflict_resolution: "prefer_newer"
+update:
+  update_schedule: "daily"
+  update_categories: ["development"]
+  exclude_from_updates: []
+EOF < /dev/null

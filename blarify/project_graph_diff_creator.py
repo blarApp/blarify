@@ -1,5 +1,4 @@
 from blarify.graph.node.utils.node_factory import NodeFactory
-from blarify.graph.node.types.node_labels import NodeLabels
 from blarify.project_graph_creator import ProjectGraphCreator
 from blarify.graph.relationship import RelationshipType
 from blarify.graph.graph import Graph
@@ -10,7 +9,6 @@ from blarify.graph.node import FileNode
 from typing import List
 from dataclasses import dataclass
 from enum import Enum
-from copy import copy
 from blarify.graph.external_relationship_store import ExternalRelationshipStore
 from blarify.graph.graph_update import GraphUpdate
 from blarify.graph.node.utils.id_calculator import IdCalculator

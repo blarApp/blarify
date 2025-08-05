@@ -18,6 +18,7 @@ class Node:
     level: int
     parent: "Node"
     graph_environment: "GraphEnvironment"
+    layer: str
 
     def __init__(
         self,
@@ -27,6 +28,7 @@ class Node:
         level: int,
         parent: "Node" = None,
         graph_environment: "GraphEnvironment" = None,
+        layer: str = "code",
     ):
         self.label = label
         self.path = path
@@ -34,6 +36,7 @@ class Node:
         self.level = level
         self.parent = parent
         self.graph_environment = graph_environment
+        self.layer = layer
 
         if not self.is_path_format_valid():
             raise ValueError(f"Path format is not valid: {self.path}")
@@ -81,6 +84,7 @@ class Node:
                 "level": self.level,
                 "hashed_id": self.hashed_id,
                 "diff_identifier": self.graph_environment.diff_identifier,
+                "layer": self.layer,
             },
         }
 

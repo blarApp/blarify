@@ -22,6 +22,7 @@ def ensure_language_server_installed(language: str):
     if language == "csharp":
         print(f"Starting language server for {language}")
         from blarify.vendor.multilspy.language_servers.omnisharp.omnisharp import OmniSharp
+
         OmniSharp.setupRuntimeDependencies(None, logger, config)
         print(f"Started language server for {language}")
         return
@@ -30,13 +31,11 @@ def ensure_language_server_installed(language: str):
 
     try:
         print(f"Starting language server for {language}")
-        lsp = SyncLanguageServer.create(
-            config=config, logger=logger, repository_root_path=current_dir_path, timeout=15
-        )
+        lsp = SyncLanguageServer.create(config=config, logger=logger, repository_root_path=current_dir_path, timeout=15)
         with lsp.start_server():
             my_logger.info(f"Started language server for {language}")
     except Exception as e:
-        my_logger.error(f"Failed to start language server for {language}: {e}")
+        my_logger.exception(f"Failed to start language server for {language}: {e}")
 
 
 if __name__ == "__main__":

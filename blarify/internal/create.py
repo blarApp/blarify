@@ -1,8 +1,6 @@
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.db_managers.neo4j_manager import Neo4jManager
-from blarify.db_managers.falkordb_manager import FalkorDBManager
-import json
 
 
 import dotenv

@@ -1,5 +1,4 @@
 from blarify.graph.node import Node
-import os
 from blarify.utils.path_calculator import PathCalculator
 
 

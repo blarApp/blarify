@@ -1,17 +1,18 @@
 import os
-import time
-from typing import Any, List
+from typing import Any, List, Dict
 import logging
 
 from dotenv import load_dotenv
-from falkordb import FalkorDB, exceptions
+from falkordb import FalkorDB
+
+from blarify.db_managers.db_manager import AbstractDbManager
 
 logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 
-class FalkorDBManager:
+class FalkorDBManager(AbstractDbManager):
     entity_id: str
     repo_id: str
     db: FalkorDB
@@ -59,18 +60,71 @@ class FalkorDBManager:
 
     def create_edges(self, edgesList: List[dict]):
         graph = self.db.select_graph(self.repo_id)
-        cypher_query = """
-        UNWIND $edges AS edge
-        MATCH (a {node_id: edge.sourceId}), (b {node_id: edge.targetId})
-        CREATE (a)-[:`$edge.type` {scopeText: edge.scopeText}]->(b)
-        """
-        graph.query(
-            cypher_query,
-            params={"edges": edgesList},
-        )
+        
+        # Process each edge individually since FalkorDB doesn't support dynamic relationship types in UNWIND
+        for edge in edgesList:
+            rel_type = edge.get("type", "UNKNOWN")
+            cypher_query = f"""
+            MATCH (a {{node_id: $sourceId}}), (b {{node_id: $targetId}})
+            CREATE (a)-[r:{rel_type}]->(b)
+            SET r.scopeText = $scopeText
+            """
+            
+            # Add optional properties if they exist
+            params = {
+                "sourceId": edge["sourceId"],
+                "targetId": edge["targetId"],
+                "scopeText": edge.get("scopeText", "")
+            }
+            
+            if edge.get("startLine") is not None:
+                cypher_query += ", r.startLine = $startLine"
+                params["startLine"] = edge["startLine"]
+                
+            if edge.get("referenceCharacter") is not None:
+                cypher_query += ", r.referenceCharacter = $referenceCharacter"
+                params["referenceCharacter"] = edge["referenceCharacter"]
+            
+            graph.query(cypher_query, params=params)
 
     def detach_delete_nodes_with_path(self, path: str):
         graph = self.db.select_graph(self.repo_id)
         cypher_query = "MATCH (n {path: $path}) DETACH DELETE n"
         result = graph.query(cypher_query, params={"path": path})
         return result.result_set
+
+    def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """
+        Execute a Cypher query and return the results.
+
+        Args:
+            cypher_query: The Cypher query string to execute
+            parameters: Optional dictionary of parameters for the query
+
+        Returns:
+            List of dictionaries containing the query results
+        """
+        if parameters is None:
+            parameters = {}
+
+        try:
+            graph = self.db.select_graph(self.repo_id)
+            result = graph.query(cypher_query, params=parameters)
+
+            # Convert FalkorDB result to dictionary format
+            results = []
+            if result.result_set:
+                headers = result.header
+                for row in result.result_set:
+                    row_dict = {}
+                    for i, header in enumerate(headers):
+                        if i < len(row):
+                            row_dict[header] = row[i]
+                    results.append(row_dict)
+
+            return results
+        except Exception as e:
+            logger.exception(f"Error executing FalkorDB query: {e}")
+            logger.exception(f"Query: {cypher_query}")
+            logger.exception(f"Parameters: {parameters}")
+            raise

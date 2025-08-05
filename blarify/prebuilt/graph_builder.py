@@ -40,12 +40,25 @@ class GraphBuilder:
 
         self.only_hierarchy = only_hierarchy
 
-    def build(self) -> Graph:
+    def build(
+        self,
+    ) -> Graph:
+        """Build the code graph with optional documentation layer.
+
+        Args:
+            include_documentation: Whether to generate documentation layer
+            llm_provider: LLM provider for documentation analysis (required if include_documentation=True)
+            db_manager: Database manager for persisting documentation (required if include_documentation=True)
+
+        Returns:
+            Graph object containing code nodes (and documentation nodes if requested)
+        """
         lsp_query_helper = self._get_started_lsp_query_helper()
         project_files_iterator = self._get_project_files_iterator()
 
-        graph_creator = ProjectGraphCreator(self.root_path, lsp_query_helper, project_files_iterator, 
-                                            graph_environment=self.graph_environment)
+        graph_creator = ProjectGraphCreator(
+            self.root_path, lsp_query_helper, project_files_iterator, graph_environment=self.graph_environment
+        )
 
         if self.only_hierarchy:
             graph = graph_creator.build_hierarchy_only()

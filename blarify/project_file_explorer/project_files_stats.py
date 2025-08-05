@@ -47,6 +47,6 @@ class ProjectFileStats:
         try:
             with open(file_path, "r") as file:
                 return file.readlines()
-        except UnicodeDecodeError as e:
+        except UnicodeDecodeError:
             # Logger.log(f"Error reading file {file_path}: {e}")
             return []

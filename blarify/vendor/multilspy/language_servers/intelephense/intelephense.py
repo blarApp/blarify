@@ -10,7 +10,7 @@ from typing import AsyncIterator
 from blarify.vendor.multilspy.language_server import LanguageServer
 from blarify.vendor.multilspy.lsp_protocol_handler.server import ProcessLaunchInfo
 import json
-from blarify.vendor.multilspy.multilspy_utils import FileUtils, PlatformUtils
+from blarify.vendor.multilspy.multilspy_utils import PlatformUtils
 
 
 class Intelephense(LanguageServer):

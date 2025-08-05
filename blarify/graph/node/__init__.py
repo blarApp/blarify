@@ -7,3 +7,5 @@ from .folder_node import FolderNode
 from .file_node import FileNode
 from .function_node import FunctionNode
 from .deleted_node import DeletedNode
+from .documentation_node import DocumentationNode
+from .workflow_node import WorkflowNode

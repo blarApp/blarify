@@ -1,0 +1,65 @@
+2025-07-15 20:43:00,155 - blarify.logger - INFO - Top 10 files by size:
+2025-07-15 20:43:00,155 - blarify.logger - INFO - Total files: 144
+2025-07-15 20:43:00,155 - blarify.logger - INFO - lsp_types.py - 5905 lines - 217583 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - examples.md - 1282 lines - 40784 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - language_server.py - 961 lines - 40283 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - lsp_requests.py - 615 lines - 29770 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - workflow.py - 663 lines - 29085 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - user-guide.md - 732 lines - 20029 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - omnisharp.py - 403 lines - 18663 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - server.py - 474 lines - 18504 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - semantic_documentation_layer.md - 460 lines - 18266 bytes
+2025-07-15 20:43:00,155 - blarify.logger - INFO - eclipse_jdtls.py - 405 lines - 17403 bytes
+2025-07-15 20:43:00,319 - blarify.project_graph_creator - INFO - Execution time of create_code_hierarchy: 0.16 seconds
+2025-07-15 20:43:00,319 - blarify.logger - INFO - Processing file prompts.py: 1/148 -- 0.00%
+2025-07-15 20:43:00,319 - blarify.logger - INFO - Execution time for prompts.py: 0.00 seconds, relationship count: 0
+2025-07-15 20:43:00,385 - multilspy - INFO - {"time": "2025-07-15 20:43:00", "level": "INFO", "caller_file": "jedi_server.py", "caller_name": "start_server", "caller_line": 99, "message": "Starting jedi-language-server server process"}
+2025-07-15 20:43:00,391 - multilspy - INFO - {"time": "2025-07-15 20:43:00", "level": "INFO", "caller_file": "jedi_server.py", "caller_name": "start_server", "caller_line": 103, "message": "Sending initialize request from LSP client to LSP server and awaiting response"}
+2025-07-15 20:43:03,765 - blarify.logger - INFO - Processing file workflow.py: 15/148 -- 9.46%
+2025-07-15 20:43:04,321 - blarify.logger - INFO - Execution time for workflow.py: 0.56 seconds, relationship count: 187
+2025-07-15 20:43:05,197 - blarify.logger - INFO - Processing file node_found_by_name_type.py: 29/148 -- 18.92%
+2025-07-15 20:43:05,247 - blarify.logger - INFO - Execution time for node_found_by_name_type.py: 0.05 seconds, relationship count: 298
+2025-07-15 20:43:06,871 - blarify.logger - INFO - Processing file directory_explorer_tool.py: 43/148 -- 28.38%
+2025-07-15 20:43:07,057 - blarify.logger - INFO - Execution time for directory_explorer_tool.py: 0.19 seconds, relationship count: 445
+2025-07-15 20:43:08,458 - blarify.logger - INFO - Processing file user-guide.md: 57/148 -- 37.84%
+2025-07-15 20:43:08,458 - blarify.logger - INFO - Execution time for user-guide.md: 0.00 seconds, relationship count: 614
+2025-07-15 20:43:09,723 - blarify.logger - INFO - Processing file __init__.py: 71/148 -- 47.30%
+2025-07-15 20:43:09,723 - blarify.logger - INFO - Execution time for __init__.py: 0.00 seconds, relationship count: 820
+2025-07-15 20:43:11,023 - blarify.logger - INFO - Processing file get_root_codebase_skeleton_tool.py: 85/148 -- 56.76%
+2025-07-15 20:43:11,110 - blarify.logger - INFO - Execution time for get_root_codebase_skeleton_tool.py: 0.09 seconds, relationship count: 1179
+2025-07-15 20:43:12,424 - blarify.logger - INFO - Processing file installation.md: 99/148 -- 66.22%
+2025-07-15 20:43:12,424 - blarify.logger - INFO - Execution time for installation.md: 0.00 seconds, relationship count: 1340
+2025-07-15 20:43:13,855 - blarify.logger - INFO - Processing file php_definitions.py: 113/148 -- 75.68%
+2025-07-15 20:43:14,026 - blarify.logger - INFO - Execution time for php_definitions.py: 0.17 seconds, relationship count: 1560
+2025-07-15 20:43:15,068 - blarify.logger - INFO - Processing file examples.md: 127/148 -- 85.14%
+2025-07-15 20:43:15,068 - blarify.logger - INFO - Execution time for examples.md: 0.00 seconds, relationship count: 1727
+2025-07-15 20:43:22,287 - blarify.logger - INFO - Processing file file_node.py: 141/148 -- 94.59%
+2025-07-15 20:43:22,359 - blarify.logger - INFO - Execution time for file_node.py: 0.07 seconds, relationship count: 1933
+2025-07-15 20:43:28,358 - blarify.db_managers.neo4j_manager - INFO - Created 1497 nodes
+2025-07-15 20:43:31,658 - blarify.db_managers.neo4j_manager - INFO - Created 3466 edges
+2025-07-15 20:43:31,718 - blarify.documentation.workflow - INFO - Starting documentation generation workflow
+2025-07-15 20:43:31,787 - blarify.documentation.workflow - INFO - Loading codebase skeleton for company_id: test
+2025-07-15 20:43:31,920 - blarify.documentation.workflow - INFO - Successfully loaded codebase skeleton (28 characters)
+2025-07-15 20:43:31,922 - blarify.documentation.workflow - INFO - Detecting framework and technology stack with CodeExplorer
+2025-07-15 20:43:31,942 - blarify.agents.tools.code_explorer_tool - INFO - Starting code exploration for goal: Find configuration files (package.json, requirements.txt, Cargo.toml, pom.xml, build.gradle)
+2025-07-15 20:43:34,715 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:43:39,315 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:43:40,485 - blarify.agents.tools.code_explorer_tool - INFO - Code exploration completed. Found 0 relevant snippets.
+2025-07-15 20:43:40,486 - blarify.agents.tools.code_explorer_tool - INFO - Starting code exploration for goal: Identify main entry points and application structure
+2025-07-15 20:43:42,266 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:43:49,463 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:43:54,123 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:43:56,715 - blarify.agents.tools.code_explorer_tool - INFO - Code exploration completed. Found 0 relevant snippets.
+2025-07-15 20:43:56,715 - blarify.agents.tools.code_explorer_tool - INFO - Starting code exploration for goal: Locate framework-specific patterns and imports
+2025-07-15 20:43:58,737 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:04,209 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:09,063 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:12,973 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:18,041 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:26,306 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:28,803 - blarify.agents.tools.code_explorer_tool - INFO - Code exploration completed. Found 0 relevant snippets.
+2025-07-15 20:44:28,804 - blarify.agents.tools.code_explorer_tool - INFO - Starting code exploration for goal: Find build tools and deployment configurations
+2025-07-15 20:44:31,210 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:34,861 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:40,868 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-07-15 20:44:52,647 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"

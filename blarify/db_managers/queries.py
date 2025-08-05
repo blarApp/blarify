@@ -1372,17 +1372,36 @@ def find_code_workflows_query() -> str:
            depth: actualDepthFromEntry
          }) AS calls
 
-    // Build the node stream (includes repeats)
+    // Collect all unique nodes involved in edges (both callers and callees)
+    WITH entry, calls
+    UNWIND calls AS c
+    WITH entry, calls, 
+         COLLECT(DISTINCT {
+           id: c.caller_id, name: c.caller, path: c.caller_path, 
+           depth: c.depth - 1  // Caller is one level up from the edge depth
+         }) + 
+         COLLECT(DISTINCT {
+           id: c.callee_id, name: c.callee, path: c.callee_path,
+           depth: c.depth
+         }) AS allNodes
+    
+    // Remove duplicates and sort by first appearance
+    WITH entry, calls, 
+         REDUCE(acc = [], n IN allNodes | 
+           CASE 
+             WHEN ANY(x IN acc WHERE x.id = n.id) THEN acc
+             ELSE acc + [n]
+           END
+         ) AS distinctNodes
+    
+    // Build the final node list with entry point first
     RETURN
       ([{
          id: entry.node_id, name: entry.name, path: entry.path,
          start_line: entry.start_line, end_line: entry.end_line,
          depth: 0, call_line: null, call_character: null
        }] +
-       [c IN calls | {
-         id: c.callee_id, name: c.callee, path: c.callee_path,
-         depth: c.depth, call_line: c.call_line, call_character: c.call_character
-       }]
+       [n IN distinctNodes WHERE n.id <> entry.node_id | n]
       ) AS executionNodes,
       calls AS executionEdges
     """

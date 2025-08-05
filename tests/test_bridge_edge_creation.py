@@ -57,16 +57,16 @@ class TestBridgeEdgeCreation:
         assert result == edges
 
     def test_two_paths_creates_bridge_edge(self) -> None:
-        """Test that two consecutive paths create exactly one bridge edge."""
-        # Path 1: a → b → x
-        # Path 2: a → c  
+        """Test that two consecutive DFS suffix paths create exactly one bridge edge."""
+        # DFS suffix representation (entry point appears only once):
+        # Path 1 suffix: b → x (depth 0 → 1)  
+        # Path 2 suffix: c (depth 0, indicating new path from common prefix)
         # Expected bridge: x → c
         nodes = [
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},
-            {"id": "b", "name": "func_b", "path": "/test.py", "depth": 1}, 
-            {"id": "x", "name": "func_x", "path": "/test.py", "depth": 2},
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},  # Path 2 starts
-            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 1}
+            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},  # Entry point (once only)
+            {"id": "b", "name": "func_b", "path": "/test.py", "depth": 0}, 
+            {"id": "x", "name": "func_x", "path": "/test.py", "depth": 1},
+            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 0}  # Depth decrease = new path
         ]
         edges = [
             {"caller_id": "a", "callee_id": "b", "step_order": 0},
@@ -92,20 +92,19 @@ class TestBridgeEdgeCreation:
         assert bridge_edge["depth"] == 1
 
     def test_multiple_paths_create_multiple_bridges(self) -> None:
-        """Test that multiple consecutive paths create appropriate bridge edges."""
-        # Path 1: a → b → x
-        # Path 2: a → c → y  
-        # Path 3: a → d
+        """Test that multiple consecutive DFS suffix paths create appropriate bridge edges."""
+        # DFS suffix representation:
+        # Path 1 suffix: b → x (depth 0 → 1)
+        # Path 2 suffix: c → y (depth 0 → 1, then new path starts at depth 0)  
+        # Path 3 suffix: d (depth 0)
         # Expected bridges: x → c, y → d
         nodes = [
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},
-            {"id": "b", "name": "func_b", "path": "/test.py", "depth": 1},
-            {"id": "x", "name": "func_x", "path": "/test.py", "depth": 2},
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},  # Path 2
-            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 1},
-            {"id": "y", "name": "func_y", "path": "/test.py", "depth": 2},
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},  # Path 3
-            {"id": "d", "name": "func_d", "path": "/test.py", "depth": 1}
+            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},  # Entry point (once only)
+            {"id": "b", "name": "func_b", "path": "/test.py", "depth": 0},
+            {"id": "x", "name": "func_x", "path": "/test.py", "depth": 1},
+            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 0},  # Path 2 starts (depth decrease)
+            {"id": "y", "name": "func_y", "path": "/test.py", "depth": 1},
+            {"id": "d", "name": "func_d", "path": "/test.py", "depth": 0}   # Path 3 starts (depth decrease)
         ]
         edges = [
             {"caller_id": "a", "callee_id": "b", "step_order": 0},
@@ -140,8 +139,7 @@ class TestBridgeEdgeCreation:
         nodes = [
             {"id": "a", "name": "func_a", "path": "/src/main.py", "depth": 0},
             {"id": "b", "name": "func_b", "path": "/src/utils.py", "depth": 1},
-            {"id": "a", "name": "func_a", "path": "/src/main.py", "depth": 0},
-            {"id": "c", "name": "func_c", "path": "/src/helpers.py", "depth": 1}
+            {"id": "c", "name": "func_c", "path": "/src/helpers.py", "depth": 0}  # Depth decrease 1→0 = new path
         ]
         edges = [
             {
@@ -189,8 +187,7 @@ class TestBridgeEdgeCreation:
         nodes = [
             {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},
             {"id": "b", "name": "func_b", "path": "/test.py", "depth": 1},
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},
-            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 1}
+            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 0}  # Depth decrease = new path
         ]
         edges = [
             {"caller_id": "a", "callee_id": "b", "step_order": 0},
@@ -212,14 +209,12 @@ class TestBridgeEdgeCreation:
         # Complex scenario with nested calls and multiple path transitions
         nodes = [
             {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},
-            {"id": "b", "name": "func_b", "path": "/test.py", "depth": 1},
-            {"id": "x", "name": "func_x", "path": "/test.py", "depth": 2},
-            {"id": "y", "name": "func_y", "path": "/test.py", "depth": 3},
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},  # New path
-            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 1},
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},  # Another path
-            {"id": "d", "name": "func_d", "path": "/test.py", "depth": 1},
-            {"id": "z", "name": "func_z", "path": "/test.py", "depth": 2}
+            {"id": "b", "name": "func_b", "path": "/test.py", "depth": 0},
+            {"id": "x", "name": "func_x", "path": "/test.py", "depth": 1},
+            {"id": "y", "name": "func_y", "path": "/test.py", "depth": 2},
+            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 0},  # New path (depth decrease 2→0)
+            {"id": "d", "name": "func_d", "path": "/test.py", "depth": 0},  # Another path
+            {"id": "z", "name": "func_z", "path": "/test.py", "depth": 1}
         ]
         edges = [
             {"caller_id": "a", "callee_id": "b", "step_order": 0},
@@ -252,8 +247,7 @@ class TestBridgeEdgeCreation:
         nodes = [
             {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},
             {"id": "b", "name": "func_b", "path": "/test.py", "depth": 1},
-            {"id": "a", "name": "func_a", "path": "/test.py", "depth": 0},
-            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 1}
+            {"id": "c", "name": "func_c", "path": "/test.py", "depth": 0}  # Depth decrease = new path
         ]
         original_edges = [
             {"caller_id": "a", "callee_id": "b", "step_order": 0, "call_line": 5},
@@ -282,22 +276,18 @@ class TestBridgeEdgeCreation:
 
     def test_complex_workflow_integration(self) -> None:
         """Test bridge edge creation in complex multi-path workflow scenarios."""
-        # Simulate a realistic workflow with multiple entry points and nested calls
+        # DFS suffix representation of realistic workflow:
+        # Path 1 suffix: process_data → validate → save (depth 0→1→2)
+        # Path 2 suffix: cleanup (depth 0, regression from 2→0)
+        # Path 3 suffix: log_stats → format (depth 0→1)
         nodes = [
-            # Path 1: main → process_data → validate → save  
-            {"id": "main", "name": "main", "path": "/main.py", "depth": 0},
-            {"id": "process", "name": "process_data", "path": "/processor.py", "depth": 1},
-            {"id": "validate", "name": "validate", "path": "/validator.py", "depth": 2},
-            {"id": "save", "name": "save", "path": "/storage.py", "depth": 3},
-            
-            # Path 2: main → cleanup
-            {"id": "main", "name": "main", "path": "/main.py", "depth": 0},
-            {"id": "cleanup", "name": "cleanup", "path": "/cleaner.py", "depth": 1},
-            
-            # Path 3: main → log_stats → format
-            {"id": "main", "name": "main", "path": "/main.py", "depth": 0},
-            {"id": "log_stats", "name": "log_stats", "path": "/logger.py", "depth": 1},
-            {"id": "format", "name": "format", "path": "/formatter.py", "depth": 2}
+            {"id": "main", "name": "main", "path": "/main.py", "depth": 0},  # Entry point (once only)
+            {"id": "process", "name": "process_data", "path": "/processor.py", "depth": 0},
+            {"id": "validate", "name": "validate", "path": "/validator.py", "depth": 1},
+            {"id": "save", "name": "save", "path": "/storage.py", "depth": 2},
+            {"id": "cleanup", "name": "cleanup", "path": "/cleaner.py", "depth": 0},  # Path 2 (depth decrease 2→0)
+            {"id": "log_stats", "name": "log_stats", "path": "/logger.py", "depth": 0},  # Path 3 (depth stable 0→0)
+            {"id": "format", "name": "format", "path": "/formatter.py", "depth": 1}
         ]
         
         edges = [

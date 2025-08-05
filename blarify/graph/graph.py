@@ -1,9 +1,11 @@
 from collections import defaultdict
+from typing import List, Dict, Set, DefaultDict, Optional, TYPE_CHECKING, Any
+
 from blarify.graph.node import Node, NodeLabels
 from blarify.graph.node import FileNode
-from blarify.graph.relationship import Relationship
 
-from typing import List, Dict, Set, DefaultDict, Optional
+if TYPE_CHECKING:
+    from blarify.graph.relationship import Relationship
 
 
 class Graph:
@@ -11,17 +13,18 @@ class Graph:
     file_nodes_by_path: Dict[str, FileNode]
     folder_nodes_by_path: Dict[str, Node]
     nodes_by_label: DefaultDict[str, Set[Node]]
+    nodes_by_relative_id: Dict[str, Node]
     __nodes: Dict[str, Node]
     __references_relationships: List["Relationship"]
 
-    def __init__(self):
-        self.__nodes = {}
-        self.__references_relationships = []
-        self.nodes_by_path = defaultdict(set)
-        self.file_nodes_by_path = {}
-        self.folder_nodes_by_path = {}
-        self.nodes_by_label = defaultdict(set)
-        self.nodes_by_relative_id = {}
+    def __init__(self) -> None:
+        self.__nodes: Dict[str, Node] = {}
+        self.__references_relationships: List["Relationship"] = []
+        self.nodes_by_path: DefaultDict[str, Set[Node]] = defaultdict(set)
+        self.file_nodes_by_path: Dict[str, FileNode] = {}
+        self.folder_nodes_by_path: Dict[str, Node] = {}
+        self.nodes_by_label: DefaultDict[str, Set[Node]] = defaultdict(set)
+        self.nodes_by_relative_id: Dict[str, Node] = {}
 
     def has_folder_node_with_path(self, path: str) -> bool:
         return path in self.folder_nodes_by_path
@@ -33,7 +36,7 @@ class Graph:
     def add_node(self, node: Node) -> None:
         self.__nodes[node.id] = node
         self.nodes_by_path[node.path].add(node)
-        self.nodes_by_label[node.label].add(node)
+        self.nodes_by_label[node.label.value].add(node)
         self.nodes_by_relative_id[node.relative_id] = node
 
         if node.label == NodeLabels.FILE:
@@ -42,7 +45,7 @@ class Graph:
         if node.label == NodeLabels.FOLDER:
             self.folder_nodes_by_path[node.path] = node
 
-    def get_nodes_by_path(self, path: str) -> set[Node]:
+    def get_nodes_by_path(self, path: str) -> Set[Node]:
         return self.nodes_by_path[path]
 
     def get_file_node_by_path(self, path: str) -> Optional[FileNode]:
@@ -51,7 +54,7 @@ class Graph:
     def get_folder_node_by_path(self, path: str) -> Node:
         return self.folder_nodes_by_path[path]
 
-    def get_nodes_by_label(self, label: str) -> set:
+    def get_nodes_by_label(self, label: str) -> Set[Node]:
         return self.nodes_by_label[label]
 
     def get_node_by_id(self, id: str) -> Optional[Node]:
@@ -60,14 +63,14 @@ class Graph:
     def get_node_by_relative_id(self, relative_id: str) -> Optional[Node]:
         return self.nodes_by_relative_id.get(relative_id)
 
-    def get_relationships_as_objects(self) -> List[dict]:
+    def get_relationships_as_objects(self) -> List[Dict[str, Any]]:
         internal_relationships = [relationship.as_object() for relationship in self.get_relationships_from_nodes()]
         reference_relationships = [relationship.as_object() for relationship in self.__references_relationships]
 
         return internal_relationships + reference_relationships
 
     def get_relationships_from_nodes(self) -> List["Relationship"]:
-        relationships = []
+        relationships: List["Relationship"] = []
         for node in self.__nodes.values():
             relationships.extend(node.get_relationships())
 
@@ -76,11 +79,11 @@ class Graph:
     def add_references_relationships(self, references_relationships: List["Relationship"]) -> None:
         self.__references_relationships.extend(references_relationships)
 
-    def get_nodes_as_objects(self) -> List[dict]:
+    def get_nodes_as_objects(self) -> List[Dict[str, Any]]:
         return [node.as_object() for node in self.__nodes.values()]
 
     def filtered_graph_by_paths(self, paths_to_keep: List[str]) -> "Graph":
-        graph = Graph()
+        graph: Graph = Graph()
         for node in self.__nodes.values():
             if node.path in paths_to_keep:
                 node.filter_children_by_path(paths_to_keep)
@@ -93,7 +96,7 @@ class Graph:
         return graph
 
     def __str__(self) -> str:
-        to_return = ""
+        to_return: str = ""
 
         for node in self.__nodes.values():
             to_return += f"{node}\n"

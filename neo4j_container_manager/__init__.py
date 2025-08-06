@@ -1,5 +1,5 @@
 """
-Neo4j Container Management for Testing
+Neo4j Container Management
 
 A robust Neo4j container management system focused on testing that provides:
 - Automatic test container lifecycle management
@@ -10,11 +10,11 @@ A robust Neo4j container management system focused on testing that provides:
 
 Usage:
     import pytest
-    from neo4j_container_manager import Neo4jTestContainerManager, Neo4jContainerConfig
+    from neo4j_container_manager import Neo4jContainerManager, Neo4jContainerConfig
 
     @pytest.fixture
     async def neo4j_instance():
-        manager = Neo4jTestContainerManager()
+        manager = Neo4jContainerManager()
         instance = await manager.start_for_test(
             Neo4jContainerConfig(
                 environment='test',
@@ -34,7 +34,7 @@ from .types import (
     VolumeInfo,
 )
 
-from .container_manager import Neo4jTestContainerManager
+from .container_manager import Neo4jContainerManager
 from .port_manager import PortManager
 from .volume_manager import VolumeManager
 from .data_manager import DataManager
@@ -47,20 +47,17 @@ __all__ = [
     "Neo4jContainerConfig",
     "Neo4jContainerInstance",
     "Environment",
-    "ContainerStatus", 
+    "ContainerStatus",
     "PortAllocation",
     "VolumeInfo",
-    
     # Core managers
-    "Neo4jTestContainerManager",
+    "Neo4jContainerManager",
     "PortManager",
     "VolumeManager",
     "DataManager",
-    
     # Pytest fixtures
     "neo4j_manager",
     "neo4j_instance",
-    
     # Version
     "__version__",
 ]

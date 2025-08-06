@@ -196,6 +196,7 @@ class RecursiveDFSProcessor:
             # Cache it and return immediately
             self.node_descriptions[node_id] = existing_doc
             self.node_source_mapping[existing_doc.hashed_id] = node_id
+            self.source_nodes_cache[node_id] = self._convert_to_node(node)
             self.source_to_description[node_id] = existing_doc.content
             logger.info(f"DEBUG: Database cache hit for node: {node.name} ({node_id})")
             return existing_doc

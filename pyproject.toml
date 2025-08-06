@@ -43,6 +43,7 @@ langchain-google-genai = "^2.1.7"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.1"
 ruff = "^0.12.5"
+pyright = "^1.1.350"
 
 [tool.vendoring]
 destination = "blarify/vendor"
@@ -63,3 +64,12 @@ skip = "*.csv,*.html,*.json,*.jsonl,*.pdf,*.txt,*.ipynb"
 
 [tool.isort]
 profile = "black"
+
+[tool.pyright]
+include = ["blarify", "tests"]
+exclude = ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor"]
+typeCheckingMode = "strict"
+reportMissingImports = true
+reportMissingTypeStubs = false
+pythonVersion = "3.12"
+pythonPlatform = "Linux"

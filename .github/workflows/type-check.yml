@@ -1,0 +1,67 @@
+name: Type Checking
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  type-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: latest
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+    
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+    
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-root
+    
+    - name: Install project
+      run: poetry install --no-interaction
+    
+    - name: Run Pyright
+      run: poetry run pyright blarify --outputjson > pyright-results.json || echo "Type checking completed with errors"
+    
+    - name: Process Pyright Results
+      run: |
+        if [ -f pyright-results.json ]; then
+          ERROR_COUNT=$(jq -r '.summary.errorCount' pyright-results.json)
+          echo "Type checking completed with $ERROR_COUNT errors"
+          
+          if [ "$ERROR_COUNT" -gt 0 ]; then
+            echo "::error::Pyright found $ERROR_COUNT type errors"
+            # For now, we'll report but not fail the build during migration
+            # TODO: Remove this exit 0 after all type errors are fixed
+            exit 0
+          fi
+        else
+          echo "::error::Pyright results file not found"
+          exit 1
+        fi
+    
+    - name: Upload Pyright Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: pyright-results
+        path: pyright-results.json

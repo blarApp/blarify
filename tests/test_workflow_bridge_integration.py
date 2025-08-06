@@ -6,8 +6,7 @@ workflow discovery system, ensuring LLM agents receive continuous
 execution traces.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from typing import List, Dict, Any
 
 from blarify.db_managers.queries import find_code_workflows
@@ -89,7 +88,7 @@ class TestWorkflowBridgeIntegration:
         assert bridge_edge["callee_id"] == "cleanup"   # First node of path 2
 
         # Verify continuous step ordering
-        workflow_edges.sort(key=lambda e: e["step_order"]) 
+        workflow_edges.sort(key=lambda e: e["step_order"])  # type: ignore 
         step_orders = [edge["step_order"] for edge in workflow_edges]
         assert step_orders == [0, 1, 2, 3]  # Continuous sequence
 

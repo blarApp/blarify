@@ -5,9 +5,9 @@ This module tests that bridge edges maintain proper step_order continuity
 and integration with original edges in the _create_bridge_edges function.
 """
 
-from typing import List, Dict, Any
+from typing import Dict, Any
 
-from blarify.db_managers.queries import _create_bridge_edges
+from blarify.db_managers.queries import _create_bridge_edges  # pyright: ignore[reportPrivateUsage]
 
 
 class TestBridgeStepOrder:
@@ -333,7 +333,7 @@ class TestBridgeStepOrder:
         # a → b → x → y → c → d (with bridges: y → c, c → d)
         
         # Verify connectivity: each edge's caller should be previous edge's callee
-        connectivity_breaks = []
+        connectivity_breaks: list[Dict[str, Any]] = []
         for i in range(1, len(result)):
             current_edge = result[i]
             previous_edge = result[i-1]
@@ -385,7 +385,7 @@ class TestBridgeStepOrder:
         result.sort(key=lambda e: e["step_order"])
         
         # Verify complete connectivity
-        connectivity_breaks = []
+        connectivity_breaks: list[Dict[str, Any]] = []
         for i in range(1, len(result)):
             current_caller = result[i]["caller_id"]
             previous_callee = result[i-1]["callee_id"]
@@ -401,7 +401,7 @@ class TestBridgeStepOrder:
         assert len(connectivity_breaks) == 0, f"Connectivity breaks found: {connectivity_breaks}"
         
         # Verify expected execution flow
-        execution_sequence = []
+        execution_sequence: list[str] = []
         for edge in result:
             if not execution_sequence:
                 execution_sequence.append(edge["caller_id"])
@@ -425,7 +425,7 @@ class TestBridgeStepOrder:
         ]
         
         # Check connectivity manually (as if bridges weren't created)
-        connectivity_breaks = []
+        connectivity_breaks: list[Dict[str, Any]] = []
         for i in range(1, len(broken_edges)):
             current_caller = broken_edges[i]["caller_id"]
             previous_callee = broken_edges[i-1]["callee_id"]
@@ -445,7 +445,7 @@ class TestBridgeStepOrder:
         fixed_edges.sort(key=lambda e: e["step_order"])
         
         # Verify connectivity is restored
-        fixed_connectivity_breaks = []
+        fixed_connectivity_breaks: list[Dict[str, Any]] = []
         for i in range(1, len(fixed_edges)):
             current_caller = fixed_edges[i]["caller_id"]
             previous_callee = fixed_edges[i-1]["callee_id"]

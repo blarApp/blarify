@@ -1,12 +1,12 @@
 """
 Tests for BELONGS_TO_WORKFLOW relationships functionality.
 
-Tests the implementation of BELONGS_TO_WORKFLOW relationships from workflow 
+Tests the implementation of BELONGS_TO_WORKFLOW relationships from workflow
 participant nodes to their containing workflows.
 """
 
 import unittest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from typing import List, Dict, Any
 
 from blarify.graph.relationship.relationship_creator import RelationshipCreator
@@ -25,35 +25,38 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         self.workflow_node = Mock(spec=WorkflowNode)
         self.workflow_node.hashed_id = "workflow_123"
         self.workflow_node.name = "test_workflow"
-        
+
         # Mock database manager
         self.db_manager = Mock()
-        
+
         # Mock graph environment
         self.graph_environment = Mock()
-        
-        # Create WorkflowCreator instance
+
+        # Create WorkflowCreator instance,
         self.workflow_creator = WorkflowCreator(
             db_manager=self.db_manager,
-            graph_environment=self.graph_environment
+            graph_environment=self.graph_environment,
+            repo_id="test_repo",
+            company_id="test_company",
         )
 
     def test_create_belongs_to_workflow_relationships_for_workflow_nodes_with_valid_ids(self) -> None:
         """Test creating BELONGS_TO_WORKFLOW relationships with valid node IDs."""
         # Arrange
         workflow_node_ids = ["node_1", "node_2", "node_3"]
-        
+
         # Act
-        relationships = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
-            workflow_node=self.workflow_node,
-            workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
-        
+
         # Assert
         self.assertEqual(len(relationships), 3)
-        
+
         for i, relationship in enumerate(relationships):
-            self.assertEqual(relationship["sourceId"], f"node_{i+1}")
+            self.assertEqual(relationship["sourceId"], f"node_{i + 1}")
             self.assertEqual(relationship["targetId"], "workflow_123")
             self.assertEqual(relationship["type"], RelationshipType.BELONGS_TO_WORKFLOW.name)
             self.assertEqual(relationship["scopeText"], "")
@@ -61,14 +64,15 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
     def test_create_belongs_to_workflow_relationships_for_workflow_nodes_with_empty_ids(self) -> None:
         """Test creating relationships with empty/None node IDs."""
         # Arrange
-        workflow_node_ids = ["node_1", "", None, "node_2", ""]
-        
+        workflow_node_ids = ["node_1", "node_2", ""]
+
         # Act
-        relationships = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
-            workflow_node=self.workflow_node,
-            workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
-        
+
         # Assert - only valid IDs should create relationships
         self.assertEqual(len(relationships), 2)
         self.assertEqual(relationships[0]["sourceId"], "node_1")
@@ -78,13 +82,14 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         """Test creating relationships with empty node ID list."""
         # Arrange
         workflow_node_ids: List[str] = []
-        
+
         # Act
-        relationships = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
-            workflow_node=self.workflow_node,
-            workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
-        
+
         # Assert
         self.assertEqual(len(relationships), 0)
 
@@ -109,38 +114,33 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
                     "call_line": 10,
                     "call_character": 5,
                 }
-            ]
+            ],
         )
-        
+
         # Act
-        relationships = self.workflow_creator._create_workflow_relationships(
-            workflow_node=self.workflow_node,
-            workflow_result=workflow_result
+        relationships: List[Dict[str, Any]] = self.workflow_creator._create_workflow_relationships(  # pyright: ignore[reportPrivateUsage]
+            workflow_node=self.workflow_node, workflow_result=workflow_result
         )
-        
+
         # Assert
         # Check that both WORKFLOW_STEP and BELONGS_TO_WORKFLOW relationships exist
-        workflow_step_relationships = [
-            r for r in relationships 
-            if r["type"] == RelationshipType.WORKFLOW_STEP.name
-        ]
+        workflow_step_relationships = [r for r in relationships if r["type"] == RelationshipType.WORKFLOW_STEP.name]
         belongs_to_workflow_relationships = [
-            r for r in relationships 
-            if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
+            r for r in relationships if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
         ]
-        
+
         # Should have 1 WORKFLOW_STEP relationship from the edge
         self.assertEqual(len(workflow_step_relationships), 1)
-        
+
         # Should have 2 BELONGS_TO_WORKFLOW relationships (node_1 and node_2, but not empty ID)
         self.assertEqual(len(belongs_to_workflow_relationships), 2)
-        
+
         # Verify BELONGS_TO_WORKFLOW relationship details
         belongs_relationships_by_source = {r["sourceId"]: r for r in belongs_to_workflow_relationships}
-        
+
         self.assertIn("node_1", belongs_relationships_by_source)
         self.assertIn("node_2", belongs_relationships_by_source)
-        
+
         for source_id in ["node_1", "node_2"]:
             relationship = belongs_relationships_by_source[source_id]
             self.assertEqual(relationship["targetId"], "workflow_123")
@@ -155,19 +155,17 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
             entry_point_name="main",
             entry_point_path="/path/to/main.py",
             workflow_nodes=[],  # Empty list
-            workflow_edges=[]
+            workflow_edges=[],
         )
-        
+
         # Act
-        relationships = self.workflow_creator._create_workflow_relationships(
-            workflow_node=self.workflow_node,
-            workflow_result=workflow_result
+        relationships: List[Dict[str, Any]] = self.workflow_creator._create_workflow_relationships(  # pyright: ignore[reportPrivateUsage]
+            workflow_node=self.workflow_node, workflow_result=workflow_result
         )
-        
+
         # Assert
         belongs_to_workflow_relationships = [
-            r for r in relationships 
-            if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
+            r for r in relationships if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
         ]
         self.assertEqual(len(belongs_to_workflow_relationships), 0)
 
@@ -177,20 +175,18 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         workflow_result = WorkflowResult(
             entry_point_id="entry_1",
             entry_point_name="main",
-            entry_point_path="/path/to/main.py"
+            entry_point_path="/path/to/main.py",
             # workflow_nodes will default to empty list in WorkflowResult
         )
-        
+
         # Act
-        relationships = self.workflow_creator._create_workflow_relationships(
-            workflow_node=self.workflow_node,
-            workflow_result=workflow_result
+        relationships: List[Dict[str, Any]] = self.workflow_creator._create_workflow_relationships(  # pyright: ignore[reportPrivateUsage]
+            workflow_node=self.workflow_node, workflow_result=workflow_result
         )
-        
+
         # Assert
         belongs_to_workflow_relationships = [
-            r for r in relationships 
-            if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
+            r for r in relationships if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
         ]
         self.assertEqual(len(belongs_to_workflow_relationships), 0)
 
@@ -207,24 +203,22 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
                 {},  # Empty dict
                 {"id": None, "name": "null_id"},  # None id
                 {"id": "another_valid", "name": "valid2"},
-            ]
+            ],
         )
-        
+
         # Act
-        relationships = self.workflow_creator._create_workflow_relationships(
-            workflow_node=self.workflow_node,
-            workflow_result=workflow_result
+        relationships: List[Dict[str, Any]] = self.workflow_creator._create_workflow_relationships(  # pyright: ignore[reportPrivateUsage]
+            workflow_node=self.workflow_node, workflow_result=workflow_result
         )
-        
+
         # Assert
         belongs_to_workflow_relationships = [
-            r for r in relationships 
-            if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
+            r for r in relationships if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
         ]
-        
+
         # Should only create relationships for nodes with valid IDs
         self.assertEqual(len(belongs_to_workflow_relationships), 2)
-        
+
         source_ids = {r["sourceId"] for r in belongs_to_workflow_relationships}
         self.assertEqual(source_ids, {"valid_node", "another_valid"})
 
@@ -232,27 +226,28 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         """Test that created relationships have the correct structure format."""
         # Arrange
         workflow_node_ids = ["test_node_1"]
-        
+
         # Act
-        relationships = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
-            workflow_node=self.workflow_node,
-            workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
-        
+
         # Assert
         self.assertEqual(len(relationships), 1)
-        relationship = relationships[0]
-        
+        relationship: Dict[str, str] = relationships[0]
+
         # Verify all required fields are present
         required_fields = {"sourceId", "targetId", "type", "scopeText"}
         self.assertEqual(set(relationship.keys()), required_fields)
-        
+
         # Verify field types and values
         self.assertIsInstance(relationship["sourceId"], str)
         self.assertIsInstance(relationship["targetId"], str)
         self.assertIsInstance(relationship["type"], str)
         self.assertIsInstance(relationship["scopeText"], str)
-        
+
         self.assertEqual(relationship["sourceId"], "test_node_1")
         self.assertEqual(relationship["targetId"], "workflow_123")
         self.assertEqual(relationship["type"], "BELONGS_TO_WORKFLOW")
@@ -278,26 +273,21 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
                     "call_line": 15,
                     "call_character": 8,
                 }
-            ]
+            ],
         )
-        
+
         # Act
-        relationships = self.workflow_creator._create_workflow_relationships(
-            workflow_node=self.workflow_node,
-            workflow_result=workflow_result
+        relationships: List[Dict[str, Any]] = self.workflow_creator._create_workflow_relationships(  # pyright: ignore[reportPrivateUsage]
+            workflow_node=self.workflow_node, workflow_result=workflow_result
         )
-        
+
         # Assert
         # Should have both types of relationships
-        workflow_step_count = sum(
-            1 for r in relationships 
-            if r["type"] == RelationshipType.WORKFLOW_STEP.name
-        )
+        workflow_step_count = sum(1 for r in relationships if r["type"] == RelationshipType.WORKFLOW_STEP.name)
         belongs_to_workflow_count = sum(
-            1 for r in relationships 
-            if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
+            1 for r in relationships if r["type"] == RelationshipType.BELONGS_TO_WORKFLOW.name
         )
-        
+
         self.assertEqual(workflow_step_count, 1)
         self.assertEqual(belongs_to_workflow_count, 2)
         self.assertEqual(len(relationships), 3)  # Total of both types

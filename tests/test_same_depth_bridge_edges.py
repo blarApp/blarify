@@ -6,7 +6,7 @@ at the same depth level when they aren't already connected, addressing
 the case where LCP filtering removes some edges from the DFS paths.
 """
 
-from blarify.db_managers.queries import _create_bridge_edges
+from blarify.db_managers.queries import _create_bridge_edges  # pyright: ignore[reportPrivateUsage]
 
 
 class TestSameDepthBridgeEdges:

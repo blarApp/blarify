@@ -46,8 +46,10 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         workflow_node_ids = ["node_1", "node_2", "node_3"]
 
         # Act
-        relationships: List[Dict[str, str]] = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(  # type: ignore
-            workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
 
         # Assert
@@ -65,8 +67,10 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         workflow_node_ids = ["node_1", "node_2", ""]
 
         # Act
-        relationships: List[Dict[str, str]] = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(  # type: ignore
-            workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
 
         # Assert - only valid IDs should create relationships
@@ -80,8 +84,10 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         workflow_node_ids: List[str] = []
 
         # Act
-        relationships: List[Dict[str, str]] = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(  # type: ignore
-            workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
 
         # Assert
@@ -222,8 +228,10 @@ class TestWorkflowBelongsToRelationships(unittest.TestCase):
         workflow_node_ids = ["test_node_1"]
 
         # Act
-        relationships: List[Dict[str, str]] = RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(  # type: ignore
-            workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+        relationships: List[Dict[str, str]] = (
+            RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                workflow_node=self.workflow_node, workflow_node_ids=workflow_node_ids
+            )
         )
 
         # Assert

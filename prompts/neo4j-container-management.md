@@ -22,11 +22,12 @@ Create a robust Neo4j container management system focused on testing that:
 ## Technical Requirements
 
 ### Core Dependencies
-- Docker/Dockerode for container management
-- Port-finder for dynamic port allocation during tests
+- testcontainers-python for container management
+- Docker SDK for Python (docker-py) for advanced operations
+- Python socket library for dynamic port allocation during tests
 - Neo4j 5.x Community Edition image
 - File system operations for test data setup/teardown
-- Test lifecycle hooks for cleanup
+- pytest fixtures for test lifecycle integration
 
 ### Architecture Requirements
 - Single responsibility: Neo4j test container management only
@@ -38,63 +39,87 @@ Create a robust Neo4j container management system focused on testing that:
 ## Implementation Plan
 
 ### Phase 1: Core Container Manager
-Create `neo4j-container-manager/` package with:
+Create `neo4j_container_manager/` package with:
 
 ```
-neo4j-container-manager/
-├── src/
-│   ├── index.ts              # Main exports
-│   ├── container-manager.ts   # Core container lifecycle
-│   ├── port-manager.ts       # Dynamic port allocation
-│   ├── volume-manager.ts     # Data persistence management
-│   ├── data-manager.ts       # Import/export functionality
-│   └── types.ts              # TypeScript interfaces
+neo4j_container_manager/
+├── __init__.py               # Main exports
+├── container_manager.py      # Core container lifecycle
+├── port_manager.py          # Dynamic port allocation
+├── volume_manager.py        # Data persistence management
+├── data_manager.py          # Import/export functionality
+├── types.py                 # Type definitions and dataclasses
 ├── tests/
-│   ├── container-manager.test.ts
-│   ├── port-manager.test.ts
-│   └── integration.test.ts
-├── package.json
-├── tsconfig.json
+│   ├── test_container_manager.py
+│   ├── test_port_manager.py
+│   └── test_integration.py
+├── pyproject.toml
 └── README.md
 ```
 
 ### Phase 2: Container Lifecycle Management
 
-```typescript
-interface Neo4jContainerConfig {
-  environment: 'test' | 'development';
-  dataPath?: string;  // Custom test data directory
-  password: string;
-  username?: string;  // Default: neo4j
-  plugins?: string[]; // e.g., ['apoc'] for test scenarios
-  memory?: string;    // e.g., '1G' - lighter for tests
-  testId?: string;    // Unique identifier for test isolation
-}
+```python
+from dataclasses import dataclass
+from typing import Optional, List, Literal
+from abc import ABC, abstractmethod
 
-interface Neo4jContainerInstance {
-  uri: string;        // bolt://localhost:XXXXX
-  httpUri: string;    // http://localhost:XXXXX
-  containerId: string;
-  volume: string;     // Volume name for test data
-  stop(): Promise<void>;
-  isRunning(): Promise<boolean>;
-  loadTestData(path: string): Promise<void>;
-  clearData(): Promise<void>;
-}
+@dataclass
+class Neo4jContainerConfig:
+    environment: Literal['test', 'development']
+    password: str
+    data_path: Optional[str] = None  # Custom test data directory
+    username: str = 'neo4j'
+    plugins: Optional[List[str]] = None  # e.g., ['apoc'] for test scenarios
+    memory: Optional[str] = None  # e.g., '1G' - lighter for tests
+    test_id: Optional[str] = None  # Unique identifier for test isolation
 
-class Neo4jTestContainerManager {
-  async startForTest(config: Neo4jContainerConfig): Promise<Neo4jContainerInstance>;
-  async stopTest(containerId: string): Promise<void>;
-  async cleanupAllTests(): Promise<void>;
-  async listTestContainers(): Promise<Neo4jContainerInstance[]>;
-}
+@dataclass
+class Neo4jContainerInstance:
+    uri: str  # bolt://localhost:XXXXX
+    http_uri: str  # http://localhost:XXXXX
+    container_id: str
+    volume: str  # Volume name for test data
+    
+    async def stop(self) -> None:
+        """Stop the container"""
+        pass
+    
+    async def is_running(self) -> bool:
+        """Check if container is running"""
+        pass
+    
+    async def load_test_data(self, path: str) -> None:
+        """Load test data from file"""
+        pass
+    
+    async def clear_data(self) -> None:
+        """Clear all data in the database"""
+        pass
+
+class Neo4jTestContainerManager:
+    async def start_for_test(self, config: Neo4jContainerConfig) -> Neo4jContainerInstance:
+        """Start a Neo4j container for testing"""
+        pass
+    
+    async def stop_test(self, container_id: str) -> None:
+        """Stop a specific test container"""
+        pass
+    
+    async def cleanup_all_tests(self) -> None:
+        """Clean up all test containers"""
+        pass
+    
+    async def list_test_containers(self) -> List[Neo4jContainerInstance]:
+        """List all active test containers"""
+        pass
 ```
 
 ### Phase 3: Dynamic Port Management
-- Use port-finder to get available ports (7474+n, 7687+n)
-- Track allocated ports in a lock file
+- Use Python's socket library to find available ports (7474+n, 7687+n)
+- Track allocated ports in a lock file using filelock
 - Release ports on container stop
-- Handle port conflicts gracefully
+- Handle port conflicts gracefully with retry logic
 
 ### Phase 4: Test Data Management
 - Create ephemeral volumes for test data (auto-cleanup)
@@ -115,9 +140,9 @@ class Neo4jTestContainerManager {
 - Fast reset between test cases
 
 ### Phase 7: Test Lifecycle Integration
-- Register test cleanup handlers
-- Integration with test frameworks (Jest, Mocha, etc.)
-- Handle test interruption and cleanup
+- Register test cleanup handlers with pytest fixtures
+- Integration with pytest-asyncio for async tests
+- Handle test interruption and cleanup via pytest hooks
 - Health checks optimized for test speed
 
 ## Testing Strategy
@@ -141,48 +166,66 @@ class Neo4jTestContainerManager {
 
 ## Configuration Examples
 
-### Test Usage with Jest
-```typescript
-let testInstance: Neo4jContainerInstance;
-let testManager: Neo4jTestContainerManager;
+### Test Usage with pytest
+```python
+import pytest
+from neo4j_container_manager import Neo4jTestContainerManager, Neo4jContainerConfig
 
-beforeAll(async () => {
-  testManager = new Neo4jTestContainerManager();
-});
+@pytest.fixture(scope="session")
+async def neo4j_manager():
+    """Session-scoped fixture for container manager"""
+    manager = Neo4jTestContainerManager()
+    yield manager
+    await manager.cleanup_all_tests()
 
-beforeEach(async () => {
-  testInstance = await testManager.startForTest({
-    environment: 'test',
-    password: 'test-password',
-    testId: expect.getState().currentTestName
-  });
-  
-  // Load test data
-  await testInstance.loadTestData('./test-fixtures/sample-graph.cypher');
-});
+@pytest.fixture
+async def neo4j_instance(neo4j_manager, request):
+    """Function-scoped fixture for test container"""
+    instance = await neo4j_manager.start_for_test(
+        Neo4jContainerConfig(
+            environment='test',
+            password='test-password',
+            test_id=request.node.name
+        )
+    )
+    
+    # Load test data
+    await instance.load_test_data('./test-fixtures/sample-graph.cypher')
+    
+    yield instance
+    
+    await instance.stop()
 
-afterEach(async () => {
-  await testInstance.stop();
-});
-
-afterAll(async () => {
-  await testManager.cleanupAllTests();
-});
+# Usage in tests
+async def test_example(neo4j_instance):
+    # neo4j_instance is automatically provisioned and cleaned up
+    assert await neo4j_instance.is_running()
 ```
 
 ### Development Usage
-```typescript
-// For local development
-const testManager = new Neo4jTestContainerManager();
-const devInstance = await testManager.startForTest({
-  environment: 'development',
-  password: 'dev-password',
-  memory: '2G'
-});
+```python
+# For local development
+import asyncio
+from neo4j_container_manager import Neo4jTestContainerManager, Neo4jContainerConfig
 
-// Use for development work
-// Manual cleanup when done
-await devInstance.stop();
+async def main():
+    manager = Neo4jTestContainerManager()
+    dev_instance = await manager.start_for_test(
+        Neo4jContainerConfig(
+            environment='development',
+            password='dev-password',
+            memory='2G'
+        )
+    )
+    
+    print(f"Neo4j available at: {dev_instance.uri}")
+    
+    # Use for development work
+    # Manual cleanup when done
+    await dev_instance.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## Success Criteria
@@ -241,7 +284,7 @@ await devInstance.stop();
 
 1. **Neo4j versions**: Support 5.x, with version detection
 2. **Docker API**: Compatible with Docker 20.x+
-3. **Node.js**: Require Node 16+ for modern features
+3. **Python**: Require Python 3.10+ (matching project requirements)
 4. **Platform support**: Windows, macOS, Linux
 5. **Architecture**: amd64 and arm64 (Apple Silicon)
 

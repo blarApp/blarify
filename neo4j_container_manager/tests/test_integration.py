@@ -219,8 +219,8 @@ class TestNeo4jContainerIntegration:
             assert result[0]["test"] == 1
             
             # Simulate container stopping (without cleanup)
-            if hasattr(instance1, '_container_ref') and instance1._container_ref:
-                instance1._container_ref.stop()
+            if hasattr(instance1, 'container_ref') and instance1.container_ref:
+                instance1.container_ref.stop()
             
             # Try to start another container with same config
             # This should handle the cleanup and start fresh

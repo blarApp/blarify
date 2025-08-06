@@ -48,7 +48,7 @@ async def neo4j_manager() -> AsyncGenerator[Neo4jTestContainerManager, None]:
 
 
 @pytest.fixture
-async def neo4j_config(request) -> Neo4jContainerConfig:
+async def neo4j_config(request: Any) -> Neo4jContainerConfig:
     """
     Fixture that provides a basic Neo4j container configuration.
     
@@ -239,7 +239,7 @@ Charlie,35,Person,Engineering"""
 
 @pytest.fixture(params=['5.23.0', '5.24.0', '5.25.1'])
 async def neo4j_instance_multi_version(neo4j_manager: Neo4jTestContainerManager,
-                                      request) -> AsyncGenerator[Neo4jContainerInstance, None]:
+                                      request: Any) -> AsyncGenerator[Neo4jContainerInstance, None]:
     """
     Parametrized fixture that tests against multiple Neo4j versions.
     
@@ -262,7 +262,7 @@ async def neo4j_instance_multi_version(neo4j_manager: Neo4jTestContainerManager,
 
 @pytest.fixture(params=[None, ['apoc']])
 async def neo4j_instance_with_plugins(neo4j_manager: Neo4jTestContainerManager,
-                                     request) -> AsyncGenerator[Neo4jContainerInstance, None]:
+                                     request: Any) -> AsyncGenerator[Neo4jContainerInstance, None]:
     """
     Parametrized fixture that tests with and without plugins.
     
@@ -286,7 +286,7 @@ async def neo4j_instance_with_plugins(neo4j_manager: Neo4jTestContainerManager,
 
 @pytest.fixture(params=['512M', '1G'])
 async def neo4j_instance_memory_sizes(neo4j_manager: Neo4jTestContainerManager,
-                                     request) -> AsyncGenerator[Neo4jContainerInstance, None]:
+                                     request: Any) -> AsyncGenerator[Neo4jContainerInstance, None]:
     """
     Parametrized fixture that tests different memory configurations.
     """
@@ -417,7 +417,8 @@ async def neo4j_performance_monitor():
 
 # Marks for test categorization
 
-pytest.mark.neo4j_unit = pytest.mark.neo4j_unit
-pytest.mark.neo4j_integration = pytest.mark.neo4j_integration
-pytest.mark.neo4j_performance = pytest.mark.neo4j_performance
-pytest.mark.neo4j_slow = pytest.mark.slow  # For tests that take longer
+# Define custom marks for test categorization
+neo4j_unit = pytest.mark.neo4j_unit
+neo4j_integration = pytest.mark.neo4j_integration  
+neo4j_performance = pytest.mark.neo4j_performance
+neo4j_slow = pytest.mark.slow  # For tests that take longer

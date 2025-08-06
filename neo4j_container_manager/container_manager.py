@@ -15,15 +15,9 @@ if TYPE_CHECKING:
     from docker.errors import APIError, NotFound
     from testcontainers.neo4j import Neo4jContainer
 else:
-    try:
-        import docker
-        from docker.errors import APIError, NotFound
-        from testcontainers.neo4j import Neo4jContainer
-    except ImportError:
-        docker = None  # type: ignore
-        APIError = Exception  # type: ignore
-        NotFound = Exception  # type: ignore
-        Neo4jContainer = None  # type: ignore
+    import docker
+    from docker.errors import APIError, NotFound
+    from testcontainers.neo4j import Neo4jContainer
 
 from .types import (
     Neo4jContainerConfig,
@@ -47,16 +41,15 @@ class Neo4jTestContainerManager:
     volume management, and health checking for test environments.
     """
     
-    def __init__(self, docker_client: Optional[Any] = None):
+    def __init__(self, docker_client: Optional["docker.DockerClient"] = None):
         """
         Initialize the container manager.
         
         Args:
             docker_client: Docker client instance (creates new if None)
         """
-        if docker is None:
-            raise ImportError("Docker and testcontainers dependencies are required")
-        self._docker_client = docker_client or docker.from_env()
+        # Docker is imported directly, so this check is no longer needed
+        self._docker_client: "docker.DockerClient" = docker_client or docker.from_env()
         self._port_manager = PortManager()
         self._volume_manager = VolumeManager(self._docker_client)
         self._running_containers: Dict[str, Neo4jContainerInstance] = {}
@@ -170,7 +163,7 @@ class Neo4jTestContainerManager:
             # docker_container = self._docker_client.containers.get(neo4j_container.get_container_host_ip())
             
             # Update instance with actual container reference
-            instance._container_ref = neo4j_container
+            instance.container_ref = neo4j_container
             instance.status = ContainerStatus.RUNNING
             
             # Wait for Neo4j to be ready
@@ -212,9 +205,9 @@ class Neo4jTestContainerManager:
             # Remove from running containers tracking
             instance = self._running_containers.pop(container_id, None)
             
-            if instance and instance._container_ref:
+            if instance and instance.container_ref:
                 try:
-                    instance._container_ref.stop()
+                    instance.container_ref.stop()
                     instance.status = ContainerStatus.STOPPED
                 except Exception:
                     pass  # Best effort

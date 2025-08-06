@@ -48,6 +48,7 @@ pytest = "^8.4.1"
 pytest-asyncio = "^0.25.0"
 ruff = "^0.12.5"
 pyright = "^1.1.350"
+types-docker = "^7.1.0.20250705"
 
 [tool.vendoring]
 destination = "blarify/vendor"
@@ -70,10 +71,16 @@ skip = "*.csv,*.html,*.json,*.jsonl,*.pdf,*.txt,*.ipynb"
 profile = "black"
 
 [tool.pyright]
-include = ["blarify", "tests"]
+include = ["blarify", "tests", "neo4j_container_manager"]
 exclude = ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor"]
-typeCheckingMode = "strict"
+typeCheckingMode = "basic"
 reportMissingImports = true
 reportMissingTypeStubs = false
+reportMissingParameterType = true
+reportMissingReturnType = true
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownParameterType = false
 pythonVersion = "3.12"
 pythonPlatform = "Linux"

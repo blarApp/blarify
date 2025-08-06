@@ -15,13 +15,8 @@ if TYPE_CHECKING:
     import docker
     from docker.errors import APIError, NotFound
 else:
-    try:
-        import docker
-        from docker.errors import APIError, NotFound
-    except ImportError:
-        docker = None  # type: ignore
-        APIError = Exception  # type: ignore
-        NotFound = Exception  # type: ignore
+    import docker
+    from docker.errors import APIError, NotFound
 
 from .types import VolumeInfo, VolumeManagementError, Environment
 
@@ -34,16 +29,15 @@ class VolumeManager:
     Handles both development and test environments with appropriate cleanup policies.
     """
     
-    def __init__(self, docker_client: Optional[Any] = None):
+    def __init__(self, docker_client: Optional["docker.DockerClient"] = None):
         """
         Initialize the volume manager.
         
         Args:
             docker_client: Docker client instance (creates new if None)
         """
-        if docker is None:
-            raise ImportError("Docker dependency is required")
-        self._client = docker_client or docker.from_env()
+        # Docker is imported directly, so this check is no longer needed
+        self._client: "docker.DockerClient" = docker_client or docker.from_env()
         self._volume_registry: Dict[str, VolumeInfo] = {}
     
     def create_volume(self, name: str, environment: Environment = Environment.TEST,
@@ -119,7 +113,7 @@ class VolumeManager:
         except Exception as e:
             raise VolumeManagementError(f"Unexpected error creating volume '{name}': {e}")
     
-    def _get_existing_volume(self, name: str) -> Optional[dict]:
+    def _get_existing_volume(self, name: str) -> Optional[Dict[str, Any]]:
         """Check if a volume with the given name already exists."""
         try:
             volume = self._client.volumes.get(name)
@@ -321,7 +315,7 @@ class VolumeManager:
         
         return results
     
-    def get_volume_usage(self, name: str) -> Optional[Dict[str, any]]:
+    def get_volume_usage(self, name: str) -> Optional[Dict[str, Any]]:
         """
         Get usage statistics for a volume.
         

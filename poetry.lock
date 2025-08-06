@@ -2866,6 +2866,37 @@ files = [
 core = ["tree-sitter (>=0.23,<1.0)"]
 
 [[package]]
+name = "types-docker"
+version = "7.1.0.20250705"
+description = "Typing stubs for docker"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "types_docker-7.1.0.20250705-py3-none-any.whl", hash = "sha256:f269103e1d21236bb64434a90ecaa5660250b115461463f8c2e991293b215ad2"},
+    {file = "types_docker-7.1.0.20250705.tar.gz", hash = "sha256:92972f7c49f0e40dd45f4f343c624505a4c176602439183b38a6f002110d1c6f"},
+]
+
+[package.dependencies]
+types-requests = "*"
+urllib3 = ">=2"
+
+[[package]]
+name = "types-requests"
+version = "2.32.4.20250611"
+description = "Typing stubs for requests"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "types_requests-2.32.4.20250611-py3-none-any.whl", hash = "sha256:ad2fe5d3b0cb3c2c902c8815a70e7fb2302c4b8c1f77bdcd738192cdb3878072"},
+    {file = "types_requests-2.32.4.20250611.tar.gz", hash = "sha256:741c8777ed6425830bf51e54d6abe245f79b4dcb9019f1622b773463946bf826"},
+]
+
+[package.dependencies]
+urllib3 = ">=2"
+
+[[package]]
 name = "typing-extensions"
 version = "4.12.2"
 description = "Backported and Experimental Type Hints for Python 3.8+"
@@ -2898,7 +2929,7 @@ version = "2.3.0"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "dev"]
 files = [
     {file = "urllib3-2.3.0-py3-none-any.whl", hash = "sha256:1cee9ad369867bfdbbb48b7dd50374c0967a0bb7710050facf0dd6911440e3df"},
     {file = "urllib3-2.3.0.tar.gz", hash = "sha256:f8c5449b3cf0861679ce7e0503c7b44b5ec981bec0d1d3795a07f1ba96f0204d"},
@@ -3368,4 +3399,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<=3.14"
-content-hash = "a66e33420a44ec4d62b774346c3b02db244509c2e17d75e94194d3e41353359c"
+content-hash = "c900ff64976df77d878d354a2f16c777e53e39e520d7c49c9139f725ce2dc766"

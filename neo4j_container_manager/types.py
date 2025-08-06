@@ -9,8 +9,11 @@ instances, and various enums for status tracking.
 import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Protocol, Union, Any
+from typing import Dict, List, Optional, Protocol, Union, Any, TYPE_CHECKING
 from pathlib import Path
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 class Environment(str, Enum):
@@ -92,12 +95,12 @@ class Neo4jContainerConfig:
     password: str
     username: str = "neo4j"
     data_path: Optional[Path] = None
-    plugins: List[str] = field(default_factory=list)
+    plugins: List[str] = field(default_factory=lambda: [])
     memory: Optional[str] = None
     test_id: Optional[str] = None
     neo4j_version: str = "5.25.1"
     enable_auth: bool = True
-    custom_config: Dict[str, str] = field(default_factory=dict)
+    custom_config: Dict[str, str] = field(default_factory=lambda: {})
     startup_timeout: int = 120
     health_check_interval: int = 5
     
@@ -182,7 +185,7 @@ class Neo4jContainerInstance:
     volume: VolumeInfo
     status: ContainerStatus = ContainerStatus.STARTING
     started_at: Optional[float] = None
-    _container_ref: Optional[Any] = field(default=None, repr=False)  # Internal container reference
+    container_ref: Optional[Any] = field(default=None, repr=False)  # Internal container reference
     _driver: Optional[Any] = field(default=None, repr=False)  # Neo4j driver instance
     
     def __post_init__(self) -> None:
@@ -220,11 +223,12 @@ class Neo4jContainerInstance:
     async def is_running(self) -> bool:
         """Check if the container is running."""
         try:
-            if not self._container_ref:
+            if not self.container_ref:
                 return False
             
             # Check container status via Docker API
             import docker
+            from docker.errors import NotFound
             client = docker.from_env()
             try:
                 container = client.containers.get(self.container_id)
@@ -236,7 +240,7 @@ class Neo4jContainerInstance:
                     self.status = ContainerStatus.STOPPED
                 
                 return is_running
-            except docker.errors.NotFound:
+            except NotFound:
                 self.status = ContainerStatus.STOPPED
                 return False
         except Exception:
@@ -307,11 +311,11 @@ class Neo4jContainerInstance:
             "http_uri": self.http_uri,
         }
     
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Neo4jContainerInstance":
         """Async context manager entry."""
         return self
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional["TracebackType"]) -> None:
         """Async context manager exit with automatic cleanup."""
         await self.stop()
 
@@ -322,7 +326,7 @@ class TestDataSpec:
     file_path: Path
     format: DataFormat
     clear_before_load: bool = True
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: Dict[str, Any] = field(default_factory=lambda: {})
     
     def __post_init__(self) -> None:
         """Validate the test data specification."""

@@ -241,14 +241,16 @@ class PortManager:
                         )
                         
                         # Register the allocation
-                        registry[container_id] = {
+                        port_data: Dict[str, int] = {
                             'bolt_port': bolt_port,
                             'http_port': http_port,
                             'https_port': https_port,
-                            'backup_port': backup_port,
-                            'allocated_at': time.time(),
-                            'container_id': container_id,
+                            'allocated_at': int(time.time()),
                         }
+                        if backup_port is not None:
+                            port_data['backup_port'] = backup_port
+                        port_data['container_id_hash'] = hash(container_id)  # Store hash instead
+                        registry[container_id] = port_data
                         
                         self._save_port_registry(registry)
                         

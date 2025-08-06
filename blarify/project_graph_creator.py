@@ -60,9 +60,7 @@ class ProjectGraphCreator:
         self.root_path = root_path
         self.lsp_query_helper = lsp_query_helper
         self.project_files_iterator = project_files_iterator
-        self.graph_environment = graph_environment or GraphEnvironment(
-            "blarify", "0", self.root_path
-        )
+        self.graph_environment = graph_environment or GraphEnvironment("blarify", "0", self.root_path)
 
         self.graph = Graph()
 
@@ -88,9 +86,7 @@ class ProjectGraphCreator:
 
         end_time = time.time()
         execution_time = end_time - start_time
-        logger.info(
-            f"Execution time of create_code_hierarchy: {execution_time:.2f} seconds"
-        )
+        logger.info(f"Execution time of create_code_hierarchy: {execution_time:.2f} seconds")
 
     def _process_folder(self, folder: "Folder") -> None:
         folder_node = self._add_or_get_folder_node(folder)
@@ -102,9 +98,7 @@ class ProjectGraphCreator:
         files = folder.files
         self._process_files(files, parent_folder=folder_node)
 
-    def _add_or_get_folder_node(
-        self, folder: "Folder", parent_folder: "Folder" = None
-    ) -> "FolderNode":
+    def _add_or_get_folder_node(self, folder: "Folder", parent_folder: "Folder" = None) -> "FolderNode":
         if self.graph.has_folder_node_with_path(folder.uri_path):
             return self.graph.get_folder_node_by_path(folder.uri_path)
         else:
@@ -114,9 +108,7 @@ class ProjectGraphCreator:
             self.graph.add_node(folder_node)
             return folder_node
 
-    def _create_subfolder_nodes(
-        self, folder: "Folder", folder_node: "FolderNode"
-    ) -> List["Node"]:
+    def _create_subfolder_nodes(self, folder: "Folder", folder_node: "FolderNode") -> List["Node"]:
         nodes = []
         for sub_folder in folder.folders:
             node = self._add_or_get_folder_node(sub_folder, parent_folder=folder_node)
@@ -149,13 +141,9 @@ class ProjectGraphCreator:
         except FileExtensionNotSupported:
             pass
 
-    def _get_tree_sitter_for_file_extension(
-        self, file_extension: str
-    ) -> TreeSitterHelper:
+    def _get_tree_sitter_for_file_extension(self, file_extension: str) -> TreeSitterHelper:
         language = self._get_language_definition(file_extension=file_extension)
-        return TreeSitterHelper(
-            language_definitions=language, graph_environment=self.graph_environment
-        )
+        return TreeSitterHelper(language_definitions=language, graph_environment=self.graph_environment)
 
     def _get_language_definition(self, file_extension: str):
         return self.languages.get(file_extension, FallbackDefinitions)
@@ -174,15 +162,12 @@ class ProjectGraphCreator:
         parent_folder: "FolderNode",
         tree_sitter_helper: TreeSitterHelper,
     ) -> List["Node"]:
-        document_symbols = tree_sitter_helper.create_nodes_and_relationships_in_file(
-            file, parent_folder=parent_folder
-        )
+        document_symbols = tree_sitter_helper.create_nodes_and_relationships_in_file(file, parent_folder=parent_folder)
         return document_symbols
 
     def _create_relationships_from_references_for_files(self) -> None:
         start_time = time.time()
-
-        file_nodes = self.graph.get_nodes_by_label(NodeLabels.FILE)
+        file_nodes = self.graph.get_nodes_by_label(NodeLabels.FILE.value)
         logger.info(f"Processing {len(file_nodes)} files for reference relationships")
 
         references_relationships = []
@@ -212,16 +197,10 @@ class ProjectGraphCreator:
 
         # Batch process all reference requests
         batch_start_time = time.time()
-        batch_results = (
-            self.lsp_query_helper.get_paths_where_nodes_are_referenced_batch(
-                all_nodes_to_process
-            )
-        )
+        batch_results = self.lsp_query_helper.get_paths_where_nodes_are_referenced_batch(all_nodes_to_process)
         batch_end_time = time.time()
 
-        logger.info(
-            f"Batch LSP queries completed in {batch_end_time - batch_start_time:.2f} seconds"
-        )
+        logger.info(f"Batch LSP queries completed in {batch_end_time - batch_start_time:.2f} seconds")
 
         # Process the results and create relationships
         processed_files = set()
@@ -240,17 +219,13 @@ class ProjectGraphCreator:
 
             logger.debug(f"Processing node {node.name}")
 
-            tree_sitter_helper = self._get_tree_sitter_for_file_extension(
-                node.extension
-            )
+            tree_sitter_helper = self._get_tree_sitter_for_file_extension(node.extension)
             relationships = self._create_node_relationships_from_references(
                 node=node, references=references, tree_sitter_helper=tree_sitter_helper
             )
             references_relationships.extend(relationships)
 
-        self.graph.add_references_relationships(
-            references_relationships=references_relationships
-        )
+        self.graph.add_references_relationships(references_relationships=references_relationships)
 
         end_time = time.time()
         execution_time = end_time - start_time

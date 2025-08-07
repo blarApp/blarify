@@ -16,9 +16,9 @@ try:
     import docker
 
     # from testcontainers.core.exceptions import DockerException
-    DOCKER_AVAILABLE = True
+    docker_available = True
 except ImportError:
-    DOCKER_AVAILABLE = False
+    docker_available = False
 
 from neo4j_container_manager import (
     Neo4jContainerManager,
@@ -27,13 +27,13 @@ from neo4j_container_manager import (
 )
 
 
-pytestmark = pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker not available")
+pytestmark = pytest.mark.skipif(not docker_available, reason="Docker not available")
 
 
 @pytest.fixture(scope="session")
 def docker_check() -> docker.DockerClient:
     """Check if Docker is available and running."""
-    if not DOCKER_AVAILABLE:
+    if not docker_available:
         pytest.skip("Docker not available")
 
     try:

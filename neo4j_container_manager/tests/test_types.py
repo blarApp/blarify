@@ -275,6 +275,93 @@ class TestNeo4jContainerConfig:
                 password="test-password",
                 startup_timeout=20
             )
+        
+        with pytest.raises(ValueError, match="cannot exceed 600 seconds"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="test-password",
+                startup_timeout=700
+            )
+    
+    def test_password_validation(self):
+        """Test password validation."""
+        # Too short password
+        with pytest.raises(ValueError, match="Password must be at least 8 characters"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="short"
+            )
+        
+        # Valid password with exactly 8 characters
+        config = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="12345678"
+        )
+        assert config.password == "12345678"
+        
+        # Password validation bypassed when auth disabled
+        config = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="short",
+            enable_auth=False
+        )
+        assert config.password == "short"
+    
+    def test_health_check_interval_validation(self):
+        """Test health check interval validation."""
+        with pytest.raises(ValueError, match="Health check interval must be at least 1 second"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="test-password",
+                health_check_interval=0
+            )
+        
+        with pytest.raises(ValueError, match="Health check interval cannot exceed 60 seconds"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="test-password",
+                health_check_interval=61
+            )
+    
+    def test_neo4j_version_validation(self):
+        """Test Neo4j version format validation."""
+        # Valid versions
+        valid_versions = ["5.25.1", "5.25", "5.25.1-enterprise", "4.4.0"]
+        for version in valid_versions:
+            config = Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="test-password",
+                neo4j_version=version
+            )
+            assert config.neo4j_version == version
+        
+        # Invalid versions
+        invalid_versions = ["invalid", "5", "5.a.1", "v5.25.1"]
+        for version in invalid_versions:
+            with pytest.raises(ValueError, match="Invalid Neo4j version format"):
+                Neo4jContainerConfig(
+                    environment=Environment.TEST,
+                    password="test-password",
+                    neo4j_version=version
+                )
+    
+    def test_plugin_validation(self):
+        """Test plugin name validation."""
+        # Valid plugins
+        config = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="test-password",
+            plugins=["apoc", "bloom", "streams"]
+        )
+        assert config.plugins == ["apoc", "bloom", "streams"]
+        
+        # Invalid plugin
+        with pytest.raises(ValueError, match="Invalid plugin: invalid-plugin"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="test-password",
+                plugins=["apoc", "invalid-plugin"]
+            )
     
     def test_container_name_property(self):
         """Test container name generation."""

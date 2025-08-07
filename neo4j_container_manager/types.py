@@ -112,16 +112,60 @@ class Neo4jContainerConfig:
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
+        import re
+        
         if self.environment == Environment.TEST and not self.test_id:
             import uuid
 
             self.test_id = f"test-{uuid.uuid4().hex[:8]}"
 
-        if self.memory and not self.memory.endswith(("M", "G", "MB", "GB")):
-            raise ValueError(f"Invalid memory format: {self.memory}. Use formats like '1G', '512M', etc.")
+        # Validate password length (Neo4j requires minimum 8 characters)
+        if self.enable_auth and len(self.password) < 8:
+            raise ValueError(
+                f"Password must be at least 8 characters long (current: {len(self.password)} characters). "
+                "Use a stronger password or disable auth with enable_auth=False"
+            )
 
+        # Validate username (Neo4j has restrictions on usernames)
+        if self.enable_auth and not self.username:
+            raise ValueError("Username cannot be empty when authentication is enabled")
+
+        # Validate memory format
+        if self.memory:
+            if not self.memory.endswith(("M", "G", "MB", "GB")):
+                raise ValueError(f"Invalid memory format: {self.memory}. Use formats like '1G', '512M', etc.")
+            
+            # Extract numeric part and validate it's positive
+            match = re.match(r'^(\d+)(M|G|MB|GB)$', self.memory)
+            if not match or int(match.group(1)) <= 0:
+                raise ValueError(f"Invalid memory value: {self.memory}. Must be a positive number with M/G/MB/GB suffix")
+
+        # Validate startup timeout
         if self.startup_timeout < 30:
             raise ValueError("Startup timeout must be at least 30 seconds")
+        if self.startup_timeout > 600:
+            raise ValueError("Startup timeout cannot exceed 600 seconds (10 minutes)")
+
+        # Validate health check interval
+        if self.health_check_interval < 1:
+            raise ValueError("Health check interval must be at least 1 second")
+        if self.health_check_interval > 60:
+            raise ValueError("Health check interval cannot exceed 60 seconds")
+
+        # Validate Neo4j version format (basic check)
+        if not re.match(r'^\d+\.\d+(\.\d+)?(-.*)?$', self.neo4j_version):
+            raise ValueError(
+                f"Invalid Neo4j version format: {self.neo4j_version}. "
+                "Expected format like '5.25.1' or '5.25.1-enterprise'"
+            )
+
+        # Validate plugins list
+        valid_plugins = {"apoc", "apoc-extended", "bloom", "streams", "graph-data-science", "n10s"}
+        for plugin in self.plugins:
+            if plugin not in valid_plugins:
+                raise ValueError(
+                    f"Invalid plugin: {plugin}. Valid plugins are: {', '.join(sorted(valid_plugins))}"
+                )
 
     @property
     def container_name(self) -> str:

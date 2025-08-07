@@ -378,7 +378,7 @@ class DocumentationCreator:
 
             # Create DESCRIBES relationships using the existing RelationshipCreator method
             describes_relationships = RelationshipCreator.create_describes_relationships(
-                documentation_nodes=documentation_nodes, source_nodes=source_nodes
+                documentation_nodes=documentation_nodes
             )
 
             # Save relationships to database (already as dictionaries)

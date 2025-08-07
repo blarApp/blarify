@@ -72,6 +72,7 @@ class DocumentationNode(Node):
                 "source_type": self.source_type,
                 "source_path": self.source_path,
                 "source_labels": self.source_labels,
+                "source_node_id": self.source_id,
             }
         )
 

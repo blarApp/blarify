@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, TYPE_CHECKING
+from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.relationship import Relationship, WorkflowStepRelationship, RelationshipType
 from blarify.graph.node import NodeLabels
 
@@ -166,7 +167,7 @@ class RelationshipCreator:
         return relationships
 
     @staticmethod
-    def create_describes_relationships(documentation_nodes: List["Node"], source_nodes: List["Node"]) -> List[dict]:
+    def create_describes_relationships(documentation_nodes: List[DocumentationNode]) -> List[dict]:
         """
         Create DESCRIBES relationships from documentation nodes to their source code nodes.
 
@@ -178,23 +179,15 @@ class RelationshipCreator:
             List of DESCRIBES relationship dicts suitable for database insertion via create_edges()
         """
         describes_relationships = []
-
-        # Create a mapping of source nodes by their hashed_id for efficient lookup
-        source_nodes_by_id = {node.hashed_id: node for node in source_nodes}
-
         for doc_node in documentation_nodes:
-            # For DocumentationNode, we need to find the corresponding source node
-            # This assumes the documentation node has a reference to its source
-            if hasattr(doc_node, "source_id") and doc_node.source_id in source_nodes_by_id:
-                source_node = source_nodes_by_id[doc_node.source_id]
-                describes_relationships.append(
-                    {
-                        "sourceId": doc_node.hashed_id,  # Documentation node
-                        "targetId": source_node.hashed_id,  # Target code node
-                        "type": "DESCRIBES",
-                        "scopeText": "semantic_documentation",
-                    }
-                )
+            describes_relationships.append(
+                {
+                    "sourceId": doc_node.hashed_id,  # Documentation node
+                    "targetId": doc_node.source_id,  # Target code node
+                    "type": "DESCRIBES",
+                    "scopeText": "semantic_documentation",
+                }
+            )
 
         return describes_relationships
 

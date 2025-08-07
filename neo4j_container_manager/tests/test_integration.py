@@ -100,7 +100,7 @@ class TestNeo4jContainerIntegration:
         configs = [
             Neo4jContainerConfig(
                 environment=Environment.TEST,
-                password="test1",
+                password=f"test-password-{i}",  # At least 8 characters
                 test_id=f"parallel-test-{i}",
                 startup_timeout=60,
             )
@@ -344,16 +344,48 @@ class TestErrorHandling:
     async def test_invalid_configuration(self, docker_check: docker.DockerClient):
         """Test handling of invalid configurations."""
 
-        # Test invalid memory format
-        with pytest.raises(ValueError):
-            Neo4jContainerConfig(environment=Environment.TEST, password="test", memory="invalid-memory")
+        # Test password too short
+        with pytest.raises(ValueError, match="Password must be at least 8 characters"):
+            Neo4jContainerConfig(environment=Environment.TEST, password="short")
 
-        # Test invalid startup timeout
-        with pytest.raises(ValueError):
+        # Test invalid memory format
+        with pytest.raises(ValueError, match="Invalid memory format"):
+            Neo4jContainerConfig(environment=Environment.TEST, password="valid-password-123", memory="invalid-memory")
+
+        # Test invalid memory value
+        with pytest.raises(ValueError, match="Invalid memory value"):
+            Neo4jContainerConfig(environment=Environment.TEST, password="valid-password-123", memory="0M")
+
+        # Test invalid startup timeout (too low)
+        with pytest.raises(ValueError, match="Startup timeout must be at least 30 seconds"):
             Neo4jContainerConfig(
                 environment=Environment.TEST,
-                password="test",
+                password="valid-password-123",
                 startup_timeout=10,  # Too low
+            )
+
+        # Test invalid startup timeout (too high)
+        with pytest.raises(ValueError, match="Startup timeout cannot exceed 600 seconds"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="valid-password-123",
+                startup_timeout=700,  # Too high
+            )
+
+        # Test invalid Neo4j version format
+        with pytest.raises(ValueError, match="Invalid Neo4j version format"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="valid-password-123",
+                neo4j_version="invalid.version",
+            )
+
+        # Test invalid plugin name
+        with pytest.raises(ValueError, match="Invalid plugin"):
+            Neo4jContainerConfig(
+                environment=Environment.TEST,
+                password="valid-password-123",
+                plugins=["invalid-plugin"],
             )
 
     @pytest.mark.asyncio
@@ -364,14 +396,14 @@ class TestErrorHandling:
         # Start first container
         config1 = Neo4jContainerConfig(
             environment=Environment.TEST,
-            password="test1",
+            password="test-password-1",  # At least 8 characters
             test_id="port-test-1",
             startup_timeout=60,
         )
 
         config2 = Neo4jContainerConfig(
             environment=Environment.TEST,
-            password="test2",
+            password="test-password-2",  # At least 8 characters
             test_id="port-test-2",
             startup_timeout=60,
         )

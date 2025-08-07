@@ -185,8 +185,8 @@ class RelationshipCreator:
         for doc_node in documentation_nodes:
             # For DocumentationNode, we need to find the corresponding source node
             # This assumes the documentation node has a reference to its source
-            if hasattr(doc_node, "source_node_id") and doc_node.source_node_id in source_nodes_by_id:
-                source_node = source_nodes_by_id[doc_node.source_node_id]
+            if hasattr(doc_node, "source_id") and doc_node.source_id in source_nodes_by_id:
+                source_node = source_nodes_by_id[doc_node.source_id]
                 describes_relationships.append(
                     {
                         "sourceId": doc_node.hashed_id,  # Documentation node
@@ -239,16 +239,16 @@ class RelationshipCreator:
                 "step_order": step_order,  # Store step_order as individual property
                 "depth": edge.get("depth", 0),  # Store depth as individual property
             }
-            
+
             # Only add call_line and call_character if they have non-null values
             call_line = edge.get("call_line")
             call_character = edge.get("call_character")
-            
+
             if call_line is not None:
                 relationship_dict["call_line"] = call_line
             if call_character is not None:
                 relationship_dict["call_character"] = call_character
-                
+
             relationships.append(relationship_dict)
 
         return relationships

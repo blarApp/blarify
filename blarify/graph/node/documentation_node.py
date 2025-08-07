@@ -18,6 +18,7 @@ class DocumentationNode(Node):
         source_type: str,
         source_path: str,
         source_name: str,
+        source_id: str,
         examples: Optional[List[Dict[str, Any]]] = None,
         source_labels: Optional[List[str]] = None,
         enhanced_content: Optional[str] = None,
@@ -34,25 +35,25 @@ class DocumentationNode(Node):
         self.source_path = source_path  # Original source location
         self.source_labels = source_labels or []  # Labels from source node
         self.source_name = source_name  # Name of the source node for ID generation
-        
+        self.source_id = source_id  # Unique identifier for the source node
+
         # Optional fields
         self.examples = examples or []
         self.enhanced_content = enhanced_content  # For parent nodes
         self.children_count = children_count  # For parent nodes
-        
+
         # Use source_path as path for Node, and source_name@info as name
         # Set layer to documentation for documentation nodes
         super().__init__(
-            label=NodeLabels.DOCUMENTATION, 
+            label=NodeLabels.DOCUMENTATION,
             path=source_path,
             name=f"{source_name}@info",
-            level=kwargs.get('level', 0),
-            parent=kwargs.get('parent'),
-            graph_environment=kwargs.get('graph_environment'),
-            layer="documentation"
+            level=kwargs.get("level", 0),
+            parent=kwargs.get("parent"),
+            graph_environment=kwargs.get("graph_environment"),
+            layer="documentation",
         )
 
-    
     @property
     def node_repr_for_identifier(self) -> str:
         """Create a unique identifier representation for this information node."""
@@ -73,7 +74,7 @@ class DocumentationNode(Node):
                 "source_labels": self.source_labels,
             }
         )
-        
+
         # Add optional fields if present
         if self.enhanced_content:
             obj["attributes"]["enhanced_content"] = self.enhanced_content

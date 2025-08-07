@@ -409,6 +409,7 @@ class RecursiveDFSProcessor:
             source_path=node.path,
             source_name=node.name,
             source_labels=node.labels,
+            source_id=node.id,
             source_type="parallel_processing_error",
             graph_environment=self.graph_environment,
         )
@@ -460,6 +461,7 @@ class RecursiveDFSProcessor:
                 source_path=node.path,
                 source_name=node.name,
                 source_labels=node.labels,
+                source_id=node.id,
                 source_type="recursive_leaf_analysis",
                 graph_environment=self.graph_environment,
             )
@@ -483,6 +485,7 @@ class RecursiveDFSProcessor:
                 source_path=node.path,
                 source_name=node.name,
                 source_labels=node.labels,
+                source_id=node.id,
                 source_type="error_fallback",
                 graph_environment=self.graph_environment,
             )
@@ -671,6 +674,7 @@ class RecursiveDFSProcessor:
             source_path=node.path,
             source_name=node.name,
             source_labels=node.labels,
+            source_id=node.id,
             source_type="recursive_parent_analysis",
             enhanced_content=enhanced_content,
             children_count=len(child_descriptions),
@@ -696,6 +700,7 @@ class RecursiveDFSProcessor:
             source_path=node.path,
             source_name=node.name,
             source_labels=node.labels,
+            source_id=node.id,
             source_type="error_fallback",
             children_count=len(child_descriptions),
             graph_environment=self.graph_environment,
@@ -942,6 +947,7 @@ class RecursiveDFSProcessor:
                 source_path=doc_data.get("source_path", node.path),
                 source_name=node.name,  # Use node.name since source_name is not stored in database
                 source_labels=doc_data.get("source_labels", node.labels),
+                source_id=node.id,
                 source_type=doc_data.get("source_type", "database_cached"),
                 enhanced_content=doc_data.get("enhanced_content"),
                 children_count=doc_data.get("children_count"),

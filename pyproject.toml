@@ -70,6 +70,7 @@ skip = "*.csv,*.html,*.json,*.jsonl,*.pdf,*.txt,*.ipynb"
 profile = "black"
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 markers = [
     "neo4j_unit: Unit tests for Neo4j container management",
     "neo4j_integration: Integration tests requiring Docker",

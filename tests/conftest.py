@@ -12,15 +12,29 @@ from pathlib import Path
 from typing import AsyncGenerator, Generator
 
 import pytest
+import pytest_asyncio
 
 from neo4j_container_manager.fixtures import (
     event_loop,
     neo4j_manager,
-    neo4j_config,
     neo4j_instance,
     neo4j_query_helper,
 )
+from neo4j_container_manager.types import Neo4jContainerConfig, Environment
 from tests.utils.graph_assertions import create_graph_assertions, GraphAssertions
+
+
+@pytest.fixture
+def neo4j_config(request):
+    """
+    Override the default neo4j_config fixture to include APOC plugin.
+    """
+    return Neo4jContainerConfig(
+        environment=Environment.TEST,
+        password="test-password",
+        plugins=["apoc"],
+        test_id=getattr(request, "node", type(request).__name__).name,
+    )
 
 
 @pytest.fixture(scope="session")
@@ -46,7 +60,7 @@ def temp_project_dir() -> Generator[Path, None, None]:
         yield Path(temp_dir)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def graph_assertions(neo4j_instance) -> GraphAssertions:
     """
     Fixture that provides GraphAssertions helper for test validation.

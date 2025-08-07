@@ -68,10 +68,10 @@ class TestGraphBuilderEdgeCases:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Should have File nodes for empty files
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         # Get file properties
-        file_properties = await graph_assertions.get_node_properties("File")
+        file_properties = await graph_assertions.get_node_properties("FILE")
         
         # Should have entries for our empty files
         file_paths = [props.get("file_path", "") for props in file_properties]
@@ -124,7 +124,7 @@ function brokenFunction() {
             assert isinstance(graph, Graph)
             
             # Save to Neo4j if successful
-            db_manager = Neo4jDbManager(
+            db_manager = Neo4jManager(
                 uri=neo4j_instance.uri,
                 user="neo4j",
                 password="test-password",
@@ -132,7 +132,7 @@ function brokenFunction() {
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
             
             # Should still have File nodes even for invalid files
-            await graph_assertions.assert_node_exists("File")
+            await graph_assertions.assert_node_exists("FILE")
             
             await db_manager.close()
             
@@ -194,12 +194,12 @@ class LargeClass:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Should have many function nodes
-        await graph_assertions.assert_node_exists("File")
-        await graph_assertions.assert_node_exists("Function")
-        await graph_assertions.assert_node_exists("Class")
+        await graph_assertions.assert_node_exists("FILE")
+        await graph_assertions.assert_node_exists("FUNCTION")
+        await graph_assertions.assert_node_exists("CLASS")
         
         # Check that we created a reasonable number of functions
-        function_properties = await graph_assertions.get_node_properties("Function")
+        function_properties = await graph_assertions.get_node_properties("FUNCTION")
         function_count = len(function_properties)
         
         # Should have created multiple functions (50 functions + class methods)
@@ -244,7 +244,7 @@ def unicode_function():
             assert isinstance(graph, Graph)
             
             # Save to Neo4j
-            db_manager = Neo4jDbManager(
+            db_manager = Neo4jManager(
                 uri=neo4j_instance.uri,
                 user="neo4j",
                 password="test-password",
@@ -252,10 +252,10 @@ def unicode_function():
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
             
             # Should handle special characters in file paths
-            await graph_assertions.assert_node_exists("File")
+            await graph_assertions.assert_node_exists("FILE")
             
             # Get file properties to verify special character handling
-            file_properties = await graph_assertions.get_node_properties("File")
+            file_properties = await graph_assertions.get_node_properties("FILE")
             
             # Should have files with special characters
             assert len(file_properties) > 0
@@ -301,11 +301,11 @@ def deeply_nested_function():
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Should handle deeply nested files
-        await graph_assertions.assert_node_exists("File")
-        await graph_assertions.assert_node_exists("Function")
+        await graph_assertions.assert_node_exists("FILE")
+        await graph_assertions.assert_node_exists("FUNCTION")
         
         # Verify we found the deeply nested function
-        function_properties = await graph_assertions.get_node_properties("Function")
+        function_properties = await graph_assertions.get_node_properties("FUNCTION")
         function_names = [props.get("name") for props in function_properties]
         
         assert "deeply_nested_function" in function_names
@@ -359,7 +359,7 @@ class NoColon
             assert isinstance(graph, Graph)
             
             # Save to Neo4j
-            db_manager = Neo4jDbManager(
+            db_manager = Neo4jManager(
                 uri=neo4j_instance.uri,
                 user="neo4j",
                 password="test-password",
@@ -367,10 +367,10 @@ class NoColon
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
             
             # Should process the valid file and handle invalid gracefully
-            await graph_assertions.assert_node_exists("File")
+            await graph_assertions.assert_node_exists("FILE")
             
             # Get file properties
-            file_properties = await graph_assertions.get_node_properties("File")
+            file_properties = await graph_assertions.get_node_properties("FILE")
             file_paths = [props.get("file_path", "") for props in file_properties]
             
             # Should have Python files but not text/binary files

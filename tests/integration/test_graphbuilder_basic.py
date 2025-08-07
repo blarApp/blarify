@@ -53,22 +53,25 @@ class TestGraphBuilderBasic:
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
+        # Debug: Print graph summary to see what labels are actually created
+        summary = await graph_assertions.debug_print_graph_summary()
+        
         # Verify basic node creation
-        await graph_assertions.assert_node_exists("File")
-        await graph_assertions.assert_node_exists("Function")
-        await graph_assertions.assert_node_exists("Class")
+        await graph_assertions.assert_node_exists("FILE")
+        await graph_assertions.assert_node_exists("FUNCTION")
+        await graph_assertions.assert_node_exists("CLASS")
         
         # Check for specific nodes from simple_module.py
         await graph_assertions.assert_node_exists(
-            "Function",
+            "FUNCTION",
             {"name": "simple_function"}
         )
         await graph_assertions.assert_node_exists(
-            "Function", 
+            "FUNCTION", 
             {"name": "function_with_parameter"}
         )
         await graph_assertions.assert_node_exists(
-            "Class",
+            "CLASS",
             {"name": "SimpleClass"}
         )
         
@@ -97,7 +100,7 @@ class TestGraphBuilderBasic:
         assert graph is not None
         
         # Save graph to Neo4j for validation
-        db_manager = Neo4jDbManager(
+        db_manager = Neo4jManager(
             uri=neo4j_instance.uri,
             user="neo4j", 
             password="test-password",
@@ -105,7 +108,7 @@ class TestGraphBuilderBasic:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # In hierarchy-only mode, we should still get basic structural nodes
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         db_manager.close()
 
@@ -129,7 +132,7 @@ class TestGraphBuilderBasic:
         graph = builder.build()
         
         # Save graph to Neo4j for validation
-        db_manager = Neo4jDbManager(
+        db_manager = Neo4jManager(
             uri=neo4j_instance.uri,
             user="neo4j",
             password="test-password", 
@@ -137,10 +140,10 @@ class TestGraphBuilderBasic:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Should have nodes from Python files only
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         # Verify some Python-specific content exists
-        file_properties = await graph_assertions.get_node_properties("File")
+        file_properties = await graph_assertions.get_node_properties("FILE")
         
         # Check that we have Python files but not TypeScript/Ruby
         python_files = [
@@ -191,9 +194,9 @@ class TestGraphBuilderBasic:
         
         # Check for file containing functions/classes
         await graph_assertions.assert_relationship_exists(
-            "File", 
+            "FILE", 
             "CONTAINS", 
-            "Function"
+            "FUNCTION"
         )
         
         db_manager.close()

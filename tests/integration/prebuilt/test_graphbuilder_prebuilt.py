@@ -47,7 +47,7 @@ class TestGraphBuilderPrebuilt:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Basic validation
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         summary = await graph_assertions.debug_print_graph_summary()
         assert summary["total_nodes"] > 0
@@ -80,10 +80,10 @@ class TestGraphBuilderPrebuilt:
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         # Verify file filtering worked
-        file_properties = await graph_assertions.get_node_properties("File")
+        file_properties = await graph_assertions.get_node_properties("FILE")
         file_paths = [props.get("file_path", "") for props in file_properties]
         
         # Should not have filtered extensions
@@ -143,8 +143,8 @@ class TestGraphBuilderPrebuilt:
         full_relationships = await graph_assertions.get_relationship_types()
         
         # Both should have basic File nodes
-        assert "File" in hierarchy_labels
-        assert "File" in full_labels
+        assert "FILE" in hierarchy_labels
+        assert "FILE" in full_labels
         
         # Both should have some nodes
         assert hierarchy_summary["total_nodes"] > 0
@@ -197,7 +197,7 @@ class TestGraphBuilderPrebuilt:
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         db_manager.close()
 
@@ -308,17 +308,17 @@ def decorated_function():
             assert isinstance(graph, Graph)
             
             # Save and validate
-            db_manager = Neo4jDbManager(
+            db_manager = Neo4jManager(
                 uri=neo4j_instance.uri,
                 user="neo4j",
                 password="test-password",
             )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
             
-            await graph_assertions.assert_node_exists("File")
+            await graph_assertions.assert_node_exists("FILE")
             
             # Should have processed both files
-            file_properties = await graph_assertions.get_node_properties("File")
+            file_properties = await graph_assertions.get_node_properties("FILE")
             assert len(file_properties) >= 2
             
             db_manager.close()

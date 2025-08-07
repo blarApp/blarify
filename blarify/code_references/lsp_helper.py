@@ -769,27 +769,29 @@ class LspQueryHelper:
     def exit_lsp_server(self, language) -> None:
         # Handle multiple server instances per language
         if language in self.entered_lsp_servers:
-            context = self.entered_lsp_servers[language]
-            try:
-                # Try to exit context manager with timeout, this is to ensure that we don't hang indefinitely
-                # It happens sometimes especially with c#
-                def exit_context():
-                    context.__exit__(None, None, None)
+            contexts = self.entered_lsp_servers[language]
+            for i, context in enumerate(contexts):
+                try:
+                    # Try to exit context manager with timeout, this is to ensure that we don't hang indefinitely
+                    # It happens sometimes especially with c#
+                    def exit_context():
+                        context.__exit__(None, None, None)
 
-                thread = threading.Thread(target=exit_context)
-                thread.start()
-                thread.join(timeout=5)  # Wait up to 5 seconds
+                    thread = threading.Thread(target=exit_context)
+                    thread.start()
+                    thread.join(timeout=5)  # Wait up to 5 seconds
 
-                if thread.is_alive():
-                    logger.warning(f"Context manager exit timed out for {language}")
-                    raise TimeoutError("Context manager exit timed out")
-                logger.info(f"Properly exited context manager for {language}")
-            except Exception as e:
-                logger.warning(f"Error exiting context manager for {language}: {e}")
-                # If context exit fails, fall back to manual cleanup
-                self._manual_cleanup_lsp_server(language)
-            finally:
-                del self.entered_lsp_servers[language]
+                    if thread.is_alive():
+                        logger.warning(f"Context manager exit timed out for {language} instance {i}")
+                        raise TimeoutError("Context manager exit timed out")
+                    logger.info(f"Properly exited context manager for {language} instance {i}")
+                except Exception as e:
+                    logger.warning(f"Error exiting context manager for {language} instance {i}: {e}")
+                    # If context exit fails, fall back to manual cleanup for this specific server
+                    if language in self.language_to_lsp_servers and i < len(self.language_to_lsp_servers[language]):
+                        self._manual_cleanup_lsp_server_instance(self.language_to_lsp_servers[language][i])
+            
+            del self.entered_lsp_servers[language]
         else:
             # No context managers, do manual cleanup for all instances
             if language in self.language_to_lsp_servers:
@@ -900,5 +902,5 @@ class LspQueryHelper:
 
         # Ensure all dictionaries are cleared
         self.entered_lsp_servers.clear()
-        self.language_to_lsp_server.clear()
+        self.language_to_lsp_servers.clear()
         logger.info("LSP servers have been shut down")

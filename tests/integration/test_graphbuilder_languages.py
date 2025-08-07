@@ -55,10 +55,10 @@ class TestGraphBuilderLanguages:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # All languages should create File nodes
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         # Get file properties to verify language-specific files
-        file_properties = await graph_assertions.get_node_properties("File")
+        file_properties = await graph_assertions.get_node_properties("FILE")
         
         # Verify we have files for the expected language
         language_extensions = {
@@ -101,22 +101,22 @@ class TestGraphBuilderLanguages:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Python should have functions and classes
-        await graph_assertions.assert_node_exists("Function")
-        await graph_assertions.assert_node_exists("Class")
+        await graph_assertions.assert_node_exists("FUNCTION")
+        await graph_assertions.assert_node_exists("CLASS")
         
         # Check for specific Python constructs from our test files
         # From simple_module.py
         await graph_assertions.assert_node_exists(
-            "Function",
+            "FUNCTION",
             {"name": "simple_function"}
         )
         await graph_assertions.assert_node_exists(
-            "Class", 
+            "CLASS", 
             {"name": "SimpleClass"}
         )
         
         # From class_with_inheritance.py (if it exists)
-        class_properties = await graph_assertions.get_node_properties("Class")
+        class_properties = await graph_assertions.get_node_properties("CLASS")
         class_names = [props.get("name") for props in class_properties]
         
         # Should have at least SimpleClass
@@ -145,13 +145,13 @@ class TestGraphBuilderLanguages:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Should have File nodes for TypeScript
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         # Get all node labels to see what was created
         node_labels = await graph_assertions.get_node_labels()
         
         # Should have basic structural elements
-        basic_labels = {"File"}
+        basic_labels = {"FILE"}
         assert basic_labels.issubset(node_labels), f"Missing basic labels. Got: {node_labels}"
         
         db_manager.close()
@@ -177,13 +177,13 @@ class TestGraphBuilderLanguages:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Should have File nodes for Ruby
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         # Get all node labels to see what was created
         node_labels = await graph_assertions.get_node_labels()
         
         # Should have basic structural elements
-        basic_labels = {"File"}
+        basic_labels = {"FILE"}
         assert basic_labels.issubset(node_labels), f"Missing basic labels. Got: {node_labels}"
         
         db_manager.close()
@@ -200,7 +200,7 @@ class TestGraphBuilderLanguages:
         graph = builder.build()
         
         # Save to Neo4j
-        db_manager = Neo4jDbManager(
+        db_manager = Neo4jManager(
             uri=neo4j_instance.uri,
             user="neo4j", 
             password="test-password",
@@ -208,10 +208,10 @@ class TestGraphBuilderLanguages:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Should have File nodes from all languages
-        await graph_assertions.assert_node_exists("File")
+        await graph_assertions.assert_node_exists("FILE")
         
         # Get file properties and check for multiple languages
-        file_properties = await graph_assertions.get_node_properties("File")
+        file_properties = await graph_assertions.get_node_properties("FILE")
         
         # Extract file extensions
         extensions = set()
@@ -283,7 +283,7 @@ class TestGraphBuilderLanguages:
             
             # Save to fresh Neo4j instance
             await neo4j_instance.clear_data()
-            db_manager = Neo4jDbManager(
+            db_manager = Neo4jManager(
                 uri=neo4j_instance.uri,
                 user="neo4j",
                 password="test-password",
@@ -305,7 +305,7 @@ class TestGraphBuilderLanguages:
         # Verify each language produced some output
         for language, metrics in results.items():
             assert metrics["total_nodes"] >= 0, f"{language} should have non-negative node count"
-            assert "File" in metrics["node_labels"], f"{language} should have File nodes"
+            assert "FILE" in metrics["node_labels"], f"{language} should have File nodes"
             
         # Print comparison for debugging
         print("\nLanguage Comparison:")

@@ -1,23 +1,18 @@
 """
-Container Management for Neo4j Testing.
+Container Management for Neo4j.
 
 This module provides the core container lifecycle management functionality,
 handling Neo4j container creation, startup, health checks, and cleanup
-using testcontainers-python and Docker API.
+using the Docker SDK directly for full control over configuration.
 """
 
 import asyncio
 import uuid
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Any
 
-if TYPE_CHECKING:
-    import docker
-    from docker.errors import APIError, NotFound
-    from testcontainers.neo4j import Neo4jContainer
-else:
-    import docker
-    from docker.errors import APIError, NotFound
-    from testcontainers.neo4j import Neo4jContainer
+import docker
+from docker.errors import APIError, NotFound
+from docker.models.containers import Container
 
 from .types import (
     Neo4jContainerConfig,
@@ -123,43 +118,68 @@ class Neo4jContainerManager:
         )
 
         try:
-            # Use testcontainers for easier Neo4j setup
-            neo4j_container = Neo4jContainer(f"neo4j:{config.neo4j_version}")
-
-            # Configure the container
-            neo4j_container = (
-                neo4j_container.with_name(config.container_name)
-                .with_env("NEO4J_AUTH", f"{config.username}/{config.password}" if config.enable_auth else "none")
-                .with_env("NEO4J_dbms_memory_heap_initial_size", config.memory or "512M")
-                .with_env("NEO4J_dbms_memory_heap_max_size", config.memory or "1G")
-                .with_exposed_ports(7474, 7687)
-            )
-
+            # Check if container with this name already exists and remove it
+            try:
+                existing_container = self._docker_client.containers.get(config.container_name)
+                existing_container.stop()
+                existing_container.remove(force=True)
+            except NotFound:
+                pass  # No existing container, that's fine
+            except Exception:
+                pass  # Best effort cleanup
+            
+            # Prepare environment variables for Neo4j 5.x
+            environment = {
+                "NEO4J_AUTH": f"{config.username}/{config.password}" if config.enable_auth else "none",
+                "NEO4J_server_memory_heap_initial__size": config.memory or "512M",
+                "NEO4J_server_memory_heap_max__size": config.memory or "1G",
+                "NEO4J_ACCEPT_LICENSE_AGREEMENT": "yes",
+            }
+            
             # Add custom configuration
             for key, value in config.custom_config.items():
-                neo4j_container = neo4j_container.with_env(f"NEO4J_{key}", value)
-
+                environment[f"NEO4J_{key}"] = value
+            
             # Add plugins if specified
             if config.plugins:
-                plugins_env = ",".join(config.plugins)
-                neo4j_container = neo4j_container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*")
-                neo4j_container = neo4j_container.with_env("NEO4J_PLUGINS", f'["{plugins_env}"]')
-
-            # Add volume mount
-            volume_mounts = self._volume_manager.get_volume_mount_config(volume)
-            for vol_name, mount_config in volume_mounts.items():
-                neo4j_container = neo4j_container.with_volume_mapping(
-                    vol_name, mount_config["bind"], mount_config["mode"]
-                )
-
-            # Start the container
-            neo4j_container.start()
-
-            # Get actual container object and update ports
-            # docker_container = self._docker_client.containers.get(neo4j_container.get_container_host_ip())
-
+                plugins_str = " ".join(config.plugins)
+                environment["NEO4JLABS_PLUGINS"] = f'["{plugins_str}"]'
+                if "apoc" in config.plugins:
+                    environment["NEO4J_dbms_security_procedures_unrestricted"] = "apoc.*"
+                    environment["NEO4J_dbms_security_procedures_allowlist"] = "apoc.*"
+            
+            # Prepare port bindings
+            ports_config = {
+                "7687/tcp": ports.bolt_port,  # Bolt protocol
+                "7474/tcp": ports.http_port,  # HTTP interface
+            }
+            
+            # Prepare volume mounts
+            volumes_config = {}
+            if volume:
+                volumes_config[volume.name] = {
+                    "bind": "/data",
+                    "mode": "rw"
+                }
+            
+            # Create and start the container using Docker API directly
+            container: Container = self._docker_client.containers.run(
+                image=f"neo4j:{config.neo4j_version}",
+                name=config.container_name,
+                environment=environment,
+                ports=ports_config,
+                volumes=volumes_config,
+                detach=True,
+                remove=False,
+                labels={
+                    "blarify.component": "neo4j-container-manager",
+                    "blarify.environment": config.environment.value,
+                    "blarify.test_id": config.test_id or "",
+                }
+            )
+            
             # Update instance with actual container reference
-            instance.container_ref = neo4j_container
+            instance.container_ref = container
             instance.status = ContainerStatus.RUNNING
 
             # Wait for Neo4j to be ready

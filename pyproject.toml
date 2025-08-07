@@ -37,7 +37,6 @@ tree-sitter-java = "^0.23.5"
 protobuf = "6.30.0"
 json-repair = "^0.47.7"
 langchain-google-genai = "^2.1.7"
-testcontainers = {extras = ["neo4j"], version = "^4.9.0"}
 docker = "^7.1.0"
 filelock = "^3.16.1"
 

@@ -19,6 +19,53 @@ Create a robust Neo4j container management system focused on testing that:
 4. **Supports test data setup/teardown** - quick data import/export for test scenarios
 5. **Works transparently** - developers never need to manually manage containers
 
+## Current Implementation Status
+
+✅ **Phase 1: Core Container Manager** - COMPLETED
+- Created `neo4j_container_manager/` package with full structure
+- Implemented all core modules: container_manager.py, port_manager.py, volume_manager.py, data_manager.py, types.py, fixtures.py
+
+✅ **Phase 2: Container Lifecycle Management** - COMPLETED
+- Implemented Neo4jContainerManager with Docker SDK integration
+- Direct Docker API usage (removed testcontainers dependency)
+- Full async/await support throughout the codebase
+- Context manager support for automatic cleanup
+
+✅ **Phase 3: Dynamic Port Management** - COMPLETED
+- PortManager implementation with dynamic allocation
+- File-based lock system for tracking allocated ports
+- Port conflict resolution with retry logic
+- Cleanup of stale allocations
+
+✅ **Phase 4: Test Data Management** - COMPLETED
+- VolumeManager with automatic cleanup for test volumes
+- Ephemeral volumes with unique naming scheme
+- Volume lifecycle tied to container lifecycle
+
+✅ **Phase 5: Test Isolation** - COMPLETED
+- Unique container naming with test IDs
+- Automatic cleanup on test completion
+- Support for parallel test execution
+
+✅ **Phase 6: Test Data Setup** - COMPLETED
+- DataManager with support for multiple formats (Cypher, JSON, CSV)
+- Sample data creation methods
+- Test data loading from files
+- Data export functionality
+
+✅ **Phase 7: Test Lifecycle Integration** - COMPLETED
+- Comprehensive pytest fixtures in fixtures.py
+- Session and function scoped fixtures
+- Parameterized fixtures for testing different configurations
+- Helper fixtures for common operations
+
+⚠️ **Phase 8: Neo4j Connectivity and Data Validation Tests** - PARTIALLY COMPLETED
+- Basic integration tests exist in test_integration.py
+- Tests verify container lifecycle, data loading, and queries
+- **MISSING**: Specific tests validating Blarify's Neo4jManager integration
+- **MISSING**: APOC procedure verification tests
+- **MISSING**: Tests demonstrating actual Blarify node/edge creation
+
 ## Technical Requirements
 
 ### Core Dependencies
@@ -36,114 +83,428 @@ Create a robust Neo4j container management system focused on testing that:
 - Automatic cleanup after test completion
 - Fast startup/teardown for efficient testing
 
-## Implementation Plan
+## Implementation Details
 
-### Phase 1: Core Container Manager
-Create `neo4j_container_manager/` package with:
+### Completed Package Structure
+
+The `neo4j_container_manager/` package has been fully implemented with:
 
 ```
 neo4j_container_manager/
-├── __init__.py               # Main exports
-├── container_manager.py      # Core container lifecycle
-├── port_manager.py          # Dynamic port allocation
-├── volume_manager.py        # Data persistence management
-├── data_manager.py          # Import/export functionality
-├── types.py                 # Type definitions and dataclasses
+├── __init__.py               # Main exports ✅
+├── container_manager.py      # Core container lifecycle ✅
+├── port_manager.py          # Dynamic port allocation ✅
+├── volume_manager.py        # Data persistence management ✅
+├── data_manager.py          # Import/export functionality ✅
+├── types.py                 # Type definitions and dataclasses ✅
+├── fixtures.py              # Pytest fixtures ✅
 ├── tests/
-│   ├── test_container_manager.py
-│   ├── test_port_manager.py
-│   └── test_integration.py
-├── pyproject.toml
-└── README.md
-```
+│   ├── __init__.py          # ✅
+│   ├── test_integration.py  # Integration tests ✅
+│   ├── test_port_manager.py # Port manager unit tests ✅
+│   ├── test_types.py        # Type validation tests ✅
+│   └── test_neo4j_connectivity.py  # ❌ MISSING - Blarify integration
+└── README.md                # ❌ MISSING
 
-### Phase 2: Container Lifecycle Management
+### Key Implementation Highlights
+
+1. **Container Lifecycle Management (container_manager.py)**
+   - Direct Docker SDK integration (no testcontainers dependency)
+   - Automatic port allocation and conflict resolution
+   - Health checking with configurable timeouts
+   - Support for Neo4j 5.x with proper environment variables
+   - APOC plugin support configuration
+
+2. **Type System (types.py)**
+   - Comprehensive type definitions with dataclasses
+   - Environment enum (TEST, DEVELOPMENT)
+   - ContainerStatus tracking
+   - Exception hierarchy for better error handling
+   - Neo4jContainerInstance with built-in driver support
+
+3. **Port Management (port_manager.py)**
+   - Dynamic port allocation starting from base ports
+   - File-based locking system for concurrent access
+   - Automatic cleanup of stale allocations
+   - Support for all Neo4j ports (bolt, http, https, backup)
+
+4. **Volume Management (volume_manager.py)**
+   - Automatic volume creation and cleanup
+   - Test-specific ephemeral volumes
+   - Persistent volumes for development mode
+   - Volume naming conventions for easy identification
+
+5. **Data Management (data_manager.py)**
+   - Support for multiple data formats (Cypher, JSON, CSV)
+   - Sample data generation for testing
+   - Data export functionality
+   - Parameterized query support
+
+6. **Testing Fixtures (fixtures.py)**
+   - Comprehensive pytest fixture collection
+   - Session and function scoped fixtures
+   - Parameterized fixtures for version testing
+   - Helper fixtures for common operations
+
+## Still Needed: Phase 8 - Neo4j Connectivity Tests
+
+The main missing component is comprehensive testing of Blarify's Neo4jManager integration with the container system. This would validate that:
+
+1. **Blarify's Neo4jManager can connect to test containers**
+2. **APOC procedures are available and working**
+3. **Node and edge creation using Blarify's methods work correctly**
+4. **Data isolation between test containers is maintained**
+
+### Proposed test_neo4j_connectivity.py Structure:
 
 ```python
-from dataclasses import dataclass
-from typing import Optional, List, Literal
-from abc import ABC, abstractmethod
+# tests/test_neo4j_connectivity.py
+import pytest
+from blarify.db_managers.neo4j_manager import Neo4jManager
+from neo4j_container_manager import Neo4jContainerManager, Neo4jContainerConfig, Environment
 
-@dataclass
-class Neo4jContainerConfig:
-    environment: Literal['test', 'development']
-    password: str
-    data_path: Optional[str] = None  # Custom test data directory
-    username: str = 'neo4j'
-    plugins: Optional[List[str]] = None  # e.g., ['apoc'] for test scenarios
-    memory: Optional[str] = None  # e.g., '1G' - lighter for tests
-    test_id: Optional[str] = None  # Unique identifier for test isolation
+@pytest.mark.asyncio
+class TestNeo4jConnectivity:
+    """Test Blarify's Neo4jManager integration with container system."""
 
-@dataclass
-class Neo4jContainerInstance:
-    uri: str  # bolt://localhost:XXXXX
-    http_uri: str  # http://localhost:XXXXX
-    container_id: str
-    volume: str  # Volume name for test data
-    
-    async def stop(self) -> None:
-        """Stop the container"""
-        pass
-    
-    async def is_running(self) -> bool:
-        """Check if container is running"""
-        pass
-    
-    async def load_test_data(self, path: str) -> None:
-        """Load test data from file"""
-        pass
-    
-    async def clear_data(self) -> None:
-        """Clear all data in the database"""
-        pass
+  beforeAll(async () => {
+    containerManager = new Neo4jTestContainerManager();
+  });
 
-class Neo4jTestContainerManager:
-    async def start_for_test(self, config: Neo4jContainerConfig) -> Neo4jContainerInstance:
-        """Start a Neo4j container for testing"""
-        pass
-    
-    async def stop_test(self, container_id: str) -> None:
-        """Stop a specific test container"""
-        pass
-    
-    async def cleanup_all_tests(self) -> None:
-        """Clean up all test containers"""
-        pass
-    
-    async def list_test_containers(self) -> List[Neo4jContainerInstance]:
-        """List all active test containers"""
-        pass
+  beforeEach(async () => {
+    // Start a fresh Neo4j container for each test
+    containerInstance = await containerManager.startForTest({
+      environment: 'test',
+      password: 'test-password',
+      testId: expect.getState().currentTestName,
+      plugins: ['apoc'] // Required for Blarify's APOC-based operations
+    });
+
+    // Initialize Neo4j manager with container connection details
+    const uri = containerInstance.uri; // bolt://localhost:XXXXX
+    neo4jManager = new Neo4jManager(
+      'test-repo-id',
+      'test-entity-id',
+      50, // max_connections
+      uri,
+      'neo4j',
+      'test-password'
+    );
+  });
+
+  afterEach(async () => {
+    if (neo4jManager) {
+      neo4jManager.close();
+    }
+    if (containerInstance) {
+      await containerInstance.stop();
+    }
+  });
+
+  afterAll(async () => {
+    await containerManager.cleanupAllTests();
+  });
+
+  describe('Container Health Verification', () => {
+    test('should verify Neo4j container is up and running', async () => {
+      // Test 1: Verify container is running
+      expect(await containerInstance.isRunning()).toBe(true);
+      
+      // Test 2: Verify Neo4j service is accessible via bolt protocol
+      const healthCheckQuery = 'RETURN "Neo4j is ready" as status';
+      const result = await neo4jManager.query(healthCheckQuery);
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].status).toBe('Neo4j is ready');
+    });
+
+    test('should verify APOC plugin is loaded and accessible', async () => {
+      // Verify APOC procedures are available (required for Blarify's node/edge creation)
+      const apocCheckQuery = 'CALL apoc.help("apoc") YIELD name RETURN count(name) as procedureCount';
+      const result = await neo4jManager.query(apocCheckQuery);
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].procedureCount).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Node Creation and Retrieval Tests', () => {
+    test('should create test nodes using Neo4j manager', async () => {
+      // Test 2: Create test nodes using the manager's create_nodes method
+      const testNodes = [
+        {
+          type: 'Function',
+          extra_labels: ['TestFunction'],
+          attributes: {
+            node_id: 'test-func-1',
+            name: 'testFunction',
+            path: '/test/file.py',
+            start_line: 1,
+            end_line: 10,
+            text: 'def testFunction(): pass'
+          }
+        },
+        {
+          type: 'Class',
+          extra_labels: ['TestClass'],
+          attributes: {
+            node_id: 'test-class-1',
+            name: 'TestClass',
+            path: '/test/class.py',
+            start_line: 1,
+            end_line: 20,
+            text: 'class TestClass: pass'
+          }
+        }
+      ];
+
+      // Create nodes using the manager - this will use APOC procedures internally
+      await neo4jManager.create_nodes(testNodes);
+
+      // Verify nodes were created by querying for them
+      const verifyQuery = `
+        MATCH (n:NODE {repoId: $repoId, entityId: $entityId})
+        WHERE n.node_id IN ['test-func-1', 'test-class-1']
+        RETURN n.node_id as nodeId, n.name as name, n.type as type, labels(n) as labels
+        ORDER BY n.node_id
+      `;
+
+      const result = await neo4jManager.query(verifyQuery, {
+        repoId: 'test-repo-id',
+        entityId: 'test-entity-id'
+      });
+
+      expect(result).toHaveLength(2);
+      
+      // Verify function node
+      const functionNode = result.find(n => n.nodeId === 'test-func-1');
+      expect(functionNode).toBeDefined();
+      expect(functionNode.name).toBe('testFunction');
+      expect(functionNode.labels).toContain('Function');
+      expect(functionNode.labels).toContain('TestFunction');
+      expect(functionNode.labels).toContain('NODE');
+
+      // Verify class node
+      const classNode = result.find(n => n.nodeId === 'test-class-1');
+      expect(classNode).toBeDefined();
+      expect(classNode.name).toBe('TestClass');
+      expect(classNode.labels).toContain('Class');
+      expect(classNode.labels).toContain('TestClass');
+      expect(classNode.labels).toContain('NODE');
+    });
+
+    test('should retrieve created nodes with specific query parameters', async () => {
+      // Test 3: Retrieve the created nodes using different query patterns
+      
+      // First create a test node
+      const testNode = [{
+        type: 'Module',
+        extra_labels: ['PythonModule'],
+        attributes: {
+          node_id: 'test-module-1',
+          name: 'test_module',
+          path: '/test/module.py',
+          start_line: 1,
+          end_line: 50,
+          text: 'import os\n\ndef main(): pass'
+        }
+      }];
+
+      await neo4jManager.create_nodes(testNode);
+
+      // Test querying by node properties
+      const nodeByIdQuery = `
+        MATCH (n:NODE {node_id: $nodeId, repoId: $repoId, entityId: $entityId})
+        RETURN n.node_id as nodeId, n.name as name, n.path as path, n.text as text
+      `;
+
+      const nodeResult = await neo4jManager.query(nodeByIdQuery, {
+        nodeId: 'test-module-1',
+        repoId: 'test-repo-id',
+        entityId: 'test-entity-id'
+      });
+
+      expect(nodeResult).toHaveLength(1);
+      expect(nodeResult[0].nodeId).toBe('test-module-1');
+      expect(nodeResult[0].name).toBe('test_module');
+      expect(nodeResult[0].path).toBe('/test/module.py');
+      expect(nodeResult[0].text).toContain('import os');
+
+      // Test querying by type labels
+      const nodesByTypeQuery = `
+        MATCH (n:NODE:Module {repoId: $repoId, entityId: $entityId})
+        RETURN count(n) as moduleCount
+      `;
+
+      const typeResult = await neo4jManager.query(nodesByTypeQuery, {
+        repoId: 'test-repo-id',
+        entityId: 'test-entity-id'
+      });
+
+      expect(typeResult).toHaveLength(1);
+      expect(typeResult[0].moduleCount).toBeGreaterThan(0);
+    });
+
+    test('should handle edge creation and relationship queries', async () => {
+      // Create nodes for edge testing
+      const sourceNode = [{
+        type: 'Function',
+        extra_labels: ['Caller'],
+        attributes: {
+          node_id: 'caller-func',
+          name: 'callerFunction',
+          path: '/test/caller.py',
+          start_line: 1,
+          end_line: 5
+        }
+      }];
+
+      const targetNode = [{
+        type: 'Function', 
+        extra_labels: ['Callee'],
+        attributes: {
+          node_id: 'callee-func',
+          name: 'calleeFunction',
+          path: '/test/callee.py',
+          start_line: 10,
+          end_line: 15
+        }
+      }];
+
+      await neo4jManager.create_nodes([...sourceNode, ...targetNode]);
+
+      // Create edge between the nodes
+      const testEdges = [{
+        sourceId: 'caller-func',
+        targetId: 'callee-func',
+        type: 'CALLS',
+        line_number: 3,
+        call_type: 'direct'
+      }];
+
+      await neo4jManager.create_edges(testEdges);
+
+      // Query for the created relationship
+      const relationshipQuery = `
+        MATCH (caller:NODE {node_id: 'caller-func', repoId: $repoId, entityId: $entityId})-[r:CALLS]->(callee:NODE {node_id: 'callee-func', repoId: $repoId, entityId: $entityId})
+        RETURN caller.name as callerName, callee.name as calleeName, r.line_number as lineNumber, r.call_type as callType
+      `;
+
+      const relationshipResult = await neo4jManager.query(relationshipQuery, {
+        repoId: 'test-repo-id',
+        entityId: 'test-entity-id'
+      });
+
+      expect(relationshipResult).toHaveLength(1);
+      expect(relationshipResult[0].callerName).toBe('callerFunction');
+      expect(relationshipResult[0].calleeName).toBe('calleeFunction');
+      expect(relationshipResult[0].lineNumber).toBe(3);
+      expect(relationshipResult[0].callType).toBe('direct');
+    });
+  });
+
+  describe('Data Isolation and Cleanup Tests', () => {
+    test('should ensure test data isolation between containers', async () => {
+      // Create test data in current container
+      const testNodes = [{
+        type: 'IsolationTest',
+        extra_labels: ['Container1'],
+        attributes: {
+          node_id: 'isolation-test-1',
+          name: 'container1Node'
+        }
+      }];
+
+      await neo4jManager.create_nodes(testNodes);
+
+      // Verify data exists in current container
+      let result = await neo4jManager.query(
+        'MATCH (n:IsolationTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
+        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
+      );
+      expect(result[0].nodeCount).toBe(1);
+
+      // Stop current container and start new one
+      neo4jManager.close();
+      await containerInstance.stop();
+
+      containerInstance = await containerManager.startForTest({
+        environment: 'test',
+        password: 'test-password',
+        testId: 'isolation-test-2',
+        plugins: ['apoc']
+      });
+
+      neo4jManager = new Neo4jManager(
+        'test-repo-id',
+        'test-entity-id',
+        50,
+        containerInstance.uri,
+        'neo4j',
+        'test-password'
+      );
+
+      // Verify data does not exist in new container (isolation)
+      result = await neo4jManager.query(
+        'MATCH (n:IsolationTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
+        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
+      );
+      expect(result[0].nodeCount).toBe(0);
+    });
+
+    test('should support data cleanup operations', async () => {
+      // Create test data
+      const testNodes = [{
+        type: 'CleanupTest',
+        extra_labels: ['ToBeDeleted'],
+        attributes: {
+          node_id: 'cleanup-test-1',
+          name: 'nodeToDelete',
+          path: '/test/cleanup.py'
+        }
+      }];
+
+      await neo4jManager.create_nodes(testNodes);
+
+      // Verify data exists
+      let result = await neo4jManager.query(
+        'MATCH (n:CleanupTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
+        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
+      );
+      expect(result[0].nodeCount).toBe(1);
+
+      // Use manager's path-based deletion method
+      await neo4jManager.detatch_delete_nodes_with_path('/test/cleanup.py');
+
+      // Verify data is deleted
+      result = await neo4jManager.query(
+        'MATCH (n:CleanupTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
+        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
+      );
+      expect(result[0].nodeCount).toBe(0);
+    });
+  });
+
+  describe('Error Handling and Recovery', () => {
+    test('should handle connection errors gracefully', async () => {
+      // Stop the container to simulate connection failure
+      await containerInstance.stop();
+
+      // Attempt to query - should throw an appropriate error
+      await expect(
+        neo4jManager.query('RETURN 1 as test')
+      ).rejects.toThrow();
+    });
+
+    test('should handle malformed queries appropriately', async () => {
+      // Test malformed Cypher query
+      await expect(
+        neo4jManager.query('INVALID CYPHER SYNTAX')
+      ).rejects.toThrow();
+    });
+  });
+});
 ```
-
-### Phase 3: Dynamic Port Management
-- Use Python's socket library to find available ports (7474+n, 7687+n)
-- Track allocated ports in a lock file using filelock
-- Release ports on container stop
-- Handle port conflicts gracefully with retry logic
-
-### Phase 4: Test Data Management
-- Create ephemeral volumes for test data (auto-cleanup)
-- Volume naming: `blarify-neo4j-test-{testId}-{timestamp}`
-- Quick data loading for test scenarios
-- Automatic cleanup after test completion
-
-### Phase 5: Test Isolation
-- Each test gets unique container: `blarify-neo4j-test-{uuid}`
-- Test volumes auto-cleanup after test run
-- Parallel test support with unique containers
-- Mock mode for unit tests (no real Docker)
-
-### Phase 6: Test Data Setup
-- Load test data from JSON/Cypher files
-- Include test fixtures and sample data
-- Support for different test scenarios
-- Fast reset between test cases
-
-### Phase 7: Test Lifecycle Integration
-- Register test cleanup handlers with pytest fixtures
-- Integration with pytest-asyncio for async tests
-- Handle test interruption and cleanup via pytest hooks
-- Health checks optimized for test speed
 
 ## Testing Strategy
 
@@ -158,6 +519,9 @@ class Neo4jTestContainerManager:
 - Test data persistence during test runs
 - Port conflict resolution between parallel tests
 - Test data loading and cleanup workflows
+- **Neo4j connectivity verification tests** - Verify containers are accessible via bolt protocol
+- **Node creation/retrieval validation** - Test Blarify's Neo4j manager operations
+- **Data isolation verification** - Ensure test containers don't interfere with each other
 
 ### End-to-End Tests
 - Full test suite integration
@@ -237,6 +601,9 @@ if __name__ == "__main__":
 5. **Automatic cleanup** - No leftover containers or data
 6. **Easy test data setup** - Simple fixtures and data loading
 7. **Reliable test runs** - Handles test interruptions gracefully
+8. **Neo4j Manager Integration** - Seamless integration with Blarify's Neo4jManager class
+9. **APOC Support Verification** - All APOC-dependent operations work correctly
+10. **Data Operation Validation** - Node/edge creation and querying works as expected
 
 ## Implementation Notes
 
@@ -257,11 +624,18 @@ if __name__ == "__main__":
    - Wait for Neo4j to be ready for tests
    - Verify bolt and HTTP endpoints quickly
    - Optimized retry timing for test speed
+   - **Verify APOC plugin availability** - Essential for Blarify's operations
 
 5. **Error Handling**:
    - Graceful degradation if Docker not available
    - Clear error messages for test setup issues
    - Automatic cleanup of failed test containers
+
+6. **Neo4j Manager Integration**:
+   - Pass container connection details to Neo4jManager constructor
+   - Support dynamic URI/port assignment from container instances
+   - Ensure proper connection cleanup after tests
+   - Validate APOC procedures are available for node/edge operations
 
 ## Error Scenarios and Recovery
 
@@ -271,6 +645,7 @@ if __name__ == "__main__":
 4. **Test interruption**: Automatic cleanup of test containers
 5. **Test data corruption**: Fresh container for each test run
 6. **Network issues**: Retry with timeout, fail fast for tests
+7. **APOC plugin missing**: Fail fast with clear error message about required plugins
 
 ## Monitoring and Logging
 

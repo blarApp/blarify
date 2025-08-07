@@ -69,6 +69,14 @@ skip = "*.csv,*.html,*.json,*.jsonl,*.pdf,*.txt,*.ipynb"
 [tool.isort]
 profile = "black"
 
+[tool.pytest.ini_options]
+markers = [
+    "neo4j_unit: Unit tests for Neo4j container management",
+    "neo4j_integration: Integration tests requiring Docker",
+    "neo4j_performance: Performance tests for Neo4j operations",
+    "slow: Tests that take longer to run",
+]
+
 [tool.pyright]
 include = ["blarify", "tests", "neo4j_container_manager"]
 exclude = ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor"]

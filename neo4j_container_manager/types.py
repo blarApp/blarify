@@ -160,7 +160,7 @@ class Neo4jContainerConfig:
             )
 
         # Validate plugins list
-        valid_plugins = {"apoc", "apoc-extended", "bloom", "streams", "graph-data-science", "n10s"}
+        valid_plugins = {"apoc", "apoc-extended", "bloom", "streams", "graph-data-science", "gds", "n10s"}
         for plugin in self.plugins:
             if plugin not in valid_plugins:
                 raise ValueError(

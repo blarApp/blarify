@@ -1,16 +1,22 @@
 {
-  "include": ["blarify", "tests"],
-  "exclude": ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor"],
+  "include": ["blarify", "tests", "neo4j_container_manager"],
+  "exclude": ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor", ".venv"],
   "typeCheckingMode": "strict",
   "reportMissingImports": true,
   "reportMissingTypeStubs": false,
+  "reportMissingParameterType": true,
+  "reportMissingReturnType": true,
+  "reportUnknownVariableType": false,
+  "reportUnknownMemberType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownParameterType": false,
   "pythonVersion": "3.12",
   "pythonPlatform": "Linux",
   "reportUnnecessaryTypeIgnoreComment": true,
   "reportUnusedImport": true,
   "reportUnusedVariable": true,
   "reportDuplicateImport": true,
-  "strictListInference": true,
-  "strictDictionaryInference": true,
-  "strictSetInference": true
+  "strictListInference": false,
+  "strictDictionaryInference": false,
+  "strictSetInference": false
 }

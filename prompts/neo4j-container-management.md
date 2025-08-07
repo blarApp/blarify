@@ -167,343 +167,262 @@ from neo4j_container_manager import Neo4jContainerManager, Neo4jContainerConfig,
 class TestNeo4jConnectivity:
     """Test Blarify's Neo4jManager integration with container system."""
 
-  beforeAll(async () => {
-    containerManager = new Neo4jTestContainerManager();
-  });
-
-  beforeEach(async () => {
-    // Start a fresh Neo4j container for each test
-    containerInstance = await containerManager.startForTest({
-      environment: 'test',
-      password: 'test-password',
-      testId: expect.getState().currentTestName,
-      plugins: ['apoc'] // Required for Blarify's APOC-based operations
-    });
-
-    // Initialize Neo4j manager with container connection details
-    const uri = containerInstance.uri; // bolt://localhost:XXXXX
-    neo4jManager = new Neo4jManager(
-      'test-repo-id',
-      'test-entity-id',
-      50, // max_connections
-      uri,
-      'neo4j',
-      'test-password'
-    );
-  });
-
-  afterEach(async () => {
-    if (neo4jManager) {
-      neo4jManager.close();
-    }
-    if (containerInstance) {
-      await containerInstance.stop();
-    }
-  });
-
-  afterAll(async () => {
-    await containerManager.cleanupAllTests();
-  });
-
-  describe('Container Health Verification', () => {
-    test('should verify Neo4j container is up and running', async () => {
-      // Test 1: Verify container is running
-      expect(await containerInstance.isRunning()).toBe(true);
-      
-      // Test 2: Verify Neo4j service is accessible via bolt protocol
-      const healthCheckQuery = 'RETURN "Neo4j is ready" as status';
-      const result = await neo4jManager.query(healthCheckQuery);
-      
-      expect(result).toHaveLength(1);
-      expect(result[0].status).toBe('Neo4j is ready');
-    });
-
-    test('should verify APOC plugin is loaded and accessible', async () => {
-      // Verify APOC procedures are available (required for Blarify's node/edge creation)
-      const apocCheckQuery = 'CALL apoc.help("apoc") YIELD name RETURN count(name) as procedureCount';
-      const result = await neo4jManager.query(apocCheckQuery);
-      
-      expect(result).toHaveLength(1);
-      expect(result[0].procedureCount).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Node Creation and Retrieval Tests', () => {
-    test('should create test nodes using Neo4j manager', async () => {
-      // Test 2: Create test nodes using the manager's create_nodes method
-      const testNodes = [
-        {
-          type: 'Function',
-          extra_labels: ['TestFunction'],
-          attributes: {
-            node_id: 'test-func-1',
-            name: 'testFunction',
-            path: '/test/file.py',
-            start_line: 1,
-            end_line: 10,
-            text: 'def testFunction(): pass'
-          }
-        },
-        {
-          type: 'Class',
-          extra_labels: ['TestClass'],
-          attributes: {
-            node_id: 'test-class-1',
-            name: 'TestClass',
-            path: '/test/class.py',
-            start_line: 1,
-            end_line: 20,
-            text: 'class TestClass: pass'
-          }
-        }
-      ];
-
-      // Create nodes using the manager - this will use APOC procedures internally
-      await neo4jManager.create_nodes(testNodes);
-
-      // Verify nodes were created by querying for them
-      const verifyQuery = `
-        MATCH (n:NODE {repoId: $repoId, entityId: $entityId})
-        WHERE n.node_id IN ['test-func-1', 'test-class-1']
-        RETURN n.node_id as nodeId, n.name as name, n.type as type, labels(n) as labels
-        ORDER BY n.node_id
-      `;
-
-      const result = await neo4jManager.query(verifyQuery, {
-        repoId: 'test-repo-id',
-        entityId: 'test-entity-id'
-      });
-
-      expect(result).toHaveLength(2);
-      
-      // Verify function node
-      const functionNode = result.find(n => n.nodeId === 'test-func-1');
-      expect(functionNode).toBeDefined();
-      expect(functionNode.name).toBe('testFunction');
-      expect(functionNode.labels).toContain('Function');
-      expect(functionNode.labels).toContain('TestFunction');
-      expect(functionNode.labels).toContain('NODE');
-
-      // Verify class node
-      const classNode = result.find(n => n.nodeId === 'test-class-1');
-      expect(classNode).toBeDefined();
-      expect(classNode.name).toBe('TestClass');
-      expect(classNode.labels).toContain('Class');
-      expect(classNode.labels).toContain('TestClass');
-      expect(classNode.labels).toContain('NODE');
-    });
-
-    test('should retrieve created nodes with specific query parameters', async () => {
-      // Test 3: Retrieve the created nodes using different query patterns
-      
-      // First create a test node
-      const testNode = [{
-        type: 'Module',
-        extra_labels: ['PythonModule'],
-        attributes: {
-          node_id: 'test-module-1',
-          name: 'test_module',
-          path: '/test/module.py',
-          start_line: 1,
-          end_line: 50,
-          text: 'import os\n\ndef main(): pass'
-        }
-      }];
-
-      await neo4jManager.create_nodes(testNode);
-
-      // Test querying by node properties
-      const nodeByIdQuery = `
-        MATCH (n:NODE {node_id: $nodeId, repoId: $repoId, entityId: $entityId})
-        RETURN n.node_id as nodeId, n.name as name, n.path as path, n.text as text
-      `;
-
-      const nodeResult = await neo4jManager.query(nodeByIdQuery, {
-        nodeId: 'test-module-1',
-        repoId: 'test-repo-id',
-        entityId: 'test-entity-id'
-      });
-
-      expect(nodeResult).toHaveLength(1);
-      expect(nodeResult[0].nodeId).toBe('test-module-1');
-      expect(nodeResult[0].name).toBe('test_module');
-      expect(nodeResult[0].path).toBe('/test/module.py');
-      expect(nodeResult[0].text).toContain('import os');
-
-      // Test querying by type labels
-      const nodesByTypeQuery = `
-        MATCH (n:NODE:Module {repoId: $repoId, entityId: $entityId})
-        RETURN count(n) as moduleCount
-      `;
-
-      const typeResult = await neo4jManager.query(nodesByTypeQuery, {
-        repoId: 'test-repo-id',
-        entityId: 'test-entity-id'
-      });
-
-      expect(typeResult).toHaveLength(1);
-      expect(typeResult[0].moduleCount).toBeGreaterThan(0);
-    });
-
-    test('should handle edge creation and relationship queries', async () => {
-      // Create nodes for edge testing
-      const sourceNode = [{
-        type: 'Function',
-        extra_labels: ['Caller'],
-        attributes: {
-          node_id: 'caller-func',
-          name: 'callerFunction',
-          path: '/test/caller.py',
-          start_line: 1,
-          end_line: 5
-        }
-      }];
-
-      const targetNode = [{
-        type: 'Function', 
-        extra_labels: ['Callee'],
-        attributes: {
-          node_id: 'callee-func',
-          name: 'calleeFunction',
-          path: '/test/callee.py',
-          start_line: 10,
-          end_line: 15
-        }
-      }];
-
-      await neo4jManager.create_nodes([...sourceNode, ...targetNode]);
-
-      // Create edge between the nodes
-      const testEdges = [{
-        sourceId: 'caller-func',
-        targetId: 'callee-func',
-        type: 'CALLS',
-        line_number: 3,
-        call_type: 'direct'
-      }];
-
-      await neo4jManager.create_edges(testEdges);
-
-      // Query for the created relationship
-      const relationshipQuery = `
-        MATCH (caller:NODE {node_id: 'caller-func', repoId: $repoId, entityId: $entityId})-[r:CALLS]->(callee:NODE {node_id: 'callee-func', repoId: $repoId, entityId: $entityId})
-        RETURN caller.name as callerName, callee.name as calleeName, r.line_number as lineNumber, r.call_type as callType
-      `;
-
-      const relationshipResult = await neo4jManager.query(relationshipQuery, {
-        repoId: 'test-repo-id',
-        entityId: 'test-entity-id'
-      });
-
-      expect(relationshipResult).toHaveLength(1);
-      expect(relationshipResult[0].callerName).toBe('callerFunction');
-      expect(relationshipResult[0].calleeName).toBe('calleeFunction');
-      expect(relationshipResult[0].lineNumber).toBe(3);
-      expect(relationshipResult[0].callType).toBe('direct');
-    });
-  });
-
-  describe('Data Isolation and Cleanup Tests', () => {
-    test('should ensure test data isolation between containers', async () => {
-      // Create test data in current container
-      const testNodes = [{
-        type: 'IsolationTest',
-        extra_labels: ['Container1'],
-        attributes: {
-          node_id: 'isolation-test-1',
-          name: 'container1Node'
-        }
-      }];
-
-      await neo4jManager.create_nodes(testNodes);
-
-      // Verify data exists in current container
-      let result = await neo4jManager.query(
-        'MATCH (n:IsolationTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
-        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
-      );
-      expect(result[0].nodeCount).toBe(1);
-
-      // Stop current container and start new one
-      neo4jManager.close();
-      await containerInstance.stop();
-
-      containerInstance = await containerManager.startForTest({
-        environment: 'test',
-        password: 'test-password',
-        testId: 'isolation-test-2',
-        plugins: ['apoc']
-      });
-
-      neo4jManager = new Neo4jManager(
-        'test-repo-id',
-        'test-entity-id',
-        50,
-        containerInstance.uri,
-        'neo4j',
-        'test-password'
-      );
-
-      // Verify data does not exist in new container (isolation)
-      result = await neo4jManager.query(
-        'MATCH (n:IsolationTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
-        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
-      );
-      expect(result[0].nodeCount).toBe(0);
-    });
-
-    test('should support data cleanup operations', async () => {
-      // Create test data
-      const testNodes = [{
-        type: 'CleanupTest',
-        extra_labels: ['ToBeDeleted'],
-        attributes: {
-          node_id: 'cleanup-test-1',
-          name: 'nodeToDelete',
-          path: '/test/cleanup.py'
-        }
-      }];
-
-      await neo4jManager.create_nodes(testNodes);
-
-      // Verify data exists
-      let result = await neo4jManager.query(
-        'MATCH (n:CleanupTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
-        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
-      );
-      expect(result[0].nodeCount).toBe(1);
-
-      // Use manager's path-based deletion method
-      await neo4jManager.detatch_delete_nodes_with_path('/test/cleanup.py');
-
-      // Verify data is deleted
-      result = await neo4jManager.query(
-        'MATCH (n:CleanupTest {repoId: $repoId, entityId: $entityId}) RETURN count(n) as nodeCount',
-        { repoId: 'test-repo-id', entityId: 'test-entity-id' }
-      );
-      expect(result[0].nodeCount).toBe(0);
-    });
-  });
-
-  describe('Error Handling and Recovery', () => {
-    test('should handle connection errors gracefully', async () => {
-      // Stop the container to simulate connection failure
-      await containerInstance.stop();
-
-      // Attempt to query - should throw an appropriate error
-      await expect(
-        neo4jManager.query('RETURN 1 as test')
-      ).rejects.toThrow();
-    });
-
-    test('should handle malformed queries appropriately', async () => {
-      // Test malformed Cypher query
-      await expect(
-        neo4jManager.query('INVALID CYPHER SYNTAX')
-      ).rejects.toThrow();
-    });
-  });
-});
+    
+    async def test_neo4j_container_connectivity(self, neo4j_instance):
+        """Test basic connectivity to Neo4j container."""
+        # Initialize Blarify's Neo4jManager with container details
+        manager = Neo4jManager(
+            repo_id="test-repo",
+            entity_id="test-entity",
+            uri=neo4j_instance.uri,
+            user=neo4j_instance.config.username,
+            password=neo4j_instance.config.password
+        )
+        
+        try:
+            # Test basic connectivity
+            with manager.driver.session() as session:
+                result = session.run("RETURN 'Connected' as status")
+                record = result.single()
+                assert record["status"] == "Connected"
+        finally:
+            manager.close()
+    
+    async def test_apoc_procedures_available(self, neo4j_manager):
+        """Test that APOC procedures required by Blarify are available."""
+        config = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="test-password",
+            plugins=["apoc"],  # Ensure APOC is installed
+            test_id="apoc-test"
+        )
+        
+        # Use container with APOC
+        instance = await neo4j_manager.start_for_test(config)
+        
+        manager = Neo4jManager(
+            repo_id="test-repo",
+            entity_id="test-entity",
+            uri=instance.uri,
+            user=instance.config.username,
+            password=instance.config.password
+        )
+        
+        try:
+            # Check APOC merge procedures used by Blarify
+            with manager.driver.session() as session:
+                result = session.run("""
+                    CALL apoc.help('merge') 
+                    YIELD name 
+                    WHERE name IN ['apoc.merge.node', 'apoc.merge.relationship']
+                    RETURN collect(name) as procedures
+                """)
+                record = result.single()
+                procedures = record["procedures"]
+                assert "apoc.merge.node" in procedures
+                assert "apoc.merge.relationship" in procedures
+        finally:
+            manager.close()
+            await instance.stop()
+    
+    async def test_blarify_node_creation(self, neo4j_instance):
+        """Test creating nodes using Blarify's Neo4jManager."""
+        manager = Neo4jManager(
+            repo_id="test-repo",
+            entity_id="test-entity",
+            uri=neo4j_instance.uri,
+            user=neo4j_instance.config.username,
+            password=neo4j_instance.config.password
+        )
+        
+        try:
+            # Create test nodes using Blarify's format
+            test_nodes = [
+                {
+                    "type": "Function",
+                    "extra_labels": ["Python"],
+                    "attributes": {
+                        "node_id": "func-1",
+                        "name": "test_function",
+                        "path": "/test/file.py",
+                        "start_line": 1,
+                        "end_line": 10,
+                        "text": "def test_function(): pass"
+                    }
+                },
+                {
+                    "type": "Class",
+                    "extra_labels": ["Python"],
+                    "attributes": {
+                        "node_id": "class-1",
+                        "name": "TestClass",
+                        "path": "/test/file.py",
+                        "start_line": 12,
+                        "end_line": 20,
+                        "text": "class TestClass: pass"
+                    }
+                }
+            ]
+            
+            # Create nodes
+            manager.create_nodes(test_nodes)
+            
+            # Verify nodes were created
+            with manager.driver.session() as session:
+                result = session.run("""
+                    MATCH (n:NODE)
+                    WHERE n.repoId = $repoId AND n.entityId = $entityId
+                    RETURN n.node_id as id, n.name as name, labels(n) as labels
+                    ORDER BY n.node_id
+                """, repoId="test-repo", entityId="test-entity")
+                
+                nodes = list(result)
+                assert len(nodes) == 2
+                
+                # Check first node
+                assert nodes[0]["id"] == "class-1"  # Ordered by node_id
+                assert nodes[0]["name"] == "TestClass"
+                assert "Class" in nodes[0]["labels"]
+                assert "Python" in nodes[0]["labels"]
+                assert "NODE" in nodes[0]["labels"]
+                
+                # Check second node
+                assert nodes[1]["id"] == "func-1"
+                assert nodes[1]["name"] == "test_function"
+                assert "Function" in nodes[1]["labels"]
+                
+        finally:
+            manager.close()
+    
+    async def test_blarify_edge_creation(self, neo4j_instance):
+        """Test creating edges using Blarify's Neo4jManager."""
+        manager = Neo4jManager(
+            repo_id="test-repo",
+            entity_id="test-entity",
+            uri=neo4j_instance.uri,
+            user=neo4j_instance.config.username,
+            password=neo4j_instance.config.password
+        )
+        
+        try:
+            # First create nodes
+            nodes = [
+                {
+                    "type": "Function",
+                    "extra_labels": [],
+                    "attributes": {
+                        "node_id": "caller",
+                        "name": "caller_function"
+                    }
+                },
+                {
+                    "type": "Function", 
+                    "extra_labels": [],
+                    "attributes": {
+                        "node_id": "callee",
+                        "name": "callee_function"
+                    }
+                }
+            ]
+            manager.create_nodes(nodes)
+            
+            # Create edge
+            edges = [{
+                "sourceId": "caller",
+                "targetId": "callee",
+                "type": "CALLS",
+                "line_number": 5,
+                "call_type": "direct"
+            }]
+            manager.create_edges(edges)
+            
+            # Verify edge was created
+            with manager.driver.session() as session:
+                result = session.run("""
+                    MATCH (a:NODE {node_id: 'caller'})-[r:CALLS]->(b:NODE {node_id: 'callee'})
+                    WHERE a.repoId = $repoId AND a.entityId = $entityId
+                    RETURN r.line_number as line, r.call_type as type
+                """, repoId="test-repo", entityId="test-entity")
+                
+                record = result.single()
+                assert record["line"] == 5
+                assert record["type"] == "direct"
+                
+        finally:
+            manager.close()
+    
+    async def test_data_isolation_between_containers(self, neo4j_manager):
+        """Test that data is isolated between different test containers."""
+        # First container
+        config1 = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="test-password",
+            plugins=["apoc"],
+            test_id="isolation-test-1"
+        )
+        instance1 = await neo4j_manager.start_for_test(config1)
+        
+        manager1 = Neo4jManager(
+            repo_id="test-repo",
+            entity_id="test-entity",
+            uri=instance1.uri,
+            user=instance1.config.username,
+            password=instance1.config.password
+        )
+        
+        try:
+            # Create data in first container
+            test_node = [{
+                "type": "TestNode",
+                "extra_labels": ["Container1"],
+                "attributes": {
+                    "node_id": "test-1",
+                    "name": "container1_data"
+                }
+            }]
+            manager1.create_nodes(test_node)
+            
+            # Verify data exists
+            with manager1.driver.session() as session:
+                result = session.run("""
+                    MATCH (n:TestNode)
+                    WHERE n.repoId = $repoId AND n.entityId = $entityId
+                    RETURN count(n) as count
+                """, repoId="test-repo", entityId="test-entity")
+                assert result.single()["count"] == 1
+        finally:
+            manager1.close()
+            await instance1.stop()
+        
+        # Second container
+        config2 = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="test-password",
+            plugins=["apoc"],
+            test_id="isolation-test-2"
+        )
+        instance2 = await neo4j_manager.start_for_test(config2)
+        
+        manager2 = Neo4jManager(
+            repo_id="test-repo",
+            entity_id="test-entity",
+            uri=instance2.uri,
+            user=instance2.config.username,
+            password=instance2.config.password
+        )
+        
+        try:
+            # Verify no data from first container
+            with manager2.driver.session() as session:
+                result = session.run("""
+                    MATCH (n:TestNode)
+                    WHERE n.repoId = $repoId AND n.entityId = $entityId
+                    RETURN count(n) as count
+                """, repoId="test-repo", entityId="test-entity")
+                assert result.single()["count"] == 0
+        finally:
+            manager2.close()
+            await instance2.stop()
 ```
 
 ## Testing Strategy
@@ -674,11 +593,68 @@ For existing test setups with manual Neo4j management:
 
 ## Development Approach
 
-1. **Create GitHub issue** describing the feature
-2. **Create feature branch**: `feature/neo4j-container-management`
-3. **Implement incrementally** with tests for each phase
-4. **Document usage** in README with examples
-5. **Create pull request** with comprehensive description
-6. **Update test suites** to use the new container manager
+1. **Create GitHub issue** describing the feature ✅
+2. **Create feature branch**: `feature/neo4j-container-management` ✅
+3. **Implement incrementally** with tests for each phase ✅ (Mostly complete)
+4. **Document usage** in README with examples ❌ (Still needed)
+5. **Create pull request** with comprehensive description ⏳ (Ready when docs complete)
+6. **Update test suites** to use the new container manager ❌ (Still needed)
 
-This component will provide a reliable foundation for all Neo4j testing in the Blarify ecosystem, making database testing truly seamless for developers.
+## Summary of Current State
+
+### ✅ Completed
+- Full neo4j_container_manager package implementation
+- Core container lifecycle management with Docker SDK
+- Dynamic port allocation and management
+- Volume management with automatic cleanup
+- Comprehensive data management (Cypher, JSON, CSV)
+- Pytest fixtures for easy integration
+- Basic integration tests
+- Password validation (minimum 8 characters)
+- Memory format validation
+- Plugin validation
+
+### ❌ Still Needed
+1. **README.md** for the neo4j_container_manager package
+2. **test_neo4j_connectivity.py** - Specific tests for Blarify's Neo4jManager integration
+3. **Update Blarify's existing tests** to use the container manager fixtures
+4. **Documentation** of best practices and usage examples
+
+### 🔧 Next Steps
+1. Create README.md with installation and usage instructions
+2. Implement test_neo4j_connectivity.py with the Python test structure above
+3. Update existing Blarify tests to use neo4j_instance fixture
+4. Update CI/CD configuration to support Docker-based tests:
+   - Add Docker service to `.github/workflows/ci.yml`
+   - Use pytest markers to separate unit and integration tests
+   - Consider running container tests only on one Python version to save CI time
+5. Create pull request with comprehensive documentation
+
+### CI/CD Integration Notes
+
+The existing CI workflow (`ci.yml`) runs tests with `poetry run pytest -v` but doesn't currently support Docker. To enable the Neo4j container tests:
+
+```yaml
+# Add to ci.yml
+services:
+  docker:
+    image: docker:dind
+    options: --privileged
+
+# Or use pytest markers to skip integration tests in CI:
+- name: Run tests (excluding integration)
+  run: poetry run pytest -v -m "not integration"
+
+# Add a separate job for integration tests with Docker setup
+integration-test:
+  runs-on: ubuntu-latest
+  services:
+    docker:
+      image: docker:dind
+  steps:
+    # ... setup steps ...
+    - name: Run integration tests
+      run: poetry run pytest -v -m "integration"
+```
+
+This component provides a reliable foundation for all Neo4j testing in the Blarify ecosystem, making database testing truly seamless for developers. The implementation is production-ready and follows Python best practices with comprehensive type hints and error handling.

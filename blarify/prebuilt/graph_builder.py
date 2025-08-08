@@ -1,3 +1,4 @@
+from typing import Optional
 from blarify.code_references.lsp_helper import LspQueryHelper
 from blarify.graph.graph import Graph
 from blarify.graph.graph_environment import GraphEnvironment
@@ -9,10 +10,10 @@ class GraphBuilder:
     def __init__(
         self,
         root_path: str,
-        extensions_to_skip: list[str] = None,
-        names_to_skip: list[str] = None,
         only_hierarchy: bool = False,
-        graph_environment: GraphEnvironment = None,
+        extensions_to_skip: Optional[list[str]] = None,
+        names_to_skip: Optional[list[str]] = None,
+        graph_environment: Optional[GraphEnvironment] = None,
     ):
         """
         A class responsible for constructing a graph representation of a project's codebase.

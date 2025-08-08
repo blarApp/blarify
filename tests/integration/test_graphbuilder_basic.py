@@ -7,13 +7,14 @@ from source code and persist them to Neo4j databases.
 
 import pytest
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
+from tests.utils.fixtures import docker_check  # noqa: F401
 
 
 @pytest.mark.asyncio
@@ -23,6 +24,7 @@ class TestGraphBuilderBasic:
 
     async def test_graphbuilder_creates_nodes_python_simple(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -54,7 +56,7 @@ class TestGraphBuilderBasic:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Debug: Print graph summary to see what labels are actually created
-        summary = await graph_assertions.debug_print_graph_summary()
+        await graph_assertions.debug_print_graph_summary()
         
         # Verify basic node creation
         await graph_assertions.assert_node_exists("FILE")
@@ -79,6 +81,7 @@ class TestGraphBuilderBasic:
 
     async def test_graphbuilder_hierarchy_only_mode(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -114,6 +117,7 @@ class TestGraphBuilderBasic:
 
     async def test_graphbuilder_with_file_filtering(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -148,15 +152,15 @@ class TestGraphBuilderBasic:
         # Check that we have Python files but not TypeScript/Ruby
         python_files = [
             props for props in file_properties 
-            if props.get("file_path", "").endswith(".py")
+            if props.get("path", props.get("file_path", "")).endswith(".py")
         ]
         typescript_files = [
             props for props in file_properties
-            if props.get("file_path", "").endswith((".ts", ".js"))
+            if props.get("path", props.get("file_path", "")).endswith((".ts", ".js"))
         ]
         ruby_files = [
             props for props in file_properties
-            if props.get("file_path", "").endswith(".rb")
+            if props.get("path", props.get("file_path", "")).endswith(".rb")
         ]
         
         assert len(python_files) > 0, "Should have Python files"
@@ -167,6 +171,7 @@ class TestGraphBuilderBasic:
 
     async def test_graphbuilder_creates_relationships(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -186,16 +191,16 @@ class TestGraphBuilderBasic:
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
         
         # Check for basic relationship types that should exist
-        expected_relationship_types = {"CONTAINS", "DEFINES"}
         actual_relationship_types = await graph_assertions.get_relationship_types()
         
         # At minimum, we should have some relationships
         assert len(actual_relationship_types) > 0, "Should have some relationships"
         
-        # Check for file containing functions/classes
+        # Check for file defining functions/classes
+        # Based on RelationshipCreator, FILE nodes have FUNCTION_DEFINITION relationships to functions
         await graph_assertions.assert_relationship_exists(
             "FILE", 
-            "CONTAINS", 
+            "FUNCTION_DEFINITION", 
             "FUNCTION"
         )
         
@@ -203,6 +208,7 @@ class TestGraphBuilderBasic:
 
     async def test_graphbuilder_empty_directory(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
@@ -238,6 +244,7 @@ class TestGraphBuilderBasic:
 
     async def test_graphbuilder_debug_graph_summary(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,

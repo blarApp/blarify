@@ -7,13 +7,14 @@ programming languages and creates appropriate graph structures.
 
 import pytest
 from pathlib import Path
-from typing import List, Dict, Any, Set
+from typing import Dict, Any
 
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
+from tests.utils.fixtures import docker_check  # noqa: F401
 
 
 @pytest.mark.asyncio
@@ -24,6 +25,7 @@ class TestGraphBuilderLanguages:
     @pytest.mark.parametrize("language", ["python", "typescript", "ruby"])
     async def test_graphbuilder_language_support(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -73,7 +75,7 @@ class TestGraphBuilderLanguages:
         
         language_files = [
             props for props in file_properties
-            if any(props.get("file_path", "").endswith(ext) for ext in expected_ext)
+            if any(props.get("path", props.get("file_path", "")).endswith(ext) for ext in expected_ext)
         ]
         
         assert len(language_files) > 0, f"Should have {language} files"
@@ -82,6 +84,7 @@ class TestGraphBuilderLanguages:
 
     async def test_graphbuilder_python_specifics(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -126,6 +129,7 @@ class TestGraphBuilderLanguages:
 
     async def test_graphbuilder_typescript_specifics(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -158,6 +162,7 @@ class TestGraphBuilderLanguages:
 
     async def test_graphbuilder_ruby_specifics(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance, 
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -190,6 +195,7 @@ class TestGraphBuilderLanguages:
 
     async def test_graphbuilder_mixed_languages(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -216,7 +222,7 @@ class TestGraphBuilderLanguages:
         # Extract file extensions
         extensions = set()
         for props in file_properties:
-            file_path = props.get("file_path", "")
+            file_path = props.get("path", props.get("file_path", ""))
             if "." in file_path:
                 ext = "." + file_path.split(".")[-1] 
                 extensions.add(ext)
@@ -232,6 +238,7 @@ class TestGraphBuilderLanguages:
 
     async def test_graphbuilder_inheritance_relationships(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
@@ -261,12 +268,13 @@ class TestGraphBuilderLanguages:
         expected_basic_relationships = {"CONTAINS", "DEFINES"}
         
         # Check that we have some basic relationships
-        found_relationships = relationship_types.intersection(expected_basic_relationships)
+        relationship_types.intersection(expected_basic_relationships)
         
         db_manager.close()
 
     async def test_graphbuilder_language_comparison(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,

@@ -5,8 +5,7 @@ Python imports example for testing import relationship parsing.
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
-from abc import ABC, abstractmethod
+from typing import Dict, Optional
 
 # Local imports (these will reference the other test files)
 from .simple_module import SimpleClass, simple_function
@@ -53,7 +52,7 @@ class ImportExample:
             self.initialize()
         
         # Use the processor
-        result = self.processor.process(data)
+        result = self.processor.process(data) if self.processor else ""
         
         # Use the simple object
         if self.simple_obj:

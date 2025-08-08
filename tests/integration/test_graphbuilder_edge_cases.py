@@ -6,15 +6,15 @@ error conditions, and boundary cases.
 """
 
 import pytest
-import tempfile
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
+from tests.utils.fixtures import docker_check  # noqa: F401
 
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ from tests.utils.graph_assertions import GraphAssertions
 class TestGraphBuilderEdgeCases:
     """Test GraphBuilder edge cases and error handling."""
 
-    async def test_graphbuilder_nonexistent_path(self) -> None:
+    async def test_graphbuilder_nonexistent_path(self, docker_check: Any) -> None:
         """Test GraphBuilder with non-existent root path."""
         nonexistent_path = "/this/path/does/not/exist"
         
@@ -40,6 +40,7 @@ class TestGraphBuilderEdgeCases:
 
     async def test_graphbuilder_empty_file(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
@@ -74,15 +75,16 @@ class TestGraphBuilderEdgeCases:
         file_properties = await graph_assertions.get_node_properties("FILE")
         
         # Should have entries for our empty files
-        file_paths = [props.get("file_path", "") for props in file_properties]
+        file_paths = [props.get("path", props.get("file_path", "")) for props in file_properties]
         py_files = [path for path in file_paths if path.endswith(".py")]
         
         assert len(py_files) > 0, "Should have Python file entries"
         
-        await db_manager.close()
+        db_manager.close()
 
     async def test_graphbuilder_invalid_syntax_files(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
@@ -134,7 +136,7 @@ function brokenFunction() {
             # Should still have File nodes even for invalid files
             await graph_assertions.assert_node_exists("FILE")
             
-            await db_manager.close()
+            db_manager.close()
             
         except Exception as e:
             # GraphBuilder might raise parsing errors, which is acceptable
@@ -142,6 +144,7 @@ function brokenFunction() {
 
     async def test_graphbuilder_very_large_files(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
@@ -205,10 +208,11 @@ class LargeClass:
         # Should have created multiple functions (50 functions + class methods)
         assert function_count > 10, f"Expected many functions, got {function_count}"
         
-        await db_manager.close()
+        db_manager.close()
 
     async def test_graphbuilder_special_characters_in_paths(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
@@ -260,7 +264,7 @@ def unicode_function():
             # Should have files with special characters
             assert len(file_properties) > 0
             
-            await db_manager.close()
+            db_manager.close()
             
         except Exception as e:
             # Some systems might not support unicode filenames
@@ -268,6 +272,7 @@ def unicode_function():
 
     async def test_graphbuilder_deeply_nested_directory(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
@@ -310,10 +315,11 @@ def deeply_nested_function():
         
         assert "deeply_nested_function" in function_names
         
-        await db_manager.close()
+        db_manager.close()
 
     async def test_graphbuilder_mixed_valid_invalid_files(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
@@ -382,7 +388,7 @@ class NoColon
             assert len(txt_files) == 0, "Should not have text files (filtered)"
             assert len(bin_files) == 0, "Should not have binary files (filtered)"
             
-            await db_manager.close()
+            db_manager.close()
             
         except Exception as e:
             print(f"Mixed file processing error: {e}")

@@ -43,7 +43,7 @@ jobs:
       run: poetry install --no-interaction
     
     - name: Run tests
-      run: poetry run pytest -v
+      run: poetry run pytest -n auto -v
     
   lint:
     runs-on: ubuntu-latest

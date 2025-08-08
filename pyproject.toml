@@ -79,12 +79,10 @@ markers = [
     "slow: Tests that take longer to run",
 ]
 # Parallel execution configuration
-# Temporarily disabled for debugging
-# addopts = [
-#     "-n", "auto",  # Use all available CPU cores
-#     "--dist", "loadscope",  # Group tests by module for better test isolation
-#     "--maxprocesses", "4",  # Limit max processes to avoid resource exhaustion
-# ]
+addopts = [
+    "-n", "auto",  # Use all available CPU cores
+    "--dist", "loadscope",  # Group tests by module for better test isolation
+]
 # Test discovery
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]

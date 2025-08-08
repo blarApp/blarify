@@ -27,12 +27,25 @@ from tests.utils.fixtures import docker_check  # noqa: F401
 def neo4j_config(request: Any) -> Neo4jContainerConfig:
     """
     Override the default neo4j_config fixture to include APOC plugin.
+    
+    Generates a unique test_id for each test instance to prevent container
+    name conflicts when running tests in parallel.
     """
+    import uuid
+    
+    # Get base test name
+    base_name = getattr(getattr(request, "node", request), "name", request.__class__.__name__)
+    # Clean up special characters
+    clean_name = base_name.replace('[', '-').replace(']', '').replace(' ', '-')
+    # Add a unique suffix to ensure no conflicts in parallel execution
+    unique_suffix = uuid.uuid4().hex[:8]
+    test_id = f"{clean_name}-{unique_suffix}"
+    
     return Neo4jContainerConfig(
         environment=Environment.TEST,
         password="test-password",
         plugins=["apoc"],
-        test_id=getattr(getattr(request, "node", request), "name", request.__class__.__name__).replace('[', '-').replace(']', ''),
+        test_id=test_id,
     )
 
 

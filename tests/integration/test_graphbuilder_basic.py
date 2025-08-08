@@ -14,7 +14,6 @@ from blarify.graph.graph import Graph
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
-from tests.utils.fixtures import docker_check  # noqa: F401
 
 
 @pytest.mark.asyncio

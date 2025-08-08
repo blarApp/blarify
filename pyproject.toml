@@ -79,8 +79,10 @@ markers = [
     "slow: Tests that take longer to run",
 ]
 # Parallel execution configuration
+# Note: Integration tests with Docker should run sequentially
+# Use: pytest -n auto tests/unit for parallel unit tests
+# Use: pytest tests/integration for sequential integration tests
 addopts = [
-    "-n", "auto",  # Use all available CPU cores
     "--dist", "loadscope",  # Group tests by module for better test isolation
 ]
 # Test discovery

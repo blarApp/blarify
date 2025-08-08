@@ -20,6 +20,7 @@ from neo4j_container_manager.fixtures import (
 )
 from neo4j_container_manager.types import Neo4jContainerConfig, Environment
 from tests.utils.graph_assertions import create_graph_assertions, GraphAssertions
+from tests.utils.fixtures import docker_check  # noqa: F401
 
 
 @pytest.fixture
@@ -83,4 +84,5 @@ __all__ = [
     "test_code_examples_path",
     "temp_project_dir",
     "graph_assertions",
+    "docker_check",
 ]

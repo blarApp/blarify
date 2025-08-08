@@ -1,6 +1,6 @@
 from typing import List, TYPE_CHECKING, Optional, Dict, Any
 from hashlib import md5
-from blarify.format_verifier import FormatVerifier
+from blarify.utils.format_verifier import FormatVerifier
 import os
 
 from blarify.utils.relative_id_calculator import RelativeIdCalculator

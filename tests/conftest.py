@@ -5,11 +5,9 @@ This module provides common fixtures for integration testing,
 particularly for GraphBuilder functionality with Neo4j containers.
 """
 
-import asyncio
-import os
 import tempfile
 from pathlib import Path
-from typing import AsyncGenerator, Generator
+from typing import Generator, Any
 
 import pytest
 import pytest_asyncio
@@ -25,7 +23,7 @@ from tests.utils.graph_assertions import create_graph_assertions, GraphAssertion
 
 
 @pytest.fixture
-def neo4j_config(request):
+def neo4j_config(request: Any) -> Neo4jContainerConfig:
     """
     Override the default neo4j_config fixture to include APOC plugin.
     """
@@ -33,7 +31,7 @@ def neo4j_config(request):
         environment=Environment.TEST,
         password="test-password",
         plugins=["apoc"],
-        test_id=getattr(request, "node", type(request).__name__).name,
+        test_id=getattr(getattr(request, "node", request), "name", request.__class__.__name__).replace('[', '-').replace(']', ''),
     )
 
 
@@ -60,8 +58,8 @@ def temp_project_dir() -> Generator[Path, None, None]:
         yield Path(temp_dir)
 
 
-@pytest_asyncio.fixture
-async def graph_assertions(neo4j_instance) -> GraphAssertions:
+@pytest_asyncio.fixture  # type: ignore[misc]
+async def graph_assertions(neo4j_instance: Any) -> GraphAssertions:
     """
     Fixture that provides GraphAssertions helper for test validation.
     

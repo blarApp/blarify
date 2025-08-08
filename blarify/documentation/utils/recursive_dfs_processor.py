@@ -14,7 +14,7 @@ import functools
 import threading
 import queue
 from typing import Dict, List, Optional, Any, Set, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from ...agents.llm_provider import LLMProvider
 from ...agents.prompt_templates import (
@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 class ProcessingResult(BaseModel):
     """Result of processing a node (folder or file) with recursive DFS."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow Node objects
+
     node_path: str
     node_relationships: List[Dict[str, Any]] = Field(default_factory=list)
     hierarchical_analysis: Dict[str, Any] = Field(default_factory=dict)
@@ -58,9 +60,6 @@ class ProcessingResult(BaseModel):
     source_nodes: List[Union[FileNode, FolderNode, FunctionNode, ClassNode]] = Field(
         default_factory=list
     )  # Actual source code Node objects
-
-    class Config:
-        arbitrary_types_allowed = True  # Allow Node objects
 
 
 class RecursiveDFSProcessor:

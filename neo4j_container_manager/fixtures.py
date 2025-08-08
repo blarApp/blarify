@@ -76,7 +76,7 @@ async def neo4j_config(request: Any) -> Neo4jContainerConfig:
         memory=memory,
         plugins=plugins,
         custom_config=custom_config,
-        test_id=f"pytest-{request.node.name}",
+        test_id=f"pytest-{request.node.name.replace('[', '-').replace(']', '')}",
         startup_timeout=60,
     )
 

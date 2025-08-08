@@ -6,7 +6,7 @@ and workflow creation processes, replacing the complex LangGraph state managemen
 """
 
 from typing import List, Dict, Any, Optional, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # Import concrete Node types for type annotations
 from blarify.graph.node.file_node import FileNode
@@ -18,6 +18,8 @@ from blarify.graph.node.documentation_node import DocumentationNode
 
 class DocumentationResult(BaseModel):
     """Result of documentation creation process."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow Node objects
 
     # Core results
     information_nodes: List[Dict[str, Any]] = Field(default_factory=list)
@@ -35,9 +37,6 @@ class DocumentationResult(BaseModel):
 
     code_references: List[Dict[str, Any]] = Field(default_factory=list)
     """Precise code location mappings"""
-
-    class Config:
-        arbitrary_types_allowed = True  # Allow Node objects
 
     # Analysis metadata
     analyzed_nodes: List[Dict[str, Any]] = Field(default_factory=list)

@@ -48,6 +48,7 @@ pytest-asyncio = "^0.25.0"
 ruff = "^0.12.5"
 pyright = "^1.1.350"
 types-docker = "^7.1.0.20250705"
+pytest-xdist = "^3.8.0"
 
 [tool.vendoring]
 destination = "blarify/vendor"
@@ -70,12 +71,25 @@ skip = "*.csv,*.html,*.json,*.jsonl,*.pdf,*.txt,*.ipynb"
 profile = "black"
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 markers = [
     "neo4j_unit: Unit tests for Neo4j container management",
     "neo4j_integration: Integration tests requiring Docker",
     "neo4j_performance: Performance tests for Neo4j operations",
     "slow: Tests that take longer to run",
 ]
+# Parallel execution configuration
+# Note: Integration tests with Docker should run sequentially
+# Use: pytest -n auto tests/unit for parallel unit tests
+# Use: pytest tests/integration for sequential integration tests
+addopts = [
+    "--dist", "loadscope",  # Group tests by module for better test isolation
+]
+# Test discovery
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 
 [tool.pyright]
 include = ["blarify", "tests", "neo4j_container_manager"]

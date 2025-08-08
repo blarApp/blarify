@@ -48,6 +48,7 @@ pytest-asyncio = "^0.25.0"
 ruff = "^0.12.5"
 pyright = "^1.1.350"
 types-docker = "^7.1.0.20250705"
+pytest-xdist = "^3.8.0"
 
 [tool.vendoring]
 destination = "blarify/vendor"
@@ -77,6 +78,18 @@ markers = [
     "neo4j_performance: Performance tests for Neo4j operations",
     "slow: Tests that take longer to run",
 ]
+# Parallel execution configuration
+# Temporarily disabled for debugging
+# addopts = [
+#     "-n", "auto",  # Use all available CPU cores
+#     "--dist", "loadscope",  # Group tests by module for better test isolation
+#     "--maxprocesses", "4",  # Limit max processes to avoid resource exhaustion
+# ]
+# Test discovery
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 
 [tool.pyright]
 include = ["blarify", "tests", "neo4j_container_manager"]

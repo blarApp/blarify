@@ -21,6 +21,7 @@ Welcome to the comprehensive documentation for Blarify - a tool that transforms 
 
 ### Development
 - **[Architecture Overview](architecture.md)** - Understanding Blarify's internal design
+- **[Testing Guide](testing-guide.md)** - Comprehensive guide to testing framework and adding tests
 - **[Contributing Guide](contributing.md)** - How to contribute to the project
 
 ## 🚀 Quick Navigation
@@ -36,6 +37,8 @@ Welcome to the comprehensive documentation for Blarify - a tool that transforms 
 **See real examples** → [Examples](examples.md)
 
 **Troubleshoot issues** → [FAQ](faq.md)
+
+**Write tests for Blarify** → [Testing Guide](testing-guide.md)
 
 **Contribute to the project** → [Contributing Guide](contributing.md)
 

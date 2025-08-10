@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class NodeFactory:
     @staticmethod
     def create_folder_node(
-        folder: "Folder", parent: FolderNode = None, graph_environment: "GraphEnvironment" = None
+        folder: "Folder", parent: Optional[FolderNode] = None, graph_environment: Optional["GraphEnvironment"] = None
     ) -> FolderNode:
         return FolderNode(
             path=folder.uri_path,
@@ -40,7 +40,7 @@ class NodeFactory:
         parent: FolderNode,
         tree_sitter_node: Optional["TreeSitterNode"] = None,
         body_node: Optional["TreeSitterNode"] = None,
-        graph_environment: "GraphEnvironment" = None,
+        graph_environment: Optional["GraphEnvironment"] = None,
     ) -> FileNode:
         return FileNode(
             path=path,
@@ -65,8 +65,8 @@ class NodeFactory:
         body_node: "TreeSitterNode",
         level: int,
         tree_sitter_node: "TreeSitterNode",
-        parent: Union[FileNode, ClassNode, FunctionNode] = None,
-        graph_environment: "GraphEnvironment" = None,
+        parent: Optional[Union[FileNode, ClassNode, FunctionNode]] = None,
+        graph_environment: Optional["GraphEnvironment"] = None,
     ) -> ClassNode:
         return ClassNode(
             name=class_name,
@@ -91,8 +91,8 @@ class NodeFactory:
         body_node: "TreeSitterNode",
         level: int,
         tree_sitter_node: "TreeSitterNode",
-        parent: Union[FileNode, ClassNode, FunctionNode] = None,
-        graph_environment: "GraphEnvironment" = None,
+        parent: Optional[Union[FileNode, ClassNode, FunctionNode]] = None,
+        graph_environment: Optional["GraphEnvironment"] = None,
     ) -> FunctionNode:
         return FunctionNode(
             name=function_name,
@@ -118,8 +118,8 @@ class NodeFactory:
         body_node: "TreeSitterNode",
         level: int,
         tree_sitter_node: "TreeSitterNode",
-        parent: Union[FileNode, ClassNode, FunctionNode] = None,
-        graph_environment: "GraphEnvironment" = None,
+        parent: Optional[Union[FileNode, ClassNode, FunctionNode]] = None,
+        graph_environment: Optional["GraphEnvironment"] = None,
     ) -> Union[ClassNode, FunctionNode]:
         if kind == NodeLabels.CLASS:
             return NodeFactory.create_class_node(
@@ -152,11 +152,12 @@ class NodeFactory:
 
     @staticmethod
     def create_deleted_node(
-        graph_environment: "GraphEnvironment" = None,
+        graph_environment: Optional["GraphEnvironment"] = None,
     ):
+        root_path = graph_environment.root_path if graph_environment else ""
         return DeletedNode(
             label=NodeLabels.DELETED,
-            path="file://" + graph_environment.root_path + f"/DELETED-{str(uuid4())}",
+            path="file://" + root_path + f"/DELETED-{str(uuid4())}",
             name="DELETED",
             level=0,
             graph_environment=graph_environment,

@@ -42,7 +42,7 @@ class DocumentationCreator:
         graph_environment: GraphEnvironment,
         company_id: str,
         repo_id: str,
-        max_workers: int = 75,
+        max_workers: int = 5,
     ) -> None:
         """
         Initialize the documentation creator.

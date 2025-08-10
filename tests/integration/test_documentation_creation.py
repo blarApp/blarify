@@ -28,7 +28,7 @@ class TestDocumentationCreation:
 
     async def test_documentation_for_file_with_direct_code(
         self,
-        _docker_check: Any,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,

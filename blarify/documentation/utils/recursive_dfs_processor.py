@@ -12,7 +12,7 @@ import concurrent.futures
 import contextvars
 import functools
 import threading
-from typing import Dict, List, Optional, Any, Set, Union
+from typing import Dict, List, Optional, Any, Set
 from concurrent.futures import Future
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -33,10 +33,7 @@ from ...db_managers.queries import (
     get_existing_documentation_for_node,
 )
 from ...graph.node.documentation_node import DocumentationNode
-from ...graph.node.file_node import FileNode
-from ...graph.node.folder_node import FolderNode
-from ...graph.node.function_node import FunctionNode
-from ...graph.node.class_node import ClassNode
+# Note: We don't import concrete Node classes as we work with DTOs in documentation layer
 from ...graph.graph_environment import GraphEnvironment
 
 logger = logging.getLogger(__name__)
@@ -57,9 +54,9 @@ class ProcessingResult(BaseModel):
 
     # New fields for proper Node object handling
     documentation_nodes: List[DocumentationNode] = Field(default_factory=list)  # Actual DocumentationNode objects
-    source_nodes: List[Union[FileNode, FolderNode, FunctionNode, ClassNode]] = Field(
+    source_nodes: List[NodeWithContentDto] = Field(
         default_factory=list
-    )  # Actual source code Node objects
+    )  # Source code DTOs
 
 
 class RecursiveDFSProcessor:
@@ -100,9 +97,7 @@ class RecursiveDFSProcessor:
         self.max_workers = max_workers
         self.node_descriptions: Dict[str, DocumentationNode] = {}  # Cache processed nodes
         self.node_source_mapping: Dict[str, str] = {}  # Maps info_node_id -> source_node_id
-        self.source_nodes_cache: Dict[
-            str, Union[FileNode, FolderNode, FunctionNode, ClassNode]
-        ] = {}  # Cache actual source Node objects by node_id
+        self.source_nodes_cache: Dict[str, NodeWithContentDto] = {}  # Cache source DTOs by node_id
         self.source_to_description: Dict[str, str] = {}  # Maps source_node_id -> description content
         self.processing_futures: Dict[
             str, Future[DocumentationNode]
@@ -197,7 +192,7 @@ class RecursiveDFSProcessor:
             # Cache it and return immediately
             self.node_descriptions[node_id] = existing_doc
             self.node_source_mapping[existing_doc.hashed_id] = node_id
-            self.source_nodes_cache[node_id] = self._convert_to_node(node)
+            self.source_nodes_cache[node_id] = node
             self.source_to_description[node_id] = existing_doc.content
             logger.info(f"DEBUG: Database cache hit for node: {node.name} ({node_id})")
             return existing_doc
@@ -455,7 +450,7 @@ class RecursiveDFSProcessor:
             # Track mapping using the node's hashed_id (protected by per-node lock)
             self.node_source_mapping[info_node.hashed_id] = node.id
             # Cache the actual source Node object
-            self.source_nodes_cache[node.id] = self._convert_to_node(node)
+            self.source_nodes_cache[node.id] = node
             # Also track for efficient child lookup during skeleton replacement
             self.source_to_description[node.id] = response_content
 
@@ -479,7 +474,7 @@ class RecursiveDFSProcessor:
             # Track mapping using the node's hashed_id (protected by per-node lock)
             self.node_source_mapping[info_node.hashed_id] = node.id
             # Cache the actual source Node object
-            self.source_nodes_cache[node.id] = self._convert_to_node(node)
+            self.source_nodes_cache[node.id] = node
             # Also track for efficient child lookup during skeleton replacement
             self.source_to_description[node.id] = (
                 f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
@@ -670,7 +665,7 @@ class RecursiveDFSProcessor:
         # Track mapping using the node's hashed_id (protected by per-node lock)
         self.node_source_mapping[info_node.hashed_id] = node.id
         # Cache the actual source Node object
-        self.source_nodes_cache[node.id] = self._convert_to_node(node)
+        self.source_nodes_cache[node.id] = node
         self.source_to_description[node.id] = response_content
 
         return info_node
@@ -695,7 +690,7 @@ class RecursiveDFSProcessor:
         # Track mapping using the node's hashed_id (protected by per-node lock)
         self.node_source_mapping[info_node.hashed_id] = node.id
         # Cache the actual source Node object
-        self.source_nodes_cache[node.id] = self._convert_to_node(node)
+        self.source_nodes_cache[node.id] = node
         self.source_to_description[node.id] = (
             f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}"
         )
@@ -948,71 +943,3 @@ class RecursiveDFSProcessor:
             )
             return None
 
-    def _convert_to_node(self, node_dto: NodeWithContentDto) -> Union[FileNode, FolderNode, FunctionNode, ClassNode]:
-        """
-        Convert NodeWithContentDto to appropriate Node object.
-
-        Args:
-            node_dto: The NodeWithContentDto to convert
-
-        Returns:
-            Appropriate Node object (FileNode, FolderNode, FunctionNode, or ClassNode)
-        """
-        # Determine node type from labels
-        if "FOLDER" in node_dto.labels:
-            return FolderNode(
-                path=node_dto.path,
-                name=node_dto.name,
-                level=0,  # Level not preserved in DTO
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        elif "FILE" in node_dto.labels:
-            return FileNode(
-                path=node_dto.path,
-                name=node_dto.name,
-                level=0,  # Level not preserved in DTO
-                node_range=None,  # Range not preserved in DTO
-                definition_range=None,  # Range not preserved in DTO
-                code_text=node_dto.content,
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        elif "FUNCTION" in node_dto.labels:
-            return FunctionNode(
-                name=node_dto.name,
-                path=node_dto.path,
-                definition_range=None,  # Range not preserved in DTO
-                node_range=None,  # Range not preserved in DTO
-                code_text=node_dto.content,
-                body_node=None,  # TreeSitter node not preserved
-                level=0,  # Level not preserved in DTO
-                tree_sitter_node=None,  # TreeSitter node not preserved
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        elif "CLASS" in node_dto.labels:
-            return ClassNode(
-                name=node_dto.name,
-                path=node_dto.path,
-                definition_range=None,  # Range not preserved in DTO
-                node_range=None,  # Range not preserved in DTO
-                code_text=node_dto.content,
-                body_node=None,  # TreeSitter node not preserved
-                level=0,  # Level not preserved in DTO
-                tree_sitter_node=None,  # TreeSitter node not preserved
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        else:
-            # Default to FileNode for unknown types
-            return FileNode(
-                path=node_dto.path,
-                name=node_dto.name,
-                level=0,
-                node_range=None,
-                definition_range=None,
-                code_text=node_dto.content,
-                parent=None,
-                graph_environment=self.graph_environment,
-            )

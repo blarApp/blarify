@@ -12,8 +12,8 @@ import concurrent.futures
 import contextvars
 import functools
 import threading
-import queue
 from typing import Dict, List, Optional, Any, Set, Union
+from concurrent.futures import Future
 from pydantic import BaseModel, Field, ConfigDict
 
 from ...agents.llm_provider import LLMProvider
@@ -78,7 +78,7 @@ class RecursiveDFSProcessor:
         company_id: str,
         repo_id: str,
         graph_environment: GraphEnvironment,
-        max_workers: int = 75,
+        max_workers: int = 5,
         root_node: Optional[NodeWithContentDto] = None,
     ):
         """
@@ -104,8 +104,10 @@ class RecursiveDFSProcessor:
             str, Union[FileNode, FolderNode, FunctionNode, ClassNode]
         ] = {}  # Cache actual source Node objects by node_id
         self.source_to_description: Dict[str, str] = {}  # Maps source_node_id -> description content
-        self.processing_queues: Dict[str, queue.Queue] = {}  # Per-node result queues for coordination
-        self.queue_lock = threading.Lock()  # Protects the processing_queues dictionary
+        self.processing_futures: Dict[
+            str, Future[DocumentationNode]
+        ] = {}  # Per-node futures for coordination (broadcast)
+        self.futures_lock = threading.Lock()  # Protects the processing_futures dictionary
         self.root_node = root_node  # Optional root node to start processing from
         self.processing_stack: Set[str] = set()  # Detect cycles during processing
         self.cycle_participants: Dict[str, Set[str]] = {}  # Track cycle relationships
@@ -200,17 +202,17 @@ class RecursiveDFSProcessor:
             logger.info(f"DEBUG: Database cache hit for node: {node.name} ({node_id})")
             return existing_doc
 
-        # Try to become the processor for this node
-        with self.queue_lock:
-            if node_id not in self.processing_queues:
+        # Try to become the processor for this node using Future for broadcast
+        with self.futures_lock:
+            fut = self.processing_futures.get(node_id)
+            if fut is None:
                 # We're the first thread for this node - we'll process it
-                self.processing_queues[node_id] = queue.Queue()
+                fut = Future()
+                self.processing_futures[node_id] = fut
                 should_process = True
-                result_queue = None
             else:
                 # Another thread is already processing this node - we'll wait
                 should_process = False
-                result_queue = self.processing_queues[node_id]
 
         if should_process:
             # We're the processor thread - do the actual work
@@ -242,50 +244,27 @@ class RecursiveDFSProcessor:
                 self.node_descriptions[node_id] = description
                 logger.info(f"DEBUG: Cached result for node: {node.name} ({node_id})")
 
-                # Notify all waiting threads by putting result in queue
-                queue_obj = self.processing_queues[node_id]
-                # Send result to all potential waiters (queue has unlimited size by default)
-                # We don't know how many threads are waiting, so we'll send multiple copies
-                for _ in range(20):  # Upper bound for waiting threads
-                    try:
-                        queue_obj.put_nowait(description)
-                    except queue.Full:
-                        break  # Queue is full, no more waiters
-
-                # Clean up the queue from processing_queues
-                with self.queue_lock:
-                    self.processing_queues.pop(node_id, None)
+                # Broadcast result to all waiting threads via Future
+                fut.set_result(description)
 
                 return description
 
             except Exception as e:
-                # Notify waiting threads of error and clean up
+                # Propagate error to all waiting threads via Future
                 logger.exception(f"Error processing node {node.name} ({node_id}): {e}")
-
-                queue_obj = self.processing_queues.get(node_id)
-                if queue_obj:
-                    # Send error to waiting threads
-                    for _ in range(20):  # Same upper bound for error notifications
-                        try:
-                            queue_obj.put_nowait(("ERROR", e))
-                        except queue.Full:
-                            break
-
-                # Clean up
-                with self.queue_lock:
-                    self.processing_queues.pop(node_id, None)
+                fut.set_exception(e)
                 raise
             finally:
-                # Always remove from processing path
+                # Always remove from processing path and clean up futures mapping
                 processing_path.discard(node_id)
+                # Clean up the future from processing_futures to avoid memory leak
+                with self.futures_lock:
+                    self.processing_futures.pop(node_id, None)
         else:
             # We're a waiter thread - wait for the processor to complete
             logger.info(f"DEBUG: Waiting for another thread to complete {node.name} ({node_id})")
-            result = result_queue.get()  # Block until processor completes
-
-            if isinstance(result, tuple) and result[0] == "ERROR":
-                raise result[1]
-
+            # Future.result() will either return the value or raise the exception
+            result = fut.result()  # Block until processor completes (broadcast to all waiters)
             logger.info(f"DEBUG: Received result from processor thread for {node.name} ({node_id})")
             return result
 
@@ -295,12 +274,18 @@ class RecursiveDFSProcessor:
             return 0
 
         try:
-            # Get current active threads vs max workers
-            active_threads = len(self._global_executor._threads)
+            # Conservative approach: always assume limited availability to prevent deadlocks
+            # The _threads attribute doesn't accurately reflect available threads
+            # since it includes all threads ever created, not just active ones
             max_workers = self._global_executor._max_workers
-            available = max_workers - active_threads
-            logger.debug(f"Thread pool: {active_threads}/{max_workers} active, {available} available")
-            return available
+
+            # Dynamic calculation based on active futures (nodes being processed)
+            # This gives a more accurate picture of thread availability
+            active_nodes = len(self.processing_futures)
+            conservative_available = max(1, max_workers - active_nodes)
+
+            logger.debug(f"Thread pool: max_workers={max_workers}, conservative_available={conservative_available}")
+            return conservative_available
         except Exception as e:
             logger.warning(f"Could not check thread pool capacity: {e}")
             return 0
@@ -338,6 +323,8 @@ class RecursiveDFSProcessor:
             # Hierarchy navigation - safe to parallelize with capacity checking
             available_threads = self._get_available_threads()
             needs_parallel = len(children) > 1 and self.max_workers > 1 and self._global_executor is not None
+            # Since _get_available_threads() already returns a conservative estimate (max_workers // 3),
+            # we just need to check if we have enough threads for the children
             has_capacity = available_threads >= len(children)
 
             if not needs_parallel or not has_capacity:

@@ -2,7 +2,6 @@ from collections import defaultdict
 from typing import List, Dict, Set, DefaultDict, Optional, TYPE_CHECKING, Any
 
 from blarify.graph.node import Node, NodeLabels
-from blarify.graph.node import FileNode
 
 if TYPE_CHECKING:
     from blarify.graph.relationship import Relationship
@@ -10,7 +9,7 @@ if TYPE_CHECKING:
 
 class Graph:
     nodes_by_path: DefaultDict[str, Set[Node]]
-    file_nodes_by_path: Dict[str, FileNode]
+    file_nodes_by_path: Dict[str, Node]
     folder_nodes_by_path: Dict[str, Node]
     nodes_by_label: DefaultDict[str, Set[Node]]
     nodes_by_relative_id: Dict[str, Node]
@@ -21,7 +20,7 @@ class Graph:
         self.__nodes: Dict[str, Node] = {}
         self.__references_relationships: List["Relationship"] = []
         self.nodes_by_path: DefaultDict[str, Set[Node]] = defaultdict(set)
-        self.file_nodes_by_path: Dict[str, FileNode] = {}
+        self.file_nodes_by_path: Dict[str, Node] = {}
         self.folder_nodes_by_path: Dict[str, Node] = {}
         self.nodes_by_label: DefaultDict[str, Set[Node]] = defaultdict(set)
         self.nodes_by_relative_id: Dict[str, Node] = {}
@@ -48,7 +47,7 @@ class Graph:
     def get_nodes_by_path(self, path: str) -> Set[Node]:
         return self.nodes_by_path[path]
 
-    def get_file_node_by_path(self, path: str) -> Optional[FileNode]:
+    def get_file_node_by_path(self, path: str) -> Optional[Node]:
         return self.file_nodes_by_path.get(path)
 
     def get_folder_node_by_path(self, path: str) -> Node:

@@ -80,14 +80,6 @@ class RelationshipCreator:
         )
 
     @staticmethod
-    def create_belongs_to_spec_relationship(workflow_node: "Node", spec_node: "Node") -> Relationship:
-        return Relationship(
-            workflow_node,
-            spec_node,
-            RelationshipType.BELONGS_TO_SPEC,
-        )
-
-    @staticmethod
     def create_belongs_to_workflow_relationship(documentation_node: "Node", workflow_node: "Node") -> Relationship:
         return Relationship(
             documentation_node,
@@ -129,35 +121,6 @@ class RelationshipCreator:
                 relationships.append(
                     {
                         "sourceId": node_id,  # Participant node
-                        "targetId": workflow_node.hashed_id,  # Workflow node
-                        "type": RelationshipType.BELONGS_TO_WORKFLOW.name,
-                        "scopeText": "",
-                    }
-                )
-
-        return relationships
-
-    @staticmethod
-    def create_belongs_to_workflow_relationships_for_documentation_nodes(
-        workflow_node: "Node", documentation_node_ids: List[str]
-    ) -> List[dict]:
-        """
-        Create BELONGS_TO_WORKFLOW relationships from documentation nodes to workflow node.
-
-        Args:
-            workflow_node: The workflow InformationNode
-            documentation_node_ids: List of documentation node IDs in the workflow
-
-        Returns:
-            List of relationship dicts suitable for database insertion via create_edges()
-        """
-        relationships = []
-
-        for doc_node_id in documentation_node_ids:
-            if doc_node_id:  # Ensure valid ID
-                relationships.append(
-                    {
-                        "sourceId": doc_node_id,  # Documentation node
                         "targetId": workflow_node.hashed_id,  # Workflow node
                         "type": RelationshipType.BELONGS_TO_WORKFLOW.name,
                         "scopeText": "",

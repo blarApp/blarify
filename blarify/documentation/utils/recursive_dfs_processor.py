@@ -12,8 +12,8 @@ import concurrent.futures
 import contextvars
 import functools
 import threading
-import queue
-from typing import Dict, List, Optional, Any, Set, Union
+from typing import Dict, List, Optional, Any, Set
+from concurrent.futures import Future
 from pydantic import BaseModel, Field, ConfigDict
 
 from ...agents.llm_provider import LLMProvider
@@ -33,10 +33,7 @@ from ...db_managers.queries import (
     get_existing_documentation_for_node,
 )
 from ...graph.node.documentation_node import DocumentationNode
-from ...graph.node.file_node import FileNode
-from ...graph.node.folder_node import FolderNode
-from ...graph.node.function_node import FunctionNode
-from ...graph.node.class_node import ClassNode
+# Note: We don't import concrete Node classes as we work with DTOs in documentation layer
 from ...graph.graph_environment import GraphEnvironment
 
 logger = logging.getLogger(__name__)
@@ -57,9 +54,9 @@ class ProcessingResult(BaseModel):
 
     # New fields for proper Node object handling
     documentation_nodes: List[DocumentationNode] = Field(default_factory=list)  # Actual DocumentationNode objects
-    source_nodes: List[Union[FileNode, FolderNode, FunctionNode, ClassNode]] = Field(
+    source_nodes: List[NodeWithContentDto] = Field(
         default_factory=list
-    )  # Actual source code Node objects
+    )  # Source code DTOs
 
 
 class RecursiveDFSProcessor:
@@ -78,7 +75,7 @@ class RecursiveDFSProcessor:
         company_id: str,
         repo_id: str,
         graph_environment: GraphEnvironment,
-        max_workers: int = 75,
+        max_workers: int = 5,
         root_node: Optional[NodeWithContentDto] = None,
     ):
         """
@@ -100,12 +97,12 @@ class RecursiveDFSProcessor:
         self.max_workers = max_workers
         self.node_descriptions: Dict[str, DocumentationNode] = {}  # Cache processed nodes
         self.node_source_mapping: Dict[str, str] = {}  # Maps info_node_id -> source_node_id
-        self.source_nodes_cache: Dict[
-            str, Union[FileNode, FolderNode, FunctionNode, ClassNode]
-        ] = {}  # Cache actual source Node objects by node_id
+        self.source_nodes_cache: Dict[str, NodeWithContentDto] = {}  # Cache source DTOs by node_id
         self.source_to_description: Dict[str, str] = {}  # Maps source_node_id -> description content
-        self.processing_queues: Dict[str, queue.Queue] = {}  # Per-node result queues for coordination
-        self.queue_lock = threading.Lock()  # Protects the processing_queues dictionary
+        self.processing_futures: Dict[
+            str, Future[DocumentationNode]
+        ] = {}  # Per-node futures for coordination (broadcast)
+        self.futures_lock = threading.Lock()  # Protects the processing_futures dictionary
         self.root_node = root_node  # Optional root node to start processing from
         self.processing_stack: Set[str] = set()  # Detect cycles during processing
         self.cycle_participants: Dict[str, Set[str]] = {}  # Track cycle relationships
@@ -195,22 +192,22 @@ class RecursiveDFSProcessor:
             # Cache it and return immediately
             self.node_descriptions[node_id] = existing_doc
             self.node_source_mapping[existing_doc.hashed_id] = node_id
-            self.source_nodes_cache[node_id] = self._convert_to_node(node)
+            self.source_nodes_cache[node_id] = node
             self.source_to_description[node_id] = existing_doc.content
             logger.info(f"DEBUG: Database cache hit for node: {node.name} ({node_id})")
             return existing_doc
 
-        # Try to become the processor for this node
-        with self.queue_lock:
-            if node_id not in self.processing_queues:
+        # Try to become the processor for this node using Future for broadcast
+        with self.futures_lock:
+            fut = self.processing_futures.get(node_id)
+            if fut is None:
                 # We're the first thread for this node - we'll process it
-                self.processing_queues[node_id] = queue.Queue()
+                fut = Future()
+                self.processing_futures[node_id] = fut
                 should_process = True
-                result_queue = None
             else:
                 # Another thread is already processing this node - we'll wait
                 should_process = False
-                result_queue = self.processing_queues[node_id]
 
         if should_process:
             # We're the processor thread - do the actual work
@@ -242,50 +239,27 @@ class RecursiveDFSProcessor:
                 self.node_descriptions[node_id] = description
                 logger.info(f"DEBUG: Cached result for node: {node.name} ({node_id})")
 
-                # Notify all waiting threads by putting result in queue
-                queue_obj = self.processing_queues[node_id]
-                # Send result to all potential waiters (queue has unlimited size by default)
-                # We don't know how many threads are waiting, so we'll send multiple copies
-                for _ in range(20):  # Upper bound for waiting threads
-                    try:
-                        queue_obj.put_nowait(description)
-                    except queue.Full:
-                        break  # Queue is full, no more waiters
-
-                # Clean up the queue from processing_queues
-                with self.queue_lock:
-                    self.processing_queues.pop(node_id, None)
+                # Broadcast result to all waiting threads via Future
+                fut.set_result(description)
 
                 return description
 
             except Exception as e:
-                # Notify waiting threads of error and clean up
+                # Propagate error to all waiting threads via Future
                 logger.exception(f"Error processing node {node.name} ({node_id}): {e}")
-
-                queue_obj = self.processing_queues.get(node_id)
-                if queue_obj:
-                    # Send error to waiting threads
-                    for _ in range(20):  # Same upper bound for error notifications
-                        try:
-                            queue_obj.put_nowait(("ERROR", e))
-                        except queue.Full:
-                            break
-
-                # Clean up
-                with self.queue_lock:
-                    self.processing_queues.pop(node_id, None)
+                fut.set_exception(e)
                 raise
             finally:
-                # Always remove from processing path
+                # Always remove from processing path and clean up futures mapping
                 processing_path.discard(node_id)
+                # Clean up the future from processing_futures to avoid memory leak
+                with self.futures_lock:
+                    self.processing_futures.pop(node_id, None)
         else:
             # We're a waiter thread - wait for the processor to complete
             logger.info(f"DEBUG: Waiting for another thread to complete {node.name} ({node_id})")
-            result = result_queue.get()  # Block until processor completes
-
-            if isinstance(result, tuple) and result[0] == "ERROR":
-                raise result[1]
-
+            # Future.result() will either return the value or raise the exception
+            result = fut.result()  # Block until processor completes (broadcast to all waiters)
             logger.info(f"DEBUG: Received result from processor thread for {node.name} ({node_id})")
             return result
 
@@ -295,12 +269,18 @@ class RecursiveDFSProcessor:
             return 0
 
         try:
-            # Get current active threads vs max workers
-            active_threads = len(self._global_executor._threads)
+            # Conservative approach: always assume limited availability to prevent deadlocks
+            # The _threads attribute doesn't accurately reflect available threads
+            # since it includes all threads ever created, not just active ones
             max_workers = self._global_executor._max_workers
-            available = max_workers - active_threads
-            logger.debug(f"Thread pool: {active_threads}/{max_workers} active, {available} available")
-            return available
+
+            # Dynamic calculation based on active futures (nodes being processed)
+            # This gives a more accurate picture of thread availability
+            active_nodes = len(self.processing_futures)
+            conservative_available = max(1, max_workers - active_nodes)
+
+            logger.debug(f"Thread pool: max_workers={max_workers}, conservative_available={conservative_available}")
+            return conservative_available
         except Exception as e:
             logger.warning(f"Could not check thread pool capacity: {e}")
             return 0
@@ -338,6 +318,8 @@ class RecursiveDFSProcessor:
             # Hierarchy navigation - safe to parallelize with capacity checking
             available_threads = self._get_available_threads()
             needs_parallel = len(children) > 1 and self.max_workers > 1 and self._global_executor is not None
+            # Since _get_available_threads() already returns a conservative estimate (max_workers // 3),
+            # we just need to check if we have enough threads for the children
             has_capacity = available_threads >= len(children)
 
             if not needs_parallel or not has_capacity:
@@ -468,7 +450,7 @@ class RecursiveDFSProcessor:
             # Track mapping using the node's hashed_id (protected by per-node lock)
             self.node_source_mapping[info_node.hashed_id] = node.id
             # Cache the actual source Node object
-            self.source_nodes_cache[node.id] = self._convert_to_node(node)
+            self.source_nodes_cache[node.id] = node
             # Also track for efficient child lookup during skeleton replacement
             self.source_to_description[node.id] = response_content
 
@@ -492,7 +474,7 @@ class RecursiveDFSProcessor:
             # Track mapping using the node's hashed_id (protected by per-node lock)
             self.node_source_mapping[info_node.hashed_id] = node.id
             # Cache the actual source Node object
-            self.source_nodes_cache[node.id] = self._convert_to_node(node)
+            self.source_nodes_cache[node.id] = node
             # Also track for efficient child lookup during skeleton replacement
             self.source_to_description[node.id] = (
                 f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
@@ -683,7 +665,7 @@ class RecursiveDFSProcessor:
         # Track mapping using the node's hashed_id (protected by per-node lock)
         self.node_source_mapping[info_node.hashed_id] = node.id
         # Cache the actual source Node object
-        self.source_nodes_cache[node.id] = self._convert_to_node(node)
+        self.source_nodes_cache[node.id] = node
         self.source_to_description[node.id] = response_content
 
         return info_node
@@ -708,7 +690,7 @@ class RecursiveDFSProcessor:
         # Track mapping using the node's hashed_id (protected by per-node lock)
         self.node_source_mapping[info_node.hashed_id] = node.id
         # Cache the actual source Node object
-        self.source_nodes_cache[node.id] = self._convert_to_node(node)
+        self.source_nodes_cache[node.id] = node
         self.source_to_description[node.id] = (
             f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}"
         )
@@ -961,71 +943,3 @@ class RecursiveDFSProcessor:
             )
             return None
 
-    def _convert_to_node(self, node_dto: NodeWithContentDto) -> Union[FileNode, FolderNode, FunctionNode, ClassNode]:
-        """
-        Convert NodeWithContentDto to appropriate Node object.
-
-        Args:
-            node_dto: The NodeWithContentDto to convert
-
-        Returns:
-            Appropriate Node object (FileNode, FolderNode, FunctionNode, or ClassNode)
-        """
-        # Determine node type from labels
-        if "FOLDER" in node_dto.labels:
-            return FolderNode(
-                path=node_dto.path,
-                name=node_dto.name,
-                level=0,  # Level not preserved in DTO
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        elif "FILE" in node_dto.labels:
-            return FileNode(
-                path=node_dto.path,
-                name=node_dto.name,
-                level=0,  # Level not preserved in DTO
-                node_range=None,  # Range not preserved in DTO
-                definition_range=None,  # Range not preserved in DTO
-                code_text=node_dto.content,
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        elif "FUNCTION" in node_dto.labels:
-            return FunctionNode(
-                name=node_dto.name,
-                path=node_dto.path,
-                definition_range=None,  # Range not preserved in DTO
-                node_range=None,  # Range not preserved in DTO
-                code_text=node_dto.content,
-                body_node=None,  # TreeSitter node not preserved
-                level=0,  # Level not preserved in DTO
-                tree_sitter_node=None,  # TreeSitter node not preserved
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        elif "CLASS" in node_dto.labels:
-            return ClassNode(
-                name=node_dto.name,
-                path=node_dto.path,
-                definition_range=None,  # Range not preserved in DTO
-                node_range=None,  # Range not preserved in DTO
-                code_text=node_dto.content,
-                body_node=None,  # TreeSitter node not preserved
-                level=0,  # Level not preserved in DTO
-                tree_sitter_node=None,  # TreeSitter node not preserved
-                parent=None,  # Parent relationship not preserved
-                graph_environment=self.graph_environment,
-            )
-        else:
-            # Default to FileNode for unknown types
-            return FileNode(
-                path=node_dto.path,
-                name=node_dto.name,
-                level=0,
-                node_range=None,
-                definition_range=None,
-                code_text=node_dto.content,
-                parent=None,
-                graph_environment=self.graph_environment,
-            )

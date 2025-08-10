@@ -11,8 +11,8 @@ import logging
 from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from blarify.graph.node import Node
     from blarify.graph.node.documentation_node import DocumentationNode
+    from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
 
 from ..agents.llm_provider import LLMProvider
 from ..db_managers.db_manager import AbstractDbManager
@@ -42,7 +42,7 @@ class DocumentationCreator:
         graph_environment: GraphEnvironment,
         company_id: str,
         repo_id: str,
-        max_workers: int = 75,
+        max_workers: int = 5,
     ) -> None:
         """
         Initialize the documentation creator.
@@ -354,7 +354,7 @@ class DocumentationCreator:
             return DocumentationResult(error=str(e))
 
     def _save_documentation_to_database(
-        self, documentation_nodes: List["DocumentationNode"], source_nodes: List["Node"]
+        self, documentation_nodes: List["DocumentationNode"], source_nodes: List["NodeWithContentDto"]
     ) -> None:
         """
         Save documentation nodes to the database and create DESCRIBES relationships using RelationshipCreator.

@@ -875,10 +875,10 @@ def get_root_folders_and_files_query() -> str:
     return """
     MATCH (code:NODE {entityId: $entity_id, repoId: $repo_id, level: 1})
     WHERE (code:FILE OR code:FOLDER)
-    RETURN code.path as path,
+    RETURN code.node_path as path,
            code.name as name,
            labels(code) as labels
-    ORDER BY code.path
+    ORDER BY code.node_path
     """
 
 

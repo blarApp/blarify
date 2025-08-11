@@ -7,6 +7,7 @@ skeleton comment replacement.
 """
 
 import re
+import time
 import logging
 import concurrent.futures
 import contextvars
@@ -23,7 +24,12 @@ from ...agents.prompt_templates import (
     FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE,
 )
+from ...agents.prompt_templates.recursive_dfs_fallback import (
+    PARENT_NODE_PARTIAL_CONTEXT_TEMPLATE,
+    ENHANCED_LEAF_FALLBACK_TEMPLATE,
+)
 from ...db_managers.db_manager import AbstractDbManager
+from .thread_dependency_tracker import ThreadDependencyTracker
 from ...db_managers.dtos.node_with_content_dto import NodeWithContentDto
 from ...db_managers.queries import (
     get_node_by_path,
@@ -107,6 +113,12 @@ class RecursiveDFSProcessor:
         self.cycle_participants: Dict[str, Set[str]] = {}  # Track cycle relationships
         self._global_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None  # Shared thread pool
         self._thread_local = threading.local()  # Thread-local storage for processing paths
+        
+        # Deadlock prevention mechanisms
+        self.dependency_tracker = ThreadDependencyTracker()
+        self.deadlock_fallback_cache: Dict[str, DocumentationNode] = {}
+        self.processing_timeouts: Dict[str, float] = {}  # node_id -> timeout timestamp
+        self.fallback_timeout_seconds = 30.0  # Maximum wait time before fallback
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
@@ -170,7 +182,7 @@ class RecursiveDFSProcessor:
 
     def _process_node_recursive(self, node: NodeWithContentDto) -> DocumentationNode:
         """
-        Core recursive method - processes a node and all its children using queue-based coordination.
+        Core recursive method with deadlock detection and fallback handling.
 
         Args:
             node: The node to process
@@ -179,6 +191,7 @@ class RecursiveDFSProcessor:
             DocumentationNodeDescription for this node
         """
         node_id = node.id
+        thread_id = str(threading.get_ident())
 
         # Check if already completed (no lock needed for read-only check)
         if node_id in self.node_descriptions:
@@ -196,30 +209,52 @@ class RecursiveDFSProcessor:
             logger.info(f"DEBUG: Database cache hit for node: {node.name} ({node_id})")
             return existing_doc
 
-        # Try to become the processor for this node using Future for broadcast
+        # Try to register as processor or waiter with deadlock detection
         with self.futures_lock:
             fut = self.processing_futures.get(node_id)
             if fut is None:
-                # We're the first thread for this node - we'll process it
+                # We're the first thread - register as processor
                 fut = Future()
                 self.processing_futures[node_id] = fut
+                self.dependency_tracker.register_processor(node_id, thread_id)
                 should_process = True
             else:
-                # Another thread is already processing this node - we'll wait
+                # Another thread is processing - check if we can safely wait
+                can_wait = self.dependency_tracker.register_waiter(node_id, thread_id)
                 should_process = False
+                
+                if not can_wait:
+                    # Would create deadlock - use fallback strategy
+                    logger.warning(
+                        f"Potential deadlock detected for node {node.name} ({node_id}), "
+                        f"using fallback strategy"
+                    )
+                    return self._handle_deadlock_fallback(node)
 
         if should_process:
-            # We're the processor thread - do the actual work
-            logger.info(f"DEBUG: Processing node: {node.name} ({node_id})")
-
-            # Get and update the processing path to detect cycles
+            return self._process_as_primary_thread(node, fut)
+        else:
+            return self._process_as_waiting_thread(node, fut, thread_id)
+    
+    def _process_as_primary_thread(self, node: NodeWithContentDto, fut: Future) -> DocumentationNode:
+        """Process node as the primary processing thread."""
+        node_id = node.id
+        thread_id = str(threading.get_ident())
+        
+        try:
+            # Set timeout for this processing
+            self.processing_timeouts[node_id] = time.time() + self.fallback_timeout_seconds
+            
+            # Get and update the processing path to detect direct cycles
             processing_path = self._get_processing_path()
             processing_path.add(node_id)
-
+            
+            logger.info(f"DEBUG: Processing node: {node.name} ({node_id})")
+            
             try:
                 # Get immediate children based on navigation strategy (hierarchy or call stack)
                 children = self._get_navigation_children(node)
-
+                
                 if not children:  # LEAF NODE
                     logger.info(f"DEBUG: Processing leaf node: {node.name}")
                     description = self._process_leaf_node(node)
@@ -227,40 +262,65 @@ class RecursiveDFSProcessor:
                     if node.name == "blarify":
                         logger.info(f"DEBUG: root node: {node.name} ({node_id})")
                     logger.info(f"DEBUG: Processing parent node: {node.name} with {len(children)} children")
-
+                    
                     # Process ALL children using navigation-based strategy
                     child_descriptions = self._process_children_parallel(children, node)
-
+                    
                     # Process parent with complete child context
                     description = self._process_parent_node(node, child_descriptions)
-
+                
                 # Cache the result in existing node_descriptions
                 self.node_descriptions[node_id] = description
                 logger.info(f"DEBUG: Cached result for node: {node.name} ({node_id})")
-
+                
                 # Broadcast result to all waiting threads via Future
                 fut.set_result(description)
-
+                
                 return description
-
+                
             except Exception as e:
                 # Propagate error to all waiting threads via Future
                 logger.exception(f"Error processing node {node.name} ({node_id}): {e}")
                 fut.set_exception(e)
                 raise
             finally:
-                # Always remove from processing path and clean up futures mapping
                 processing_path.discard(node_id)
-                # Clean up the future from processing_futures to avoid memory leak
-                with self.futures_lock:
-                    self.processing_futures.pop(node_id, None)
-        else:
-            # We're a waiter thread - wait for the processor to complete
+        
+        finally:
+            # Clean up tracking
+            with self.futures_lock:
+                self.processing_futures.pop(node_id, None)
+            self.dependency_tracker.unregister_processor(node_id)
+            self.processing_timeouts.pop(node_id, None)
+    
+    def _process_as_waiting_thread(
+        self, 
+        node: NodeWithContentDto, 
+        fut: Future, 
+        thread_id: str
+    ) -> DocumentationNode:
+        """Process node as a waiting thread with timeout and fallback."""
+        node_id = node.id
+        
+        try:
+            # Wait with timeout to avoid infinite blocking
+            timeout = self.fallback_timeout_seconds
+            
             logger.info(f"DEBUG: Waiting for another thread to complete {node.name} ({node_id})")
-            # Future.result() will either return the value or raise the exception
-            result = fut.result()  # Block until processor completes (broadcast to all waiters)
-            logger.info(f"DEBUG: Received result from processor thread for {node.name} ({node_id})")
-            return result
+            
+            try:
+                result = fut.result(timeout=timeout)
+                logger.info(f"DEBUG: Received result from processor thread for {node.name} ({node_id})")
+                return result
+            except concurrent.futures.TimeoutError:
+                logger.warning(
+                    f"Timeout waiting for node {node.name} ({node_id}) after {timeout}s, "
+                    f"using fallback strategy"
+                )
+                return self._handle_timeout_fallback(node)
+                
+        finally:
+            self.dependency_tracker.unregister_waiter(node_id, thread_id)
 
     def _get_available_threads(self) -> int:
         """Get number of available threads in the thread pool."""
@@ -907,6 +967,217 @@ class RecursiveDFSProcessor:
             context_parts.append(f"- **{function_name}** ({node_type}): {desc.content}")
 
         return "\n".join(context_parts)
+
+    def _handle_deadlock_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
+        """
+        Handle deadlock scenario by using available context or processing as leaf.
+        """
+        node_id = node.id
+        
+        # Check if we already have a fallback result for this node
+        if node_id in self.deadlock_fallback_cache:
+            return self.deadlock_fallback_cache[node_id]
+        
+        logger.info(f"Processing node {node.name} ({node_id}) with deadlock fallback strategy")
+        
+        # Strategy 1: Try to get partial context from already-processed children
+        children = self._get_navigation_children(node)
+        available_children = []
+        
+        for child in children:
+            if child.id in self.node_descriptions:
+                # Child is already processed - we can use it
+                available_children.append(self.node_descriptions[child.id])
+        
+        if available_children:
+            # We have some child context - process as parent with partial information
+            description = self._process_parent_node_with_partial_context(
+                node, available_children, is_fallback=True
+            )
+        else:
+            # No child context available - process as enhanced leaf
+            description = self._process_node_as_enhanced_leaf(node, is_fallback=True)
+        
+        # Cache the fallback result
+        self.deadlock_fallback_cache[node_id] = description
+        self.node_descriptions[node_id] = description
+        
+        return description
+    
+    def _handle_timeout_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
+        """Handle timeout by using available context or creating fallback description."""
+        return self._handle_deadlock_fallback(node)  # Same strategy for now
+    
+    def _process_parent_node_with_partial_context(
+        self, 
+        node: NodeWithContentDto, 
+        available_children: List[DocumentationNode],
+        is_fallback: bool = False
+    ) -> DocumentationNode:
+        """
+        Process parent node with only partially available child context.
+        Uses PARENT_NODE_PARTIAL_CONTEXT_TEMPLATE from prompt_templates.
+        """
+        try:
+            # Prepare child descriptions
+            child_descriptions = "\n\n".join([
+                f"- **{child.source_name}**: {child.content}"
+                for child in available_children
+            ])
+            
+            # Prepare fallback note
+            fallback_note = ""
+            if is_fallback:
+                fallback_note = (
+                    "**Note**: This analysis uses partial information due to circular "
+                    "dependencies in the codebase. Some child function details may be incomplete."
+                )
+            
+            # Get prompts from template
+            system_prompt, input_prompt = PARENT_NODE_PARTIAL_CONTEXT_TEMPLATE.get_prompts()
+            
+            # Prepare input dictionary
+            input_dict = {
+                "node_name": node.name,
+                "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
+                "node_path": node.path,
+                "node_content": node.content,
+                "child_descriptions": child_descriptions,
+                "fallback_note": fallback_note
+            }
+            
+            # Generate response
+            runnable_config = {"run_name": f"{node.name}_partial_parent"}
+            response = self.agent_caller.call_dumb_agent(
+                system_prompt=system_prompt,
+                input_dict=input_dict,
+                output_schema=None,
+                input_prompt=input_prompt,
+                config=runnable_config,
+                timeout=10,
+            )
+            
+            response_content = response.content if hasattr(response, "content") else str(response)
+            
+            # Create documentation node with fallback metadata
+            info_node = DocumentationNode(
+                title=f"Description of {node.name}",
+                content=response_content,
+                info_type="parent_description_fallback" if is_fallback else "parent_description",
+                source_path=node.path,
+                source_name=node.name,
+                source_labels=node.labels,
+                source_id=node.id,
+                source_type="recursive_parent_analysis_fallback" if is_fallback else "recursive_parent_analysis",
+                enhanced_content=node.content,
+                children_count=len(available_children),
+                graph_environment=self.graph_environment,
+                metadata={
+                    "is_fallback": is_fallback,
+                    "partial_children_count": len(available_children),
+                    "fallback_reason": "circular_dependency_deadlock" if is_fallback else None
+                }
+            )
+            
+            # Update mappings
+            self.node_source_mapping[info_node.hashed_id] = node.id
+            self.source_nodes_cache[node.id] = node
+            self.source_to_description[node.id] = response_content
+            
+            return info_node
+            
+        except Exception as e:
+            logger.exception(f"Error in fallback parent processing for {node.name}: {e}")
+            return self._create_fallback_description(node, f"Fallback processing error: {e}")
+    
+    def _process_node_as_enhanced_leaf(
+        self, 
+        node: NodeWithContentDto,
+        is_fallback: bool = False
+    ) -> DocumentationNode:
+        """
+        Process node as an enhanced leaf when child context is not available.
+        Uses ENHANCED_LEAF_FALLBACK_TEMPLATE from prompt_templates.
+        """
+        try:
+            # Prepare fallback note
+            fallback_note = ""
+            if is_fallback:
+                fallback_note = (
+                    "**Note**: This analysis is limited due to circular dependencies "
+                    "in the codebase that prevented full context analysis."
+                )
+            
+            # Get prompts from template
+            system_prompt, input_prompt = ENHANCED_LEAF_FALLBACK_TEMPLATE.get_prompts()
+            
+            # Prepare input dictionary
+            input_dict = {
+                "node_name": node.name,
+                "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
+                "node_path": node.path,
+                "node_content": node.content,
+                "fallback_note": fallback_note
+            }
+            
+            # Generate description
+            runnable_config = {"run_name": f"{node.name}_enhanced_leaf"}
+            response = self.agent_caller.call_dumb_agent(
+                system_prompt=system_prompt,
+                input_dict=input_dict,
+                output_schema=None,
+                input_prompt=input_prompt,
+                config=runnable_config,
+                timeout=5,
+            )
+            
+            response_content = response.content if hasattr(response, "content") else str(response)
+            
+            # Create documentation node
+            info_node = DocumentationNode(
+                title=f"Description of {node.name}",
+                content=response_content,
+                info_type="enhanced_leaf_fallback" if is_fallback else "enhanced_leaf_description",
+                source_path=node.path,
+                source_name=node.name,
+                source_labels=node.labels,
+                source_id=node.id,
+                source_type="enhanced_leaf_analysis_fallback" if is_fallback else "enhanced_leaf_analysis",
+                graph_environment=self.graph_environment,
+                metadata={
+                    "is_fallback": is_fallback,
+                    "fallback_reason": "circular_dependency_deadlock" if is_fallback else None
+                }
+            )
+            
+            # Update mappings
+            self.node_source_mapping[info_node.hashed_id] = node.id
+            self.source_nodes_cache[node.id] = node
+            self.source_to_description[node.id] = response_content
+            
+            return info_node
+            
+        except Exception as e:
+            logger.exception(f"Error in enhanced leaf processing for {node.name}: {e}")
+            return self._create_fallback_description(node, f"Enhanced leaf processing error: {e}")
+    
+    def _create_fallback_description(self, node: NodeWithContentDto, error_msg: str) -> DocumentationNode:
+        """Create a basic fallback description when all else fails."""
+        return DocumentationNode(
+            title=f"Description of {node.name}",
+            content=f"Fallback description for {node.name}. {error_msg}",
+            info_type="fallback_error",
+            source_path=node.path,
+            source_name=node.name,
+            source_labels=node.labels,
+            source_id=node.id,
+            source_type="fallback_error",
+            graph_environment=self.graph_environment,
+            metadata={
+                "is_fallback": True,
+                "error": error_msg
+            }
+        )
 
     def _check_database_for_existing_documentation(self, node: NodeWithContentDto) -> Optional[DocumentationNode]:
         """

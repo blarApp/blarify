@@ -2,6 +2,7 @@
 name: worktree-manager
 description: Manages git worktree lifecycle for isolated parallel execution environments, preventing conflicts between concurrent WorkflowManagers
 tools: Bash, Read, Write, LS
+model: inherit
 ---
 
 # WorktreeManager Sub-Agent
@@ -85,7 +86,16 @@ create_worktree() {
 
 ### 3. Environment Setup
 
-Prepare worktree for execution:
+Prepare worktree for execution. For UV projects, use the shared UV setup script:
+
+**UV Project Setup (Recommended)**:
+```bash
+# Use shared UV setup script for better error handling
+source .claude/scripts/setup-uv-env.sh
+setup_uv_environment "$WORKTREE_PATH" "--all-extras"
+```
+
+**Manual Setup**:
 ```bash
 setup_worktree_environment() {
     local WORKTREE_PATH="$1"
@@ -93,7 +103,18 @@ setup_worktree_environment() {
     cd "$WORKTREE_PATH"
 
     # Python projects: Set up virtual environment
-    if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
+    if [[ -f "pyproject.toml" && -f "uv.lock" ]]; then
+        # UV project detected - use UV for environment setup
+        echo "UV project detected - setting up UV environment"
+        if command -v uv &> /dev/null; then
+            uv sync --all-extras
+            echo "✅ UV environment ready"
+        else
+            echo "❌ UV not found - install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+            return 1
+        fi
+    elif [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
+        # Standard Python project - use pip/venv
         python -m venv .venv
         source .venv/bin/activate
         pip install -e . || pip install -r requirements.txt

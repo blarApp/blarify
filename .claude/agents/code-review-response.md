@@ -1,5 +1,6 @@
 ---
 name: code-review-response
+model: inherit
 description: Processes code review feedback systematically, implements appropriate changes, and maintains professional dialogue throughout the review process
 tools: Read, Edit, MultiEdit, Bash, Grep, LS, TodoWrite
 ---

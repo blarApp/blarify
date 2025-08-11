@@ -15,25 +15,39 @@ class GraphAssertions:
     def __init__(self, neo4j_instance: Neo4jContainerInstance):
         """Initialize with a Neo4j container instance."""
         self.neo4j_instance = neo4j_instance
+        # Use test isolation IDs if available
+        self.entity_id = getattr(neo4j_instance, 'test_entity_id', None)
+        self.repo_id = getattr(neo4j_instance, 'test_repo_id', None)
 
     async def assert_node_exists(self, label: str, properties: Optional[Dict[str, Any]] = None) -> None:
-        """Assert that a node with given label and properties exists."""
+        """Assert that a node with given label and properties exists with automatic isolation filtering."""
         query = f"MATCH (n:{label})"
-
+        
+        # Build WHERE clauses including isolation filters
+        where_clauses = []
+        params = {}
+        
+        # Add isolation filters if available
+        if self.entity_id:
+            where_clauses.append("n.entityId = $entity_id")
+            params["entity_id"] = self.entity_id
+        if self.repo_id:
+            where_clauses.append("n.repoId = $repo_id")
+            params["repo_id"] = self.repo_id
+            
         if properties:
-            where_clauses = []
             for key, value in properties.items():
                 if isinstance(value, str):
                     where_clauses.append(f"n.{key} = '{value}'")
                 else:
                     where_clauses.append(f"n.{key} = {value}")
-
-            if where_clauses:
-                query += " WHERE " + " AND ".join(where_clauses)
-
+        
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+        
         query += " RETURN count(n) as count"
-
-        result = await self.neo4j_instance.execute_cypher(query)
+        
+        result = await self.neo4j_instance.execute_cypher(query, params)
         count = result[0]["count"]
 
         assert count > 0, f"No node found with label '{label}' and properties {properties}"

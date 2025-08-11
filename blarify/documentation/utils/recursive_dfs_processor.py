@@ -33,6 +33,7 @@ from ...db_managers.queries import (
     get_existing_documentation_for_node,
 )
 from ...graph.node.documentation_node import DocumentationNode
+
 # Note: We don't import concrete Node classes as we work with DTOs in documentation layer
 from ...graph.graph_environment import GraphEnvironment
 
@@ -54,9 +55,7 @@ class ProcessingResult(BaseModel):
 
     # New fields for proper Node object handling
     documentation_nodes: List[DocumentationNode] = Field(default_factory=list)  # Actual DocumentationNode objects
-    source_nodes: List[NodeWithContentDto] = Field(
-        default_factory=list
-    )  # Source code DTOs
+    source_nodes: List[NodeWithContentDto] = Field(default_factory=list)  # Source code DTOs
 
 
 class RecursiveDFSProcessor:
@@ -344,6 +343,11 @@ class RecursiveDFSProcessor:
                 for child in children:
                     ctx = contextvars.copy_context()
                     try:
+                        if self._global_executor is None:
+                            child_desc = self._process_node_recursive(child)
+                            child_descriptions.append(child_desc)
+                            continue
+
                         future = self._global_executor.submit(
                             ctx.run, functools.partial(self._process_node_recursive, child)
                         )
@@ -735,13 +739,14 @@ class RecursiveDFSProcessor:
         # Example: # Code replaced for brevity, see node: 6fd101f9571073a44fed7c085c94eec2
         skeleton_pattern = r"# Code replaced for brevity, see node: ([a-f0-9]+)"
 
-        def replace_comment(match):
+        def replace_comment(match: re.Match[str]) -> str:
             node_id = match.group(1)
             if node_id in child_lookup:
                 description = child_lookup[node_id]
                 # Format as a proper docstring
                 # Indent the description to match the original comment's indentation
-                indent = re.search(r"^(\s*)", match.group(0)).group(1)
+                indent_match = re.search(r"^(\s*)", match.group(0))
+                indent = indent_match.group(1) if indent_match else ""
                 formatted_desc = f'{indent}"""\n'
                 for line in description.split("\n"):
                     formatted_desc += f"{indent}{line}\n"
@@ -942,4 +947,3 @@ class RecursiveDFSProcessor:
                 f"Error checking database for existing documentation for node {node.name} ({node.id}): {e}"
             )
             return None
-

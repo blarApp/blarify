@@ -509,7 +509,7 @@ query ($owner:String!, $name:String!, $expr:String!, $start:Int!, $end:Int!) {
            {"id": "node2", "path": "src/utils.py", "start_line": 1, "end_line": 30}
        ]
        
-       result = creator.create_github_integration_for_nodes(existing_nodes)
+       result = creator.create_github_integration_from_nodes(existing_nodes)
        assert result.total_commits > 0
        assert result.relationships
    
@@ -536,7 +536,7 @@ query ($owner:String!, $name:String!, $expr:String!, $start:Int!, $end:Int!) {
 
 1. **Enhanced GitHubCreator Class**
    ```python
-   def create_github_integration_for_nodes(
+   def create_github_integration_from_nodes(
        self,
        nodes: Optional[List[Dict[str, Any]]] = None,
        save_to_database: bool = True
@@ -685,32 +685,51 @@ query ($owner:String!, $name:String!, $expr:String!, $start:Int!, $end:Int!) {
        return pr_nodes, commit_nodes
    ```
 
-2. **Backward Compatibility Mode**
+2. **Method Naming and Backward Compatibility**
    ```python
-   def create_github_integration(
+   def create_github_integration_from_latest_prs(
        self,
-       pr_limit: int = 0,
-       use_blame: bool = True,
-       nodes: Optional[List[Dict[str, Any]]] = None,
+       pr_limit: int = 50,
+       since_date: Optional[str] = None,
        save_to_database: bool = True
    ) -> GitHubIntegrationResult:
-       """Create GitHub integration with configurable mode.
+       """Create GitHub integration by fetching N latest merged PRs.
+       
+       This is the legacy approach that fetches the most recent PRs
+       from the repository and attempts to map them to code nodes.
        
        Args:
-           pr_limit: If > 0, use old PR-first approach (backward compatibility)
-           use_blame: If True, use new blame-based approach
-           nodes: Specific nodes to process (for blame mode)
+           pr_limit: Maximum number of PRs to fetch
+           since_date: Process PRs created after this date
            save_to_database: Whether to save results
            
        Returns:
            GitHubIntegrationResult
        """
-       if use_blame and pr_limit == 0:
-           # Use new blame-based approach
-           return self.create_github_integration_for_nodes(nodes, save_to_database)
-       else:
-           # Use old PR-first approach for backward compatibility
-           return self._create_github_integration_legacy(pr_limit, save_to_database)
+       # Implementation of the current PR-first approach
+       # (current create_github_integration logic)
+       ...
+   
+   def create_github_integration_from_nodes(
+       self,
+       nodes: Optional[List[Dict[str, Any]]] = None,
+       save_to_database: bool = True
+   ) -> GitHubIntegrationResult:
+       """Create GitHub integration using node-based blame approach.
+       
+       This is the new approach that starts with existing code nodes
+       and uses GitHub's blame API to find exactly which commits
+       modified those nodes.
+       
+       Args:
+           nodes: List of code nodes to process (if None, queries all from DB)
+           save_to_database: Whether to save results to database
+           
+       Returns:
+           GitHubIntegrationResult with created nodes and relationships
+       """
+       # Implementation of the new blame-based approach
+       ...
    ```
 
 ### Phase 4: Enhanced Relationship Creation
@@ -797,7 +816,7 @@ query ($owner:String!, $name:String!, $expr:String!, $start:Int!, $end:Int!) {
            repo_name="repo"
        )
        
-       result = creator.create_github_integration_for_nodes(
+       result = creator.create_github_integration_from_nodes(
            nodes=test_nodes,
            save_to_database=True
        )
@@ -964,7 +983,7 @@ git checkout -b feature/github-node-based-blame-integration
 ### Step 5: Implementation Phase 2 - Node-Based Processing
 
 1. **Enhance GitHubCreator**
-   - Add create_github_integration_for_nodes method
+   - Add create_github_integration_from_nodes method
    - Implement _create_integration_nodes_from_blame
    - Add _query_all_code_nodes helper
    - Maintain backward compatibility
@@ -1059,10 +1078,10 @@ query ($owner:String!, $name:String!, $expr:String!, $start:Int!, $end:Int!) {
 # Node-based processing (new approach)
 creator = GitHubCreator(...)
 nodes = db_manager.query("MATCH (n:FUNCTION) RETURN n")
-result = creator.create_github_integration_for_nodes(nodes)
+result = creator.create_github_integration_from_nodes(nodes)
 
 # Backward compatible PR-first approach
-result = creator.create_github_integration(pr_limit=50)
+result = creator.create_github_integration_from_latest_prs(pr_limit=50)
 ```
 
 ## Performance Improvements

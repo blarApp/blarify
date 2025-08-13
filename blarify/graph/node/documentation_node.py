@@ -44,12 +44,12 @@ class DocumentationNode(Node):
         self.children_count = children_count  # For parent nodes
         self.metadata = metadata  # Additional metadata for tracking fallback scenarios
 
-        # Use source_path as path for Node, and source_name@info as name
+        # Use source_path as path for Node, and source_id@info as name for uniqueness
         # Set layer to documentation for documentation nodes
         super().__init__(
             label=NodeLabels.DOCUMENTATION,
             path=source_path,
-            name=f"{source_name}@info",
+            name=f"{source_id}@info",
             level=kwargs.get("level", 0),
             parent=kwargs.get("parent"),
             graph_environment=kwargs.get("graph_environment"),
@@ -59,7 +59,7 @@ class DocumentationNode(Node):
     @property
     def node_repr_for_identifier(self) -> str:
         """Create a unique identifier representation for this information node."""
-        return f"{self.source_name}@info"
+        return f"{self.source_id}@info"
 
     def as_object(self) -> Dict[str, Any]:
         """Convert to dictionary for database storage."""

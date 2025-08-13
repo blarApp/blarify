@@ -1249,8 +1249,8 @@ def _create_bridge_edges(
 
             # Check consecutive nodes at this depth
             for j in range(len(nodes_at_depth) - 1):
-                current_idx, current_node = nodes_at_depth[j]
-                next_idx, next_node = nodes_at_depth[j + 1]
+                _, current_node = nodes_at_depth[j]
+                _, next_node = nodes_at_depth[j + 1]
 
                 current_id = current_node.get("id")
                 next_id = next_node.get("id")
@@ -2429,7 +2429,7 @@ def find_entry_points_for_node_path_query() -> str:
     WITH last(nodes(path)) AS potential_entry
     
     // Filter to only nodes that have no incoming CALLS relationships (true entry points)
-    WHERE NOT (potential_entry)<-[:CALLS]-()
+    WHERE NOT (potential_entry)<-[:CALLS]-() AND NOT potential_entry.node_path CONTAINS 'test'
     
     // Return only the node_id
     RETURN DISTINCT potential_entry.node_id as id, potential_entry.node_path as path

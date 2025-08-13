@@ -122,21 +122,23 @@ class TestRecursiveDFSDeadlockHandling:
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
-        # Step 3: Create RecursiveDFSProcessor with 75 workers (reproduces the hang)
-        processor = RecursiveDFSProcessor(
+        # Step 3: Create DocumentationCreator which uses RecursiveDFSProcessor internally
+        from blarify.documentation.documentation_creator import DocumentationCreator
+        
+        doc_creator = DocumentationCreator(
             db_manager=db_manager,
             agent_caller=MockLLMProvider(),
+            graph_environment=builder.graph_environment,
             company_id="test-entity",
             repo_id="test-repo",
-            graph_environment=builder.graph_environment,
             max_workers=75,  # This is the critical test - 75 workers causes hang
         )
 
         # Process with timeout to detect deadlock
         start_time = time.time()
 
-        # Process a specific file to test
-        result = processor.process_node(str(python_examples_path))
+        # Create documentation for all nodes (this internally uses RecursiveDFSProcessor)
+        result = doc_creator.create_documentation(save_to_database=False)
 
         processing_time = time.time() - start_time
 

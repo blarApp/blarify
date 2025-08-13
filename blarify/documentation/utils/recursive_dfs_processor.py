@@ -12,7 +12,7 @@ import concurrent.futures
 import contextvars
 import functools
 import threading
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Union
 from concurrent.futures import Future
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
@@ -59,7 +59,7 @@ class ProcessingResult(BaseModel):
     
     @field_validator('source_nodes', mode='before')
     @classmethod
-    def validate_source_nodes(cls, v):
+    def validate_source_nodes(cls, v: Any) -> List[Union[NodeWithContentDto, Dict[str, Any]]]:
         """Convert NodeWithContentDto instances or dicts to the expected format."""
         if not v:
             return []
@@ -147,7 +147,7 @@ class RecursiveDFSProcessor:
             # Get the root node (folder or file)
             root_node: Optional[NodeWithContentDto] = self.root_node
             if not root_node:
-                root_node = get_node_by_path(self.db_manager, self.company_id, self.repo_id, node_path)
+                root_node = get_node_by_path(self.db_manager, self.company_id, self.repo_id, node_path)  # type: ignore[assignment]
                 if not root_node:
                     logger.exception(f"Node not found for path: {node_path}")
                     return ProcessingResult(node_path=node_path, error=f"Node not found: {node_path}")
@@ -177,7 +177,7 @@ class RecursiveDFSProcessor:
                 node_source_mapping=self.node_source_mapping,
                 information_nodes=all_descriptions_as_dicts,
                 documentation_nodes=all_documentation_nodes,
-                source_nodes=all_source_nodes,
+                source_nodes=all_source_nodes,  # type: ignore[arg-type] # Validator handles dict to NodeWithContentDto conversion
             )
 
         except Exception as e:
@@ -848,7 +848,7 @@ class RecursiveDFSProcessor:
         Returns:
             List of child nodes through hierarchical relationships
         """
-        return get_direct_children(self.db_manager, self.company_id, self.repo_id, node.id)
+        return get_direct_children(self.db_manager, self.company_id, self.repo_id, node.id)  # type: ignore[return-value]
 
     def _get_call_stack_children(self, node: NodeWithContentDto) -> List[NodeWithContentDto]:
         """

@@ -1,0 +1,22 @@
+"""Utility for loading pre-created test code with circular dependencies."""
+
+from pathlib import Path
+
+
+class CircularDependencyLoader:
+    """Loads pre-created test code with circular function dependencies."""
+
+    @staticmethod
+    def get_simple_cycle_path() -> Path:
+        """Get path to simple cycle test case."""
+        return Path("code_examples/circular_deps/simple_cycle")
+
+    @staticmethod
+    def get_complex_cycle_path() -> Path:
+        """Get path to complex cycle test case."""
+        return Path("code_examples/circular_deps/complex_cycle")
+
+    @staticmethod
+    def get_high_concurrency_path() -> Path:
+        """Get path to high concurrency test case."""
+        return Path("code_examples/circular_deps/high_concurrency")

@@ -18,7 +18,7 @@ class TestThreadDependencyTracker:
         from blarify.documentation.utils.recursive_dfs_processor import ThreadDependencyTracker
         return ThreadDependencyTracker()
     
-    def test_register_processor(self, tracker):
+    def test_register_processor(self, tracker: ThreadDependencyTracker) -> None:
         """Test that a thread can be registered as processor for a node."""
         # Given
         node_id = "node_a"
@@ -31,7 +31,7 @@ class TestThreadDependencyTracker:
         # For now, we just verify no exception is raised
         assert True  # Will enhance once implementation provides inspection methods
         
-    def test_register_waiter_no_deadlock(self, tracker):
+    def test_register_waiter_no_deadlock(self, tracker: ThreadDependencyTracker) -> None:
         """Test registering a waiter when no deadlock would occur."""
         # Given - Thread 1 is processing node A
         tracker.register_processor("node_a", "thread_1")

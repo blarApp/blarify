@@ -14,7 +14,6 @@ import sys
 import subprocess
 import urllib.request
 import logging
-from pathlib import Path
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

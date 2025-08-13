@@ -8,7 +8,6 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.tools import BaseTool
@@ -193,7 +192,7 @@ class TestRecursiveDFSDeadlockHandling:
             agent_caller=MockLLMProvider(),  # Use mock for testing
             company_id="test_company",
             repo_id="test_repo",
-            graph_environment=graph.get_graph_environment(),
+            graph_environment=builder.graph_environment,
             max_workers=75,  # High worker count to stress test
         )
 
@@ -209,7 +208,7 @@ class TestRecursiveDFSDeadlockHandling:
 
         # Verify fallback handling was used for circular dependencies
         fallback_nodes = [
-            node for node in result.documentation_nodes if node.metadata and node.metadata.get("is_fallback", False)
+            node for node in result.documentation_nodes if hasattr(node, "metadata") and node.metadata and node.metadata.get("is_fallback", False)
         ]
 
         # Should have some fallback nodes due to circular dependencies
@@ -217,7 +216,7 @@ class TestRecursiveDFSDeadlockHandling:
 
         # Verify fallback reasons
         deadlock_fallbacks = [
-            node for node in fallback_nodes if node.metadata.get("fallback_reason") == "circular_dependency_deadlock"
+            node for node in fallback_nodes if hasattr(node, "metadata") and node.metadata and node.metadata.get("fallback_reason") == "circular_dependency_deadlock"
         ]
         assert len(deadlock_fallbacks) > 0, "Expected deadlock fallback handling"
 
@@ -257,7 +256,7 @@ class TestRecursiveDFSDeadlockHandling:
             agent_caller=MockLLMProvider(),
             company_id="test_company",
             repo_id="test_repo",
-            graph_environment=graph.get_graph_environment(),
+            graph_environment=builder.graph_environment,
             max_workers=50,
         )
 
@@ -343,7 +342,7 @@ class TestRecursiveDFSDeadlockHandling:
             agent_caller=SlowMockLLMProvider(),  # Intentionally slow for timeout testing
             company_id="test_company",
             repo_id="test_repo",
-            graph_environment=graph.get_graph_environment(),
+            graph_environment=builder.graph_environment,
             max_workers=20,
         )
         processor.fallback_timeout_seconds = 5.0  # Short timeout for testing
@@ -360,7 +359,7 @@ class TestRecursiveDFSDeadlockHandling:
         timeout_fallbacks = [
             node
             for node in result.documentation_nodes
-            if (node.metadata and node.metadata.get("fallback_reason") in ["circular_dependency_deadlock", "timeout"])
+            if (hasattr(node, "metadata") and node.metadata and node.metadata.get("fallback_reason") in ["circular_dependency_deadlock", "timeout"])
         ]
         assert len(timeout_fallbacks) > 0, "Expected timeout/deadlock fallback handling"
 

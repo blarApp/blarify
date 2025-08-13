@@ -14,7 +14,7 @@ import functools
 import threading
 from typing import Dict, List, Optional, Any, Set
 from concurrent.futures import Future
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from ...agents.llm_provider import LLMProvider
 from ...agents.prompt_templates import (
@@ -56,6 +56,26 @@ class ProcessingResult(BaseModel):
     # New fields for proper Node object handling
     documentation_nodes: List[DocumentationNode] = Field(default_factory=list)  # Actual DocumentationNode objects
     source_nodes: List[NodeWithContentDto] = Field(default_factory=list)  # Source code DTOs
+    
+    @field_validator('source_nodes', mode='before')
+    @classmethod
+    def validate_source_nodes(cls, v):
+        """Convert NodeWithContentDto instances or dicts to the expected format."""
+        if not v:
+            return []
+        
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                # If it's a dict, create a NodeWithContentDto from it
+                result.append(NodeWithContentDto(**item))
+            elif isinstance(item, NodeWithContentDto):
+                # If it's already a NodeWithContentDto, keep it
+                result.append(item)
+            else:
+                # For any other type, try to convert it
+                result.append(item)
+        return result
 
 
 class RecursiveDFSProcessor:
@@ -145,7 +165,9 @@ class RecursiveDFSProcessor:
             # Collect all processed descriptions and convert to dicts
             all_descriptions_as_dicts = [node.as_object() for node in self.node_descriptions.values()]
             all_documentation_nodes = list(self.node_descriptions.values())
-            all_source_nodes = list(self.source_nodes_cache.values())
+            # Convert NodeWithContentDto instances to dicts for Pydantic validation
+            # (NodeWithContentDto is a Pydantic model, so we need to pass dicts)
+            all_source_nodes = [node.model_dump() for node in self.source_nodes_cache.values()]
 
             logger.info(f"Completed recursive DFS processing. Generated {len(all_descriptions_as_dicts)} descriptions")
 

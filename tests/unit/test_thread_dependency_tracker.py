@@ -5,7 +5,12 @@ These tests are written first (TDD) to define the behavior we expect
 from the ThreadDependencyTracker before implementation.
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
+
+if TYPE_CHECKING:
+    from blarify.documentation.utils.recursive_dfs_processor import ThreadDependencyTracker
 
 
 class TestThreadDependencyTracker:
@@ -18,7 +23,7 @@ class TestThreadDependencyTracker:
         from blarify.documentation.utils.recursive_dfs_processor import ThreadDependencyTracker
         return ThreadDependencyTracker()
     
-    def test_register_processor(self, tracker: ThreadDependencyTracker) -> None:
+    def test_register_processor(self, tracker: "ThreadDependencyTracker") -> None:
         """Test that a thread can be registered as processor for a node."""
         # Given
         node_id = "node_a"
@@ -31,7 +36,7 @@ class TestThreadDependencyTracker:
         # For now, we just verify no exception is raised
         assert True  # Will enhance once implementation provides inspection methods
         
-    def test_register_waiter_no_deadlock(self, tracker: ThreadDependencyTracker) -> None:
+    def test_register_waiter_no_deadlock(self, tracker: "ThreadDependencyTracker") -> None:
         """Test registering a waiter when no deadlock would occur."""
         # Given - Thread 1 is processing node A
         tracker.register_processor("node_a", "thread_1")
@@ -42,7 +47,7 @@ class TestThreadDependencyTracker:
         # Then
         assert can_wait is True, "Should be able to wait when no circular dependency exists"
         
-    def test_detect_direct_deadlock(self, tracker):
+    def test_detect_direct_deadlock(self, tracker: "ThreadDependencyTracker") -> None:
         """Test detection of direct circular dependency (A waits for B, B waits for A)."""
         # Given
         # Thread 1 processes node A
@@ -59,7 +64,7 @@ class TestThreadDependencyTracker:
         # Then
         assert can_wait is False, "Should detect direct circular dependency deadlock"
         
-    def test_detect_transitive_deadlock(self, tracker):
+    def test_detect_transitive_deadlock(self, tracker: "ThreadDependencyTracker") -> None:
         """Test detection of transitive circular dependency (A->B->C->A)."""
         # Given - Set up a chain: Thread1->NodeB (Thread2)->NodeC (Thread3)
         tracker.register_processor("node_a", "thread_1")
@@ -80,7 +85,7 @@ class TestThreadDependencyTracker:
         # Then
         assert can_wait is False, "Should detect transitive circular dependency"
         
-    def test_unregister_waiter(self, tracker):
+    def test_unregister_waiter(self, tracker: "ThreadDependencyTracker") -> None:
         """Test that waiters can be unregistered properly."""
         # Given - Thread waiting for a node
         tracker.register_processor("node_a", "thread_1")
@@ -94,7 +99,7 @@ class TestThreadDependencyTracker:
         can_wait = tracker.register_waiter("node_a", "thread_2")
         assert can_wait is True, "Should be able to wait again after unregistering"
         
-    def test_thread_waiting_for_itself(self, tracker):
+    def test_thread_waiting_for_itself(self, tracker: "ThreadDependencyTracker") -> None:
         """Test that a thread cannot wait for a node it's processing."""
         # Given - Thread 1 is processing node A
         tracker.register_processor("node_a", "thread_1")
@@ -105,7 +110,7 @@ class TestThreadDependencyTracker:
         # Then
         assert can_wait is False, "Thread should not be able to wait for node it's processing"
         
-    def test_unregister_processor(self, tracker):
+    def test_unregister_processor(self, tracker: "ThreadDependencyTracker") -> None:
         """Test that processors can be unregistered properly."""
         # Given - Thread processing a node
         tracker.register_processor("node_a", "thread_1")
@@ -118,7 +123,7 @@ class TestThreadDependencyTracker:
         # No exception means it worked
         assert True
         
-    def test_multiple_waiters_same_node(self, tracker):
+    def test_multiple_waiters_same_node(self, tracker: "ThreadDependencyTracker") -> None:
         """Test that multiple threads can wait for the same node."""
         # Given - Thread 1 processing node A
         tracker.register_processor("node_a", "thread_1")
@@ -133,7 +138,7 @@ class TestThreadDependencyTracker:
         assert can_wait_3 is True
         assert can_wait_4 is True
         
-    def test_complex_dependency_chain(self, tracker):
+    def test_complex_dependency_chain(self, tracker: "ThreadDependencyTracker") -> None:
         """Test detection in a complex dependency scenario."""
         # Given - Complex setup:
         # Thread1 processes NodeA, waits for NodeB
@@ -158,7 +163,7 @@ class TestThreadDependencyTracker:
         # Then
         assert can_wait is False, "Should detect complex circular dependency"
         
-    def test_safe_parallel_processing(self, tracker):
+    def test_safe_parallel_processing(self, tracker: "ThreadDependencyTracker") -> None:
         """Test that independent branches can be processed in parallel safely."""
         # Given - Two independent processing branches
         # Branch 1: Thread1->NodeA, Thread2->NodeB  

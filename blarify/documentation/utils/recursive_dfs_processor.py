@@ -12,7 +12,6 @@ import concurrent.futures
 import contextvars
 import functools
 import threading
-import time
 from typing import Dict, List, Optional, Any, Set
 from concurrent.futures import Future
 from pydantic import BaseModel, Field, ConfigDict
@@ -1327,25 +1326,3 @@ class RecursiveDFSProcessor:
             logger.exception(f"Error in enhanced leaf processing for {node.name}: {e}")
             return self._create_fallback_description(node, f"Enhanced leaf processing error: {e}")
     
-    def _create_fallback_description(self, node: NodeWithContentDto, error_msg: str) -> DocumentationNode:
-        """Create a basic fallback description when all else fails."""
-        fallback_content = f"Fallback description for {node.name}: {error_msg}"
-        
-        info_node = DocumentationNode(
-            title=f"Fallback for {node.name}",
-            content=fallback_content,
-            info_type="error_fallback",
-            source_path=node.path,
-            source_name=node.name,
-            source_labels=node.labels,
-            source_id=node.id,
-            source_type="error_fallback",
-            graph_environment=self.graph_environment,
-            metadata={
-                "is_fallback": True,
-                "fallback_reason": "processing_error",
-                "error": error_msg
-            }
-        )
-        
-        return info_node

@@ -6,9 +6,7 @@ from the fallback mechanisms before implementation.
 """
 
 import pytest
-import time
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, Any, List
+from unittest.mock import Mock, patch
 
 from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
 from blarify.graph.node.documentation_node import DocumentationNode
@@ -91,7 +89,6 @@ class TestRecursiveDFSFallbackStrategies:
         processor.node_descriptions["child1_id"] = child1_doc
         
         # Mock _get_navigation_children to return our child
-        from unittest.mock import patch
         with patch.object(processor, '_get_navigation_children', return_value=[child_node]):
             # When - Call fallback handler
             result = processor._handle_deadlock_fallback(parent_node)

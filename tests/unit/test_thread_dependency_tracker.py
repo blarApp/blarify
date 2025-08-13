@@ -6,8 +6,6 @@ from the ThreadDependencyTracker before implementation.
 """
 
 import pytest
-from typing import Set
-from unittest.mock import Mock, MagicMock
 
 
 class TestThreadDependencyTracker:

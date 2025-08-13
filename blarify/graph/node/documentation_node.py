@@ -24,7 +24,7 @@ class DocumentationNode(Node):
         enhanced_content: Optional[str] = None,
         children_count: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         # Core semantic content
         self.title = title
@@ -61,7 +61,7 @@ class DocumentationNode(Node):
         """Create a unique identifier representation for this information node."""
         return f"{self.source_name}@info"
 
-    def as_object(self) -> dict:
+    def as_object(self) -> Dict[str, Any]:
         """Convert to dictionary for database storage."""
         obj = super().as_object()
 

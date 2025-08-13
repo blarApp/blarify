@@ -317,6 +317,60 @@ class RelationshipCreator:
         return relationships
     
     @staticmethod
+    def create_modified_by_with_blame(
+        commit_node: "Node",
+        code_node: Dict[str, Any],
+        line_ranges: List[Dict[str, int]]
+    ) -> Dict[str, Any]:
+        """Create MODIFIED_BY relationship with exact blame attribution.
+        
+        Args:
+            commit_node: The commit that modified the code
+            code_node: The code node that was modified
+            line_ranges: Exact line ranges from blame
+            
+        Returns:
+            Relationship dictionary with blame attribution
+        """
+        import json
+        
+        # Calculate total lines affected
+        total_lines = sum(r["end"] - r["start"] + 1 for r in line_ranges)
+        
+        # Build relationship attributes with exact blame information
+        attributes = {
+            # Exact line attribution from blame
+            "blamed_lines": json.dumps(line_ranges),
+            "total_lines_affected": total_lines,
+            
+            # Node context
+            "node_type": code_node.get("label", "UNKNOWN"),
+            "node_path": code_node.get("path", ""),
+            "node_name": code_node.get("name", ""),
+            
+            # Commit context
+            "commit_sha": commit_node.external_id if hasattr(commit_node, 'external_id') else "",
+            "commit_timestamp": commit_node.timestamp if hasattr(commit_node, 'timestamp') else "",
+            "commit_message": commit_node.title if hasattr(commit_node, 'title') else "",
+            "commit_author": commit_node.author if hasattr(commit_node, 'author') else "",
+            
+            # Attribution metadata
+            "attribution_method": "blame",
+            "attribution_accuracy": "exact",
+            
+            # PR information if available
+            "pr_number": commit_node.metadata.get("pr_number") if hasattr(commit_node, 'metadata') else None
+        }
+        
+        # Return as dictionary format for database
+        return {
+            "start_node_id": code_node.get("id", code_node.get("node_id")),
+            "end_node_id": commit_node.hashed_id if hasattr(commit_node, 'hashed_id') else commit_node.id,
+            "type": "MODIFIED_BY",
+            "properties": attributes
+        }
+    
+    @staticmethod
     def create_affects_relationships(
         commit_nodes: List["Node"],
         workflow_nodes: List["Node"]

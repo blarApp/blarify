@@ -293,16 +293,17 @@ class GitHubCreator:
             results = self.db_manager.query(query, params)
             
             for node_data in results:
-                class MockNode:
-                    def __init__(self, data: Dict[str, Any]) -> None:
-                        self.hashed_id = data["node_id"]
-                        self.name = data["name"]
-                        self.label = data["label"]
-                        self.path = data["path"]
-                        self.start_line = data.get("start_line")
-                        self.end_line = data.get("end_line")
+                # Create mock node object
+                mock_node = type('MockNode', (), {
+                    'hashed_id': node_data["node_id"],
+                    'name': node_data["name"],
+                    'label': node_data["label"],
+                    'path': node_data["path"],
+                    'start_line': node_data.get("start_line"),
+                    'end_line': node_data.get("end_line")
+                })()
                 
-                affected_nodes.append(MockNode(node_data))
+                affected_nodes.append(mock_node)
             
             return affected_nodes
         
@@ -350,16 +351,17 @@ class GitHubCreator:
                     
                     seen_node_ids.add(node_data["node_id"])
                     
-                    class MockNode:
-                        def __init__(self, data: Dict[str, Any]) -> None:
-                            self.hashed_id = data["node_id"]
-                            self.name = data["name"]
-                            self.label = data["label"]
-                            self.path = data["path"]
-                            self.start_line = data.get("start_line")
-                            self.end_line = data.get("end_line")
+                    # Create mock node object
+                    mock_node = type('MockNode', (), {
+                        'hashed_id': node_data["node_id"],
+                        'name': node_data["name"],
+                        'label': node_data["label"],
+                        'path': node_data["path"],
+                        'start_line': node_data.get("start_line"),
+                        'end_line': node_data.get("end_line")
+                    })()
                     
-                    affected_nodes.append(MockNode(node_data))
+                    affected_nodes.append(mock_node)
                     logger.debug(f"  Found affected {node_data['label']} {node_data['name']} for lines {change_start}-{change_end}")
         
         if not affected_nodes:
@@ -396,3 +398,217 @@ class GitHubCreator:
         self.db_manager.save_graph(node_objects, rel_objects)
         
         logger.info(f"Saved {len(node_objects)} nodes and {len(rel_objects)} relationships to database")
+    
+    def _query_all_code_nodes(self) -> List[Dict[str, Any]]:
+        """Query all code nodes from database.
+        
+        Returns:
+            List of code node dictionaries
+        """
+        query = """
+        MATCH (n:NODE)
+        WHERE n.layer = 'code'
+          AND n.label IN ['FUNCTION', 'CLASS']
+        RETURN n.node_id as id,
+               n.path as path,
+               n.start_line as start_line,
+               n.end_line as end_line,
+               n.name as name,
+               n.label as label
+        """
+        
+        results = self.db_manager.query(query)
+        logger.info(f"Found {len(results)} code nodes in database")
+        return results
+    
+    def create_github_integration_from_nodes(
+        self,
+        nodes: Optional[List[Dict[str, Any]]] = None,
+        save_to_database: bool = True
+    ) -> GitHubIntegrationResult:
+        """Create GitHub integration for specific code nodes using blame.
+        
+        This is the new approach that starts with existing code nodes
+        and uses GitHub's blame API to find exactly which commits
+        modified those nodes.
+        
+        Args:
+            nodes: List of code nodes to process (if None, queries all from DB)
+            save_to_database: Whether to save results to database
+            
+        Returns:
+            GitHubIntegrationResult with created nodes and relationships
+        """
+        result = GitHubIntegrationResult()
+        
+        try:
+            # Get nodes to process
+            if nodes is None:
+                nodes = self._query_all_code_nodes()
+            
+            if not nodes:
+                logger.info("No code nodes to process")
+                return result
+            
+            logger.info(f"Processing {len(nodes)} code nodes with blame")
+            
+            # Get blame commits for all nodes
+            blame_results = self.github_repo.blame_commits_for_nodes(nodes)
+            
+            # Create integration nodes from blame results
+            pr_nodes, commit_nodes = self._create_integration_nodes_from_blame(blame_results)
+            
+            # Create relationships
+            relationships = []
+            
+            # Create MODIFIED_BY relationships with exact blame attribution
+            for node_id, commits in blame_results.items():
+                node = next((n for n in nodes if n["id"] == node_id), None)
+                if not node:
+                    continue
+                
+                for commit_data in commits:
+                    commit_node = next(
+                        (c for c in commit_nodes if c.external_id == commit_data["sha"]),
+                        None
+                    )
+                    if not commit_node:
+                        continue
+                    
+                    rel = RelationshipCreator.create_modified_by_with_blame(
+                        commit_node=commit_node,
+                        code_node=node,
+                        line_ranges=commit_data["line_ranges"]
+                    )
+                    relationships.append(rel)
+            
+            # Create PR → Commit relationships
+            for pr_node in pr_nodes:
+                pr_commits = [
+                    c for c in commit_nodes 
+                    if c.metadata.get("pr_number") == int(pr_node.external_id)
+                ]
+                if pr_commits:
+                    sequence_rels = RelationshipCreator.create_integration_sequence_relationships(
+                        pr_node, cast(List[Any], pr_commits)
+                    )
+                    relationships.extend(sequence_rels)
+            
+            # Save to database
+            if save_to_database:
+                self._save_to_database(pr_nodes + commit_nodes, relationships)
+            
+            # Populate result
+            result.total_prs = len(pr_nodes)
+            result.total_commits = len(commit_nodes)
+            result.pr_nodes = pr_nodes
+            result.commit_nodes = commit_nodes
+            result.relationships = relationships
+            
+            logger.info(f"Created {result.total_prs} PRs and {result.total_commits} commits from blame")
+            
+        except Exception as e:
+            logger.error(f"Error creating GitHub integration from nodes: {e}")
+            result.error = str(e)
+        
+        return result
+    
+    def _create_integration_nodes_from_blame(
+        self,
+        blame_results: Dict[str, List[Dict[str, Any]]]
+    ) -> Tuple[List[IntegrationNode], List[IntegrationNode]]:
+        """Create PR and commit nodes from blame results.
+        
+        Args:
+            blame_results: Dictionary mapping node IDs to commit lists
+            
+        Returns:
+            Tuple of (pr_nodes, commit_nodes)
+        """
+        pr_nodes = []
+        commit_nodes = []
+        seen_prs = set()
+        seen_commits = set()
+        
+        for _, commits in blame_results.items():
+            for commit_data in commits:
+                # Create commit node if not seen
+                sha = commit_data["sha"]
+                if sha not in seen_commits:
+                    seen_commits.add(sha)
+                    
+                    # Store PR number in metadata if available
+                    metadata = {
+                        "author_email": commit_data.get("author_email"),
+                        "author_login": commit_data.get("author_login"),
+                        "additions": commit_data.get("additions"),
+                        "deletions": commit_data.get("deletions")
+                    }
+                    if commit_data.get("pr_info"):
+                        metadata["pr_number"] = commit_data["pr_info"]["number"]
+                    
+                    commit_node = IntegrationNode(
+                        source="github",
+                        source_type="commit",
+                        external_id=sha,
+                        title=commit_data["message"].split('\n')[0],
+                        content=commit_data["message"],
+                        timestamp=commit_data.get("timestamp", ""),
+                        author=commit_data.get("author", "Unknown"),
+                        url=commit_data.get("url", ""),
+                        metadata=metadata,
+                        graph_environment=self.graph_environment,
+                        level=1
+                    )
+                    commit_nodes.append(commit_node)
+                
+                # Create PR node if not seen
+                pr_info = commit_data.get("pr_info")
+                if pr_info and pr_info["number"] not in seen_prs:
+                    seen_prs.add(pr_info["number"])
+                    
+                    pr_node = IntegrationNode(
+                        source="github",
+                        source_type="pull_request",
+                        external_id=str(pr_info["number"]),
+                        title=pr_info["title"],
+                        content="",  # Would need separate query for PR body
+                        timestamp=pr_info.get("merged_at", ""),
+                        author=pr_info.get("author", ""),
+                        url=pr_info["url"],
+                        metadata={
+                            "state": pr_info.get("state", "MERGED")
+                        },
+                        graph_environment=self.graph_environment,
+                        level=0
+                    )
+                    pr_nodes.append(pr_node)
+        
+        logger.info(f"Created {len(pr_nodes)} PR nodes and {len(commit_nodes)} commit nodes from blame")
+        return pr_nodes, commit_nodes
+    
+    def create_github_integration_from_latest_prs(
+        self,
+        pr_limit: int = 50,
+        since_date: Optional[str] = None,
+        save_to_database: bool = True
+    ) -> GitHubIntegrationResult:
+        """Create GitHub integration by fetching N latest merged PRs.
+        
+        This is the legacy approach that fetches the most recent PRs
+        from the repository and attempts to map them to code nodes.
+        
+        Args:
+            pr_limit: Maximum number of PRs to fetch
+            since_date: Process PRs created after this date
+            save_to_database: Whether to save results
+            
+        Returns:
+            GitHubIntegrationResult
+        """
+        # This is just a renamed version of the original create_github_integration
+        return self.create_github_integration(
+            pr_limit=pr_limit,
+            since_date=since_date,
+            save_to_database=save_to_database
+        )

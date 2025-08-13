@@ -782,6 +782,100 @@ Commit abc123 (IntegrationNode, source_type="commit")
    - Connection between documentation and actual development history
    - Foundation for advanced analytics and reporting
 
+## Implementation Updates and Improvements
+
+### Latest Implementation Changes
+
+#### 1. Enhanced Line Range Extraction
+The `extract_change_ranges` method now **groups consecutive lines** of the same type instead of returning individual lines:
+
+```python
+def extract_change_ranges(self, patch: str) -> List[Dict[str, Any]]:
+    """Extract line ranges, grouping consecutive lines of the same type."""
+    changes = []
+    current_change = None
+    
+    for line in lines:
+        if line.startswith('-') and not line.startswith('---'):
+            if current_change and current_change["type"] == "deletion" and \
+               current_change["line_end"] == current_old_line - 1:
+                # Extend existing deletion range
+                current_change["line_end"] = current_old_line
+            else:
+                # Start new deletion range
+                if current_change:
+                    changes.append(current_change)
+                current_change = {
+                    "type": "deletion",
+                    "line_start": current_old_line,
+                    "line_end": current_old_line,
+                    "content": line[1:]
+                }
+        # Similar logic for additions...
+```
+
+#### 2. Multiple Affected Nodes per Commit
+The implementation now correctly identifies **ALL functions/classes** modified by a commit, not just the first one:
+
+```python
+def _find_affected_code_nodes(
+    self,
+    file_path: str,
+    file_change: Dict[str, Any]
+) -> List[Any]:
+    """Find ALL code nodes affected by file changes using Cypher queries."""
+    affected_nodes = []
+    seen_node_ids = set()
+    
+    # Extract grouped line ranges from patch
+    change_ranges = self.github_repo.extract_change_ranges(file_change["patch"])
+    
+    # Query for each change range
+    for change in change_ranges:
+        if change["type"] == "addition":
+            # Use Cypher to find overlapping nodes
+            query = """
+            MATCH (n:NODE)
+            WHERE n.path CONTAINS $file_path
+              AND n.layer = 'code'
+              AND n.label IN ['FUNCTION', 'CLASS']
+              AND n.start_line <= $change_end
+              AND n.end_line >= $change_start
+            RETURN n.node_id, n.name, n.label, n.start_line, n.end_line
+            """
+            
+            results = self.db_manager.query(query, {
+                "file_path": file_path,
+                "change_start": change["line_start"],
+                "change_end": change["line_end"]
+            })
+            
+            for node_data in results:
+                if node_data["node_id"] not in seen_node_ids:
+                    seen_node_ids.add(node_data["node_id"])
+                    affected_nodes.append(MockNode(node_data))
+```
+
+#### 3. Null Content Handling
+Fixed Neo4j merge errors by ensuring content is never null:
+
+```python
+# In IntegrationNode.as_object()
+"content": self.content if self.content is not None else "",
+
+# In GitHubCreator._process_pr()
+content=pr_data.get("description") or "",  # Ensure empty string instead of None
+```
+
+#### 4. Format Verifier Update
+Extended FormatVerifier to accept `integration://` URI scheme:
+
+```python
+# In format_verifier.py
+if path.startswith("integration://"):
+    return True  # Accept integration URIs
+```
+
 ## Implementation Steps
 
 ### Step 1: GitHub Issue Creation

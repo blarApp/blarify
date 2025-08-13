@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 if TYPE_CHECKING:
     from blarify.graph.node import Node
@@ -12,6 +12,7 @@ class Relationship:
     scope_text: str
     start_line: Optional[int]
     reference_character: Optional[int]
+    attributes: Dict[str, Any]
 
     def __init__(
         self, 
@@ -20,7 +21,8 @@ class Relationship:
         rel_type: "RelationshipType", 
         scope_text: str = "",
         start_line: Optional[int] = None,
-        reference_character: Optional[int] = None
+        reference_character: Optional[int] = None,
+        attributes: Optional[Dict[str, Any]] = None
     ):
         self.start_node = start_node
         self.end_node = end_node
@@ -28,6 +30,7 @@ class Relationship:
         self.scope_text = scope_text
         self.start_line = start_line
         self.reference_character = reference_character
+        self.attributes = attributes or {}
 
     def as_object(self) -> dict:
         obj = {
@@ -42,6 +45,11 @@ class Relationship:
             obj["startLine"] = self.start_line
         if self.reference_character is not None:
             obj["referenceCharacter"] = self.reference_character
+        
+        # Add any additional attributes
+        for key, value in self.attributes.items():
+            if key not in obj:  # Don't override existing fields
+                obj[key] = value
             
         return obj
 

@@ -4,6 +4,10 @@ This module provides backward compatibility for imports from the old location.
 The actual implementation has been moved to blarify.repositories.graph_db_manager.
 """
 
-from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager import (
+    AbstractDbManager,
+    Neo4jManager,
+    FalkorDBManager
+)
 
-__all__ = ['AbstractDbManager']
+__all__ = ['AbstractDbManager', 'Neo4jManager', 'FalkorDBManager']

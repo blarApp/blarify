@@ -26,3 +26,8 @@ class RelationshipType(Enum):
     BELONGS_TO_WORKFLOW = "BELONGS_TO_WORKFLOW"  # Documentation node belongs to workflow
     BELONGS_TO_SPEC = "BELONGS_TO_SPEC"  # Workflow node belongs to specification
     DESCRIBES = "DESCRIBES"  # Documentation node describes code node
+    
+    # Integration relationships
+    MODIFIED_BY = "MODIFIED_BY"  # Code node modified by commit
+    AFFECTS = "AFFECTS"  # Commit affects workflow
+    INTEGRATION_SEQUENCE = "INTEGRATION_SEQUENCE"  # PR to commit sequence

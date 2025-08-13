@@ -2,7 +2,7 @@
 
 import os
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 import requests
 from requests.adapters import HTTPAdapter
@@ -39,6 +39,9 @@ class GitHub(AbstractVersionController):
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.base_url = base_url.rstrip('/')
+        
+        # Initialize blame cache
+        self._blame_cache: Dict[str, List[Dict[str, Any]]] = {}
         
         # Setup session with retry logic
         self.session = requests.Session()
@@ -403,3 +406,351 @@ class GitHub(AbstractVersionController):
         except Exception as e:
             logger.error(f"GitHub connection test failed: {e}")
             return False
+    
+    # GraphQL API Methods
+    
+    def _execute_graphql_query(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a GraphQL query against GitHub API.
+        
+        Args:
+            query: GraphQL query string
+            variables: Query variables
+            
+        Returns:
+            Response JSON from GraphQL API
+            
+        Raises:
+            Exception: If GraphQL query fails
+        """
+        url = "https://api.github.com/graphql"
+        
+        try:
+            response = self.session.post(
+                url,
+                json={"query": query, "variables": variables},
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            # Check for GraphQL errors
+            if "errors" in result:
+                error_messages = [e.get("message", "Unknown error") for e in result["errors"]]
+                raise Exception(f"GraphQL error: {'; '.join(error_messages)}")
+            
+            return result
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"GraphQL query failed: {e}")
+            raise
+    
+    def _build_blame_query(
+        self,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        ref: str = "HEAD"
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Build GraphQL query for blame information.
+        
+        Args:
+            file_path: Path to file in repository
+            start_line: Starting line number (1-indexed)
+            end_line: Ending line number (inclusive)
+            ref: Git ref (branch, tag, commit SHA) to blame at
+            
+        Returns:
+            Tuple of (query string, variables dict)
+        """
+        query = """
+        query ($owner:String!, $name:String!, $expr:String!, $start:Int!, $end:Int!) {
+            repository(owner:$owner, name:$name) {
+                object(expression: $expr) {
+                    ... on Blob {
+                        blame(range: {startLine: $start, endLine: $end}) {
+                            ranges {
+                                startingLine
+                                endingLine
+                                age
+                                commit {
+                                    oid
+                                    committedDate
+                                    message
+                                    additions
+                                    deletions
+                                    author {
+                                        name
+                                        email
+                                        user { login }
+                                    }
+                                    committer {
+                                        name
+                                        email
+                                        user { login }
+                                    }
+                                    url
+                                    associatedPullRequests(first: 1) {
+                                        nodes {
+                                            number
+                                            title
+                                            url
+                                            author { login }
+                                            mergedAt
+                                            state
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+        
+        variables = {
+            "owner": self.repo_owner,
+            "name": self.repo_name,
+            "expr": f"{ref}:{file_path}",
+            "start": start_line,
+            "end": end_line
+        }
+        
+        return query, variables
+    
+    def _parse_blame_response(self, response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Parse GraphQL blame response into commit list.
+        
+        Args:
+            response: GraphQL response JSON
+            
+        Returns:
+            List of commit dictionaries with line attribution
+            
+        Raises:
+            Exception: If response has errors or unexpected format
+        """
+        if "errors" in response:
+            error_messages = [e.get("message", "Unknown error") for e in response["errors"]]
+            raise Exception(f"GraphQL error: {'; '.join(error_messages)}")
+        
+        commits = []
+        seen_shas = {}  # Map SHA to commit index for consolidation
+        
+        try:
+            blame_data = response["data"]["repository"]["object"]["blame"]
+            
+            for blame_range in blame_data["ranges"]:
+                commit_data = blame_range["commit"]
+                sha = commit_data["oid"]
+                
+                # Extract line range for this blame range
+                line_range = {
+                    "start": blame_range["startingLine"],
+                    "end": blame_range["endingLine"]
+                }
+                
+                if sha in seen_shas:
+                    # Add line range to existing commit
+                    commits[seen_shas[sha]]["line_ranges"].append(line_range)
+                else:
+                    # Create new commit entry
+                    seen_shas[sha] = len(commits)
+                    
+                    # Extract PR information if available
+                    pr_info = None
+                    if commit_data.get("associatedPullRequests", {}).get("nodes"):
+                        pr = commit_data["associatedPullRequests"]["nodes"][0]
+                        pr_info = {
+                            "number": pr["number"],
+                            "title": pr["title"],
+                            "url": pr["url"],
+                            "author": pr.get("author", {}).get("login"),
+                            "merged_at": pr.get("mergedAt"),
+                            "state": pr.get("state")
+                        }
+                    
+                    # Extract author information safely
+                    author_data = commit_data.get("author", {})
+                    author_user = author_data.get("user") if author_data else None
+                    
+                    commit = {
+                        "sha": sha,
+                        "message": commit_data["message"],
+                        "author": author_data.get("name", "Unknown") if author_data else "Unknown",
+                        "author_email": author_data.get("email") if author_data else None,
+                        "author_login": author_user.get("login") if author_user else None,
+                        "timestamp": commit_data["committedDate"],
+                        "url": commit_data["url"],
+                        "additions": commit_data.get("additions"),
+                        "deletions": commit_data.get("deletions"),
+                        "line_ranges": [line_range],
+                        "pr_info": pr_info
+                    }
+                    commits.append(commit)
+            
+        except KeyError as e:
+            logger.error(f"Unexpected GraphQL response structure: {e}")
+            raise Exception(f"Failed to parse blame response: {e}")
+        
+        return commits
+    
+    def blame_commits_for_range(
+        self,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        ref: str = "HEAD"
+    ) -> List[Dict[str, Any]]:
+        """Get all commits that modified specific line range using blame.
+        
+        Args:
+            file_path: Path to file in repository
+            start_line: Starting line number (1-indexed)
+            end_line: Ending line number (inclusive)
+            ref: Git ref (branch, tag, commit SHA) to blame at
+            
+        Returns:
+            List of commit dictionaries with line attribution
+        """
+        # Check cache first
+        cache_key = f"{file_path}:{start_line}-{end_line}@{ref}"
+        if cache_key in self._blame_cache:
+            logger.debug(f"Using cached blame for {cache_key}")
+            return self._blame_cache[cache_key]
+        
+        logger.info(f"Fetching blame for {file_path} lines {start_line}-{end_line} at {ref}")
+        
+        # Build and execute GraphQL query
+        query, variables = self._build_blame_query(file_path, start_line, end_line, ref)
+        response = self._execute_graphql_query(query, variables)
+        
+        # Parse response
+        commits = self._parse_blame_response(response)
+        
+        # Cache results
+        self._blame_cache[cache_key] = commits
+        
+        logger.info(f"Found {len(commits)} commits for {file_path} lines {start_line}-{end_line}")
+        return commits
+    
+    def blame_commits_for_nodes(
+        self,
+        nodes: List[Dict[str, Any]]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Get commits for multiple code nodes efficiently.
+        
+        Args:
+            nodes: List of node dictionaries with path, start_line, end_line
+            
+        Returns:
+            Dictionary mapping node IDs to their commit lists
+        """
+        results = {}
+        
+        # Group nodes by file to optimize queries
+        nodes_by_file: Dict[str, List[Dict[str, Any]]] = {}
+        for node in nodes:
+            file_path = node["path"]
+            if file_path not in nodes_by_file:
+                nodes_by_file[file_path] = []
+            nodes_by_file[file_path].append(node)
+        
+        # Process each file
+        for file_path, file_nodes in nodes_by_file.items():
+            # Merge overlapping ranges to minimize queries
+            merged_ranges = self._merge_line_ranges(file_nodes)
+            
+            for range_info in merged_ranges:
+                commits = self.blame_commits_for_range(
+                    file_path=file_path,
+                    start_line=range_info["start"],
+                    end_line=range_info["end"]
+                )
+                
+                # Assign commits to original nodes
+                for node in range_info["nodes"]:
+                    node_commits = []
+                    for commit in commits:
+                        # Check if commit actually touches this node's lines
+                        if self._ranges_overlap(
+                            commit["line_ranges"],
+                            node["start_line"],
+                            node["end_line"]
+                        ):
+                            node_commits.append(commit)
+                    
+                    results[node["id"]] = node_commits
+        
+        logger.info(f"Processed blame for {len(nodes)} nodes across {len(nodes_by_file)} files")
+        return results
+    
+    def _merge_line_ranges(self, nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge overlapping or adjacent line ranges to minimize API calls.
+        
+        Args:
+            nodes: List of nodes with start_line and end_line
+            
+        Returns:
+            List of merged ranges with associated nodes
+        """
+        if not nodes:
+            return []
+        
+        # Sort nodes by start line
+        sorted_nodes = sorted(nodes, key=lambda n: n["start_line"])
+        
+        merged = []
+        current_range = {
+            "start": sorted_nodes[0]["start_line"],
+            "end": sorted_nodes[0]["end_line"],
+            "nodes": [sorted_nodes[0]]
+        }
+        
+        for node in sorted_nodes[1:]:
+            # Check if overlapping or adjacent (within 5 lines)
+            if node["start_line"] <= current_range["end"] + 5:
+                # Merge ranges
+                current_range["end"] = max(current_range["end"], node["end_line"])
+                current_range["nodes"].append(node)
+            else:
+                # Start new range
+                merged.append(current_range)
+                current_range = {
+                    "start": node["start_line"],
+                    "end": node["end_line"],
+                    "nodes": [node]
+                }
+        
+        # Add last range
+        merged.append(current_range)
+        
+        logger.debug(f"Merged {len(nodes)} nodes into {len(merged)} ranges")
+        return merged
+    
+    def _ranges_overlap(
+        self,
+        line_ranges: List[Dict[str, int]],
+        start_line: int,
+        end_line: int
+    ) -> bool:
+        """Check if any of the line ranges overlap with given range.
+        
+        Args:
+            line_ranges: List of line range dictionaries with start/end
+            start_line: Start of range to check
+            end_line: End of range to check
+            
+        Returns:
+            True if any range overlaps, False otherwise
+        """
+        for range_dict in line_ranges:
+            range_start = range_dict["start"]
+            range_end = range_dict["end"]
+            
+            # Check for overlap
+            if not (range_end < start_line or range_start > end_line):
+                return True
+        
+        return False

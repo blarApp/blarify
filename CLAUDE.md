@@ -98,3 +98,4 @@ This ensures code quality and prevents over-engineering.
 - Always run tests before submitting a task as completed
 - always follow pyright rules and run the pyright command after making changes on the code
 - always follow ruff rules and run the ruff command after making changes on the code
+- befoire macking any commit run pyright and ruff on the changed files

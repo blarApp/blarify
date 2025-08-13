@@ -739,174 +739,258 @@ Following the testing guide in `@docs/testing-guide.md` and using TDD approach, 
 
 #### 4.1 Test Utilities for Circular Dependencies
 
-Create test utilities for generating circular dependency scenarios:
+Test code examples with circular dependencies should be pre-created in the following structure:
+
+```
+code_examples/
+├── circular_deps/
+│   ├── simple_cycle/
+│   │   ├── module_0.py
+│   │   ├── module_1.py
+│   │   └── module_2.py
+│   ├── complex_cycle/
+│   │   ├── module_a.py
+│   │   ├── module_b.py
+│   │   ├── module_c.py
+│   │   ├── module_d.py
+│   │   ├── module_e.py
+│   │   └── module_f.py
+│   └── high_concurrency/
+│       ├── cycle_0/
+│       │   ├── module_0.py
+│       │   ├── module_1.py
+│       │   └── module_2.py
+│       ├── cycle_1/
+│       │   ├── module_0.py
+│       │   ├── module_1.py
+│       │   └── module_2.py
+│       └── ... (up to cycle_9)
+```
+
+**Simple Cycle Example (code_examples/circular_deps/simple_cycle/):**
 
 ```python
-# In tests/utils/circular_dependency_generator.py
+# module_0.py
+"""Module 0 with circular dependency."""
+
+def function_0(value: int) -> int:
+    """Function 0 that calls function 1."""
+    if value <= 0:
+        return value
+    
+    # This creates the circular dependency
+    from module_1 import function_1
+    return function_1(value - 1)
+
+def helper_function_0() -> str:
+    """Helper function without dependencies."""
+    return "Helper 0"
+```
+
+```python
+# module_1.py
+"""Module 1 with circular dependency."""
+
+def function_1(value: int) -> int:
+    """Function 1 that calls function 2."""
+    if value <= 0:
+        return value
+    
+    from module_2 import function_2
+    return function_2(value - 1)
+
+def helper_function_1() -> str:
+    """Helper function without dependencies."""
+    return "Helper 1"
+```
+
+```python
+# module_2.py
+"""Module 2 with circular dependency."""
+
+def function_2(value: int) -> int:
+    """Function 2 that calls function 0."""
+    if value <= 0:
+        return value
+    
+    # Completes the cycle
+    from module_0 import function_0
+    return function_0(value - 1)
+
+def helper_function_2() -> str:
+    """Helper function without dependencies."""
+    return "Helper 2"
+```
+
+**Complex Cycle Example (code_examples/circular_deps/complex_cycle/):**
+
+```python
+# module_a.py
+"""Module A with complex circular dependencies."""
+
+def function_a(depth: int) -> str:
+    """Function that participates in circular call chain."""
+    if depth <= 0:
+        return "function_a_result"
+    
+    from module_b import function_b
+    result = function_b(depth - 1)
+    return f"function_a->{result}"
+
+def independent_function() -> str:
+    """Function without circular dependencies."""
+    return "independent_result"
+```
+
+```python
+# module_b.py
+"""Module B with complex circular dependencies and branch."""
+
+def function_b(depth: int) -> str:
+    """Function that participates in main cycle and branches to secondary cycle."""
+    if depth <= 0:
+        return "function_b_result"
+    
+    from module_c import function_c
+    from module_d import function_d
+    
+    # Create branch to second cycle
+    if depth > 5:
+        branch_result = function_d(depth // 2)
+        result = function_c(depth - 1)
+        return f"function_b->{branch_result}->{result}"
+    else:
+        result = function_c(depth - 1)
+        return f"function_b->{result}"
+
+def independent_function() -> str:
+    """Function without circular dependencies."""
+    return "independent_result"
+```
+
+```python
+# module_c.py
+"""Module C completing the main cycle."""
+
+def function_c(depth: int) -> str:
+    """Function that completes main circular dependency."""
+    if depth <= 0:
+        return "function_c_result"
+    
+    from module_a import function_a
+    result = function_a(depth - 1)
+    return f"function_c->{result}"
+
+def independent_function() -> str:
+    """Function without circular dependencies."""
+    return "independent_result"
+```
+
+```python
+# module_d.py
+"""Module D starting the branch cycle."""
+
+def function_d(depth: int) -> str:
+    """Function starting the branch circular dependency."""
+    if depth <= 0:
+        return "function_d_result"
+    
+    from module_e import function_e
+    result = function_e(depth - 1)
+    return f"function_d->{result}"
+
+def independent_function() -> str:
+    """Function without circular dependencies."""
+    return "independent_result"
+```
+
+```python
+# module_e.py
+"""Module E in the branch cycle."""
+
+def function_e(depth: int) -> str:
+    """Function in the branch circular dependency."""
+    if depth <= 0:
+        return "function_e_result"
+    
+    from module_f import function_f
+    result = function_f(depth - 1)
+    return f"function_e->{result}"
+
+def independent_function() -> str:
+    """Function without circular dependencies."""
+    return "independent_result"
+```
+
+```python
+# module_f.py
+"""Module F connecting branch back to main cycle."""
+
+def function_f(depth: int) -> str:
+    """Function connecting branch cycle back to main."""
+    if depth <= 0:
+        return "function_f_result"
+    
+    from module_b import function_b
+    result = function_b(depth - 1)
+    return f"function_f->{result}"
+
+def independent_function() -> str:
+    """Function without circular dependencies."""
+    return "independent_result"
+```
+
+**High Concurrency Example Structure:**
+
+For high concurrency testing, create 10 cycles (cycle_0 through cycle_9), each with 3 modules following the simple cycle pattern, with additional cross-cycle connections:
+
+```python
+# code_examples/circular_deps/high_concurrency/cycle_0/module_0.py
+"""Module 0 in cycle 0 with cross-cycle connection."""
+
+def function_0(value: int) -> int:
+    """Function 0 with potential cross-cycle call."""
+    if value <= 0:
+        return value
+    
+    # Cross-cycle connection to cycle_1
+    if value > 10:
+        from cycle_1.module_0 import function_0 as cycle1_function_0
+        return cycle1_function_0(value - 5)
+    else:
+        from module_1 import function_1
+        return function_1(value - 1)
+
+def helper_function_0() -> str:
+    """Helper function without dependencies."""
+    return "Helper 0"
+```
+
+The test utilities can then simply reference these pre-created examples:
+
+```python
+# In tests/utils/circular_dependency_loader.py
 
 from pathlib import Path
-from typing import List, Tuple
-import textwrap
+from typing import List
 
-class CircularDependencyGenerator:
-    """Generates test code with circular function dependencies."""
+class CircularDependencyLoader:
+    """Loads pre-created test code with circular function dependencies."""
     
     @staticmethod
-    def create_simple_cycle(temp_dir: Path, cycle_length: int = 3) -> List[Path]:
-        """
-        Create a simple A->B->C->A cycle.
-        
-        Args:
-            temp_dir: Directory to create files in
-            cycle_length: Number of functions in the cycle
-            
-        Returns:
-            List of created file paths
-        """
-        files = []
-        
-        for i in range(cycle_length):
-            current_func = f"function_{i}"
-            next_func = f"function_{(i + 1) % cycle_length}"
-            
-            file_path = temp_dir / f"module_{i}.py"
-            
-            content = textwrap.dedent(f'''
-            """Module {i} with circular dependency."""
-            
-            def {current_func}(value: int) -> int:
-                """Function {i} that calls function {(i + 1) % cycle_length}."""
-                if value <= 0:
-                    return value
-                
-                # This creates the circular dependency
-                from module_{(i + 1) % cycle_length} import {next_func}
-                return {next_func}(value - 1)
-            
-            def helper_function_{i}() -> str:
-                """Helper function without dependencies."""
-                return "Helper {i}"
-            ''')
-            
-            file_path.write_text(content.strip())
-            files.append(file_path)
-        
-        return files
+    def get_simple_cycle_path() -> Path:
+        """Get path to simple cycle test case."""
+        return Path("code_examples/circular_deps/simple_cycle")
     
     @staticmethod
-    def create_complex_cycle_with_branches(temp_dir: Path) -> List[Path]:
-        """
-        Create a complex cycle: A->B->C->A, with B also calling D->E->F->B.
-        """
-        files = []
-        
-        # Main cycle: A->B->C->A
-        main_cycle = [
-            ("module_a.py", "function_a", "module_b", "function_b"),
-            ("module_b.py", "function_b", "module_c", "function_c"), 
-            ("module_c.py", "function_c", "module_a", "function_a"),
-        ]
-        
-        # Branch cycle: D->E->F->B
-        branch_cycle = [
-            ("module_d.py", "function_d", "module_e", "function_e"),
-            ("module_e.py", "function_e", "module_f", "function_f"),
-            ("module_f.py", "function_f", "module_b", "function_b"),
-        ]
-        
-        all_modules = main_cycle + branch_cycle
-        
-        for module_file, current_func, next_module, next_func in all_modules:
-            file_path = temp_dir / module_file
-            
-            content = textwrap.dedent(f'''
-            """Module with complex circular dependencies."""
-            
-            def {current_func}(depth: int) -> str:
-                """Function that participates in circular call chain."""
-                if depth <= 0:
-                    return "{current_func}_result"
-                
-                from {next_module} import {next_func}
-                result = {next_func}(depth - 1)
-                return f"{current_func}->{{result}}"
-            
-            def independent_function() -> str:
-                """Function without circular dependencies."""
-                return "independent_result"
-            ''')
-            
-            file_path.write_text(content.strip())
-            files.append(file_path)
-        
-        # Add module_b calls to module_d to create the branch connection
-        module_b_path = temp_dir / "module_b.py"
-        module_b_content = module_b_path.read_text()
-        
-        # Insert call to module_d in function_b
-        enhanced_content = module_b_content.replace(
-            'from module_c import function_c\n                result = function_c(depth - 1)',
-            '''from module_c import function_c
-                from module_d import function_d
-                
-                # Create branch to second cycle
-                if depth > 5:
-                    branch_result = function_d(depth // 2)
-                    result = function_c(depth - 1)
-                    return f"function_b->{{branch_result}}->{{result}}"
-                else:
-                    result = function_c(depth - 1)'''
-        )
-        
-        module_b_path.write_text(enhanced_content)
-        
-        return files
+    def get_complex_cycle_path() -> Path:
+        """Get path to complex cycle test case."""
+        return Path("code_examples/circular_deps/complex_cycle")
     
     @staticmethod
-    def create_high_concurrency_test_case(temp_dir: Path, num_cycles: int = 10) -> List[Path]:
-        """
-        Create multiple interconnected cycles to stress test high concurrency scenarios.
-        
-        Args:
-            temp_dir: Directory to create files in
-            num_cycles: Number of independent cycles to create
-            
-        Returns:
-            List of created file paths
-        """
-        files = []
-        
-        # Create multiple independent cycles
-        for cycle_id in range(num_cycles):
-            cycle_files = CircularDependencyGenerator.create_simple_cycle(
-                temp_dir / f"cycle_{cycle_id}", 
-                cycle_length=3
-            )
-            files.extend(cycle_files)
-        
-        # Create interconnections between cycles
-        for i in range(num_cycles - 1):
-            # Connect cycle i to cycle i+1
-            source_file = temp_dir / f"cycle_{i}" / "module_0.py"
-            target_module = f"cycle_{i+1}.module_0"
-            target_function = "function_0"
-            
-            content = source_file.read_text()
-            
-            # Add cross-cycle call
-            enhanced_content = content.replace(
-                'return function_1(value - 1)',
-                f'''# Cross-cycle connection
-                if value > 10:
-                    from {target_module} import {target_function}
-                    return {target_function}(value - 5)
-                else:
-                    return function_1(value - 1)'''
-            )
-            
-            source_file.write_text(enhanced_content)
-        
-        return files
+    def get_high_concurrency_path() -> Path:
+        """Get path to high concurrency test case."""
+        return Path("code_examples/circular_deps/high_concurrency")
 ```
 
 #### 4.2 Comprehensive Integration Test Suite
@@ -930,7 +1014,7 @@ from blarify.db_managers.neo4j_manager import Neo4jManager
 from blarify.agents.llm_provider import LLMProvider
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
-from tests.utils.circular_dependency_generator import CircularDependencyGenerator
+from tests.utils.circular_dependency_loader import CircularDependencyLoader
 from pydantic import BaseModel
 from langchain_core.tools import BaseTool
 
@@ -1023,11 +1107,15 @@ class TestRecursiveDFSDeadlockHandling:
     ) -> None:
         """Test handling of simple A->B->C->A circular dependencies."""
         
-        # Create circular dependency test case
-        test_files = CircularDependencyGenerator.create_simple_cycle(temp_project_dir, cycle_length=3)
+        # Use pre-created circular dependency test case
+        test_path = CircularDependencyLoader.get_simple_cycle_path()
+        # Copy test files to temp directory for isolation
+        import shutil
+        shutil.copytree(test_path, temp_project_dir / "simple_cycle")
+        test_project_path = temp_project_dir / "simple_cycle"
         
         # Build graph with GraphBuilder
-        builder = GraphBuilder(root_path=str(temp_project_dir))
+        builder = GraphBuilder(root_path=str(test_project_path))
         graph = builder.build()
         
         # Save to Neo4j
@@ -1050,7 +1138,7 @@ class TestRecursiveDFSDeadlockHandling:
         
         # Process the root directory - this should not deadlock
         start_time = time.time()
-        result = processor.process_node(str(temp_project_dir))
+        result = processor.process_node(str(test_project_path))
         processing_time = time.time() - start_time
         
         # Verify processing completed without deadlock
@@ -1085,11 +1173,15 @@ class TestRecursiveDFSDeadlockHandling:
     ) -> None:
         """Test handling of complex circular dependencies with multiple branches."""
         
-        # Create complex circular dependency scenario
-        test_files = CircularDependencyGenerator.create_complex_cycle_with_branches(temp_project_dir)
+        # Use pre-created complex circular dependency scenario
+        test_path = CircularDependencyLoader.get_complex_cycle_path()
+        # Copy test files to temp directory for isolation
+        import shutil
+        shutil.copytree(test_path, temp_project_dir / "complex_cycle")
+        test_project_path = temp_project_dir / "complex_cycle"
         
         # Build graph with GraphBuilder
-        builder = GraphBuilder(root_path=str(temp_project_dir))
+        builder = GraphBuilder(root_path=str(test_project_path))
         graph = builder.build()
         
         # Save to Neo4j
@@ -1111,7 +1203,7 @@ class TestRecursiveDFSDeadlockHandling:
         )
         
         start_time = time.time()
-        result = processor.process_node(str(temp_project_dir))
+        result = processor.process_node(str(test_project_path))
         processing_time = time.time() - start_time
         
         # Verify no deadlock and successful processing
@@ -1132,14 +1224,16 @@ class TestRecursiveDFSDeadlockHandling:
     ) -> None:
         """Stress test with many interconnected cycles and high worker count."""
         
-        # Create high concurrency test case
-        test_files = CircularDependencyGenerator.create_high_concurrency_test_case(
-            temp_project_dir, 
-            num_cycles=5
-        )
+        # Use pre-created high concurrency test case
+        test_path = CircularDependencyLoader.get_high_concurrency_path()
+        # Copy test files to temp directory for isolation (only first 5 cycles for testing)
+        import shutil
+        for i in range(5):
+            shutil.copytree(test_path / f"cycle_{i}", temp_project_dir / f"cycle_{i}")
+        test_project_path = temp_project_dir
         
         # Build graph
-        builder = GraphBuilder(root_path=str(temp_project_dir))
+        builder = GraphBuilder(root_path=str(test_project_path))
         graph = builder.build()
         
         # Save to Neo4j
@@ -1163,7 +1257,7 @@ class TestRecursiveDFSDeadlockHandling:
         # Process multiple times to ensure consistent behavior
         for iteration in range(3):
             start_time = time.time()
-            result = processor.process_node(str(temp_project_dir))
+            result = processor.process_node(str(test_project_path))
             processing_time = time.time() - start_time
             
             assert processing_time < 120.0, f"Iteration {iteration} took too long ({processing_time}s)"
@@ -1215,11 +1309,15 @@ class TestRecursiveDFSDeadlockHandling:
     ) -> None:
         """Test timeout-based fallback when waiting threads exceed timeout."""
         
-        # Create simple circular dependency
-        test_files = CircularDependencyGenerator.create_simple_cycle(temp_project_dir)
+        # Use pre-created simple circular dependency
+        test_path = CircularDependencyLoader.get_simple_cycle_path()
+        # Copy test files to temp directory for isolation
+        import shutil
+        shutil.copytree(test_path, temp_project_dir / "simple_cycle")
+        test_project_path = temp_project_dir / "simple_cycle"
         
         # Build graph
-        builder = GraphBuilder(root_path=str(temp_project_dir))
+        builder = GraphBuilder(root_path=str(test_project_path))
         graph = builder.build()
         
         # Save to Neo4j
@@ -1242,7 +1340,7 @@ class TestRecursiveDFSDeadlockHandling:
         processor.fallback_timeout_seconds = 5.0  # Short timeout for testing
         
         start_time = time.time()
-        result = processor.process_node(str(temp_project_dir))
+        result = processor.process_node(str(test_project_path))
         processing_time = time.time() - start_time
         
         # Should complete within reasonable time due to timeout fallbacks
@@ -1366,62 +1464,32 @@ poetry run pytest tests/integration/test_recursive_dfs_deadlock.py -n auto
 poetry run pytest -m neo4j_integration tests/integration/test_recursive_dfs_deadlock.py
 ```
 
-#### 6.2 Manual Testing Procedure
-
-1. **Create Test Repository with Circular Dependencies**:
-   ```bash
-   # Create test directory structure
-   mkdir -p test_circular_deps
-   cd test_circular_deps
-   
-   # Use CircularDependencyGenerator to create test files
-   python -c "
-   from tests.utils.circular_dependency_generator import CircularDependencyGenerator
-   from pathlib import Path
-   CircularDependencyGenerator.create_simple_cycle(Path('.'), 3)
-   "
-   ```
-
-2. **Run RecursiveDFSProcessor with High Concurrency**:
-   ```python
-   from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
-   
-   # Test with high worker count
-   processor = RecursiveDFSProcessor(
-       # ... configuration ...
-       max_workers=75,  # High concurrency
-   )
-   
-   result = processor.process_node("./test_circular_deps")
-   ```
-
-3. **Monitor for Deadlock Indicators**:
-   - Processing time > 60 seconds for small codebases
-   - Thread count continuously increasing
-   - Log messages about circular dependencies
-   - Fallback mechanism activation
-
 #### 6.2 Automated Verification
 
 ```python
 # In tests/integration/test_deadlock_verification.py
 
+from tests.utils.circular_dependency_loader import CircularDependencyLoader
+import shutil
+
 def test_deadlock_verification_suite():
     """Comprehensive deadlock verification test suite."""
     
     test_scenarios = [
-        ("simple_cycle", lambda d: CircularDependencyGenerator.create_simple_cycle(d, 3)),
-        ("complex_branches", CircularDependencyGenerator.create_complex_cycle_with_branches),
-        ("high_concurrency", lambda d: CircularDependencyGenerator.create_high_concurrency_test_case(d, 10)),
+        ("simple_cycle", CircularDependencyLoader.get_simple_cycle_path),
+        ("complex_branches", CircularDependencyLoader.get_complex_cycle_path),
+        ("high_concurrency", CircularDependencyLoader.get_high_concurrency_path),
     ]
     
     worker_counts = [10, 25, 50, 75, 100]
     
-    for scenario_name, scenario_generator in test_scenarios:
+    for scenario_name, scenario_path_getter in test_scenarios:
         for worker_count in worker_counts:
             with temp_project_dir() as project_dir:
-                # Generate test case
-                scenario_generator(project_dir)
+                # Copy pre-created test case to temp directory
+                source_path = scenario_path_getter()
+                test_path = project_dir / scenario_name
+                shutil.copytree(source_path, test_path)
                 
                 # Test processing
                 start_time = time.time()
@@ -1430,7 +1498,7 @@ def test_deadlock_verification_suite():
                     max_workers=worker_count,
                 )
                 
-                result = processor.process_node(str(project_dir))
+                result = processor.process_node(str(test_path))
                 processing_time = time.time() - start_time
                 
                 # Verify no deadlock

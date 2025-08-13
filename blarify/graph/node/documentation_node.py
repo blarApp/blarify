@@ -23,6 +23,7 @@ class DocumentationNode(Node):
         source_labels: Optional[List[str]] = None,
         enhanced_content: Optional[str] = None,
         children_count: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
         # Core semantic content
@@ -41,6 +42,7 @@ class DocumentationNode(Node):
         self.examples = examples or []
         self.enhanced_content = enhanced_content  # For parent nodes
         self.children_count = children_count  # For parent nodes
+        self.metadata = metadata  # Additional metadata for tracking fallback scenarios
 
         # Use source_path as path for Node, and source_name@info as name
         # Set layer to documentation for documentation nodes
@@ -81,6 +83,8 @@ class DocumentationNode(Node):
             obj["attributes"]["enhanced_content"] = self.enhanced_content
         if self.children_count is not None:
             obj["attributes"]["children_count"] = self.children_count
+        if self.metadata:
+            obj["attributes"]["metadata"] = self.metadata
 
         # Add structured data as JSON strings if present
         if self.examples:

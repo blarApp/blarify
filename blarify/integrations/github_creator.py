@@ -9,6 +9,9 @@ from typing import Dict, List, Any, Optional, Tuple, cast
 from dataclasses import dataclass, field
 
 from blarify.repositories.graph_db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.queries import get_code_nodes_by_ids_query
+from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
+from blarify.repositories.graph_db_manager.dtos.blame_commit_dto import BlameCommitDto
 from blarify.repositories.version_control.github import GitHub
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.graph.node.integration_node import IntegrationNode
@@ -39,6 +42,8 @@ class GitHubCreator:
         self,
         db_manager: AbstractDbManager,
         graph_environment: GraphEnvironment,
+        entity_id: str,
+        repo_id: str,
         github_token: str,
         repo_owner: str,
         repo_name: str,
@@ -48,12 +53,16 @@ class GitHubCreator:
         Args:
             db_manager: Database manager for graph operations
             graph_environment: Graph environment configuration
+            entity_id: Entity/company ID for database queries
+            repo_id: Repository ID for database queries
             github_token: GitHub personal access token
             repo_owner: Repository owner/organization
             repo_name: Repository name
         """
         self.db_manager = db_manager
         self.graph_environment = graph_environment
+        self.entity_id = entity_id
+        self.repo_id = repo_id
         self.github_repo = GitHub(
             token=github_token,
             repo_owner=repo_owner,
@@ -399,11 +408,11 @@ class GitHubCreator:
         
         logger.info(f"Saved {len(node_objects)} nodes and {len(rel_objects)} relationships to database")
     
-    def _query_all_code_nodes(self) -> List[Dict[str, Any]]:
+    def _query_all_code_nodes(self) -> List[CodeNodeDto]:
         """Query all code nodes from database.
         
         Returns:
-            List of code node dictionaries
+            List of CodeNodeDto objects
         """
         query = """
         MATCH (n:NODE)
@@ -419,11 +428,58 @@ class GitHubCreator:
         
         results = self.db_manager.query(query)
         logger.info(f"Found {len(results)} code nodes in database")
-        return results
+        
+        # Convert to DTOs
+        nodes = []
+        for row in results:
+            nodes.append(CodeNodeDto(
+                id=row['id'],
+                name=row['name'],
+                label=row['label'],
+                path=row['path'],
+                start_line=row['start_line'],
+                end_line=row['end_line']
+            ))
+        return nodes
+    
+    def _query_nodes_by_ids(self, node_ids: List[str]) -> List[CodeNodeDto]:
+        """Query specific code nodes by their IDs.
+        
+        Args:
+            node_ids: List of node IDs to query
+            
+        Returns:
+            List of CodeNodeDto objects
+        """
+        if not node_ids:
+            return []
+        
+        query = get_code_nodes_by_ids_query()
+        params = {
+            "node_ids": node_ids,
+            "entity_id": self.entity_id,
+            "repo_id": self.repo_id
+        }
+        
+        results = self.db_manager.query(query, params)
+        logger.info(f"Found {len(results)} code nodes for {len(node_ids)} IDs")
+        
+        # Convert to DTOs
+        nodes = []
+        for row in results:
+            nodes.append(CodeNodeDto(
+                id=row['id'],
+                name=row['name'],
+                label=row['label'],
+                path=row['path'],
+                start_line=row['start_line'],
+                end_line=row['end_line']
+            ))
+        return nodes
     
     def create_github_integration_from_nodes(
         self,
-        nodes: Optional[List[Dict[str, Any]]] = None,
+        node_ids: Optional[List[str]] = None,
         save_to_database: bool = True
     ) -> GitHubIntegrationResult:
         """Create GitHub integration for specific code nodes using blame.
@@ -433,7 +489,7 @@ class GitHubCreator:
         modified those nodes.
         
         Args:
-            nodes: List of code nodes to process (if None, queries all from DB)
+            node_ids: List of node IDs to process (if None, queries all from DB)
             save_to_database: Whether to save results to database
             
         Returns:
@@ -443,8 +499,11 @@ class GitHubCreator:
         
         try:
             # Get nodes to process
-            if nodes is None:
+            if node_ids is None:
                 nodes = self._query_all_code_nodes()
+            else:
+                # Query nodes by IDs
+                nodes = self._query_nodes_by_ids(node_ids)
             
             if not nodes:
                 logger.info("No code nodes to process")
@@ -463,13 +522,13 @@ class GitHubCreator:
             
             # Create MODIFIED_BY relationships with exact blame attribution
             for node_id, commits in blame_results.items():
-                node = next((n for n in nodes if n["id"] == node_id), None)
+                node = next((n for n in nodes if n.id == node_id), None)
                 if not node:
                     continue
                 
                 for commit_data in commits:
                     commit_node = next(
-                        (c for c in commit_nodes if c.external_id == commit_data["sha"]),
+                        (c for c in commit_nodes if c.external_id == commit_data.sha),
                         None
                     )
                     if not commit_node:
@@ -478,7 +537,7 @@ class GitHubCreator:
                     rel = RelationshipCreator.create_modified_by_with_blame(
                         commit_node=commit_node,
                         code_node=node,
-                        line_ranges=commit_data["line_ranges"]
+                        line_ranges=commit_data.line_ranges
                     )
                     relationships.append(rel)
             
@@ -515,7 +574,7 @@ class GitHubCreator:
     
     def _create_integration_nodes_from_blame(
         self,
-        blame_results: Dict[str, List[Dict[str, Any]]]
+        blame_results: Dict[str, List[BlameCommitDto]]
     ) -> Tuple[List[IntegrationNode], List[IntegrationNode]]:
         """Create PR and commit nodes from blame results.
         
@@ -533,29 +592,29 @@ class GitHubCreator:
         for _, commits in blame_results.items():
             for commit_data in commits:
                 # Create commit node if not seen
-                sha = commit_data["sha"]
+                sha = commit_data.sha
                 if sha not in seen_commits:
                     seen_commits.add(sha)
                     
                     # Store PR number in metadata if available
                     metadata = {
-                        "author_email": commit_data.get("author_email"),
-                        "author_login": commit_data.get("author_login"),
-                        "additions": commit_data.get("additions"),
-                        "deletions": commit_data.get("deletions")
+                        "author_email": commit_data.author_email,
+                        "author_login": commit_data.author_login,
+                        "additions": commit_data.additions,
+                        "deletions": commit_data.deletions
                     }
-                    if commit_data.get("pr_info"):
-                        metadata["pr_number"] = commit_data["pr_info"]["number"]
+                    if commit_data.pr_info:
+                        metadata["pr_number"] = commit_data.pr_info.number
                     
                     commit_node = IntegrationNode(
                         source="github",
                         source_type="commit",
                         external_id=sha,
-                        title=commit_data["message"].split('\n')[0],
-                        content=commit_data["message"],
-                        timestamp=commit_data.get("timestamp", ""),
-                        author=commit_data.get("author", "Unknown"),
-                        url=commit_data.get("url", ""),
+                        title=commit_data.message.split('\n')[0],
+                        content=commit_data.message,
+                        timestamp=commit_data.timestamp or "",
+                        author=commit_data.author or "Unknown",
+                        url=commit_data.url or "",
                         metadata=metadata,
                         graph_environment=self.graph_environment,
                         level=1
@@ -563,21 +622,21 @@ class GitHubCreator:
                     commit_nodes.append(commit_node)
                 
                 # Create PR node if not seen
-                pr_info = commit_data.get("pr_info")
-                if pr_info and pr_info["number"] not in seen_prs:
-                    seen_prs.add(pr_info["number"])
+                pr_info = commit_data.pr_info
+                if pr_info and pr_info.number not in seen_prs:
+                    seen_prs.add(pr_info.number)
                     
                     pr_node = IntegrationNode(
                         source="github",
                         source_type="pull_request",
-                        external_id=str(pr_info["number"]),
-                        title=pr_info["title"],
+                        external_id=str(pr_info.number),
+                        title=pr_info.title,
                         content="",  # Would need separate query for PR body
-                        timestamp=pr_info.get("merged_at", ""),
-                        author=pr_info.get("author", ""),
-                        url=pr_info["url"],
+                        timestamp=pr_info.merged_at or "",
+                        author=pr_info.author or "",
+                        url=pr_info.url,
                         metadata={
-                            "state": pr_info.get("state", "MERGED")
+                            "state": pr_info.state or "MERGED"
                         },
                         graph_environment=self.graph_environment,
                         level=0

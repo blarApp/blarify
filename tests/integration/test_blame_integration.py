@@ -9,6 +9,10 @@ from typing import List, Dict, Any
 
 from blarify.integrations.github_creator import GitHubCreator
 from blarify.repositories.version_control.github import GitHub
+from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
+from blarify.repositories.graph_db_manager.dtos.blame_commit_dto import BlameCommitDto
+from blarify.repositories.graph_db_manager.dtos.blame_line_range_dto import BlameLineRangeDto
+from blarify.repositories.graph_db_manager.dtos.pull_request_info_dto import PullRequestInfoDto
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
@@ -224,6 +228,8 @@ def format_output(data: Dict) -> str:
             creator = GitHubCreator(
                 db_manager=mock_db_manager,
                 graph_environment=GraphEnvironment(environment="test", diff_identifier="test_diff", root_path=test_repo_path),
+                entity_id="test_entity",
+                repo_id="test_repo",
                 github_token="test_token",
                 repo_owner="test",
                 repo_name="repo"
@@ -354,6 +360,8 @@ def format_output(data: Dict) -> str:
             creator = GitHubCreator(
                 db_manager=mock_db_manager,
                 graph_environment=GraphEnvironment(environment="test", diff_identifier="test_diff", root_path=test_repo_path),
+                entity_id="test_entity",
+                repo_id="test_repo",
                 github_token="test_token",
                 repo_owner="test",
                 repo_name="repo"
@@ -446,6 +454,8 @@ def format_output(data: Dict) -> str:
             creator = GitHubCreator(
                 db_manager=mock_db_manager,
                 graph_environment=GraphEnvironment(environment="test", diff_identifier="test_diff", root_path=test_repo_path),
+                entity_id="test_entity",
+                repo_id="test_repo",
                 github_token="test_token",
                 repo_owner="test",
                 repo_name="repo"

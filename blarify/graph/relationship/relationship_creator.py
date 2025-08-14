@@ -2,6 +2,8 @@ from typing import List, Dict, Any, TYPE_CHECKING
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.relationship import Relationship, WorkflowStepRelationship, RelationshipType
 from blarify.graph.node import NodeLabels
+from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
+from blarify.repositories.graph_db_manager.dtos.blame_line_range_dto import BlameLineRangeDto
 
 if TYPE_CHECKING:
     from blarify.graph.graph import Graph
@@ -319,34 +321,37 @@ class RelationshipCreator:
     @staticmethod
     def create_modified_by_with_blame(
         commit_node: "Node",
-        code_node: Dict[str, Any],
-        line_ranges: List[Dict[str, int]]
+        code_node: CodeNodeDto,
+        line_ranges: List[BlameLineRangeDto]
     ) -> Dict[str, Any]:
         """Create MODIFIED_BY relationship with exact blame attribution.
         
         Args:
             commit_node: The commit that modified the code
-            code_node: The code node that was modified
-            line_ranges: Exact line ranges from blame
+            code_node: The code node that was modified (as DTO)
+            line_ranges: Exact line ranges from blame (as DTOs)
             
         Returns:
             Relationship dictionary with blame attribution
         """
         import json
         
+        # Convert DTOs to dictionaries for JSON serialization
+        line_ranges_dict = [{"start": lr.start, "end": lr.end} for lr in line_ranges]
+        
         # Calculate total lines affected
-        total_lines = sum(r["end"] - r["start"] + 1 for r in line_ranges)
+        total_lines = sum(lr.end - lr.start + 1 for lr in line_ranges)
         
         # Build relationship attributes with exact blame information
         attributes = {
             # Exact line attribution from blame
-            "blamed_lines": json.dumps(line_ranges),
+            "blamed_lines": json.dumps(line_ranges_dict),
             "total_lines_affected": total_lines,
             
             # Node context
-            "node_type": code_node.get("label", "UNKNOWN"),
-            "node_path": code_node.get("path", ""),
-            "node_name": code_node.get("name", ""),
+            "node_type": code_node.label,
+            "node_path": code_node.path,
+            "node_name": code_node.name,
             
             # Commit context
             "commit_sha": commit_node.external_id if hasattr(commit_node, 'external_id') else "",
@@ -363,11 +368,12 @@ class RelationshipCreator:
         }
         
         # Return as dictionary format for database
+        # Use sourceId/targetId to match Neo4j manager expectations
         return {
-            "start_node_id": code_node.get("id", code_node.get("node_id")),
-            "end_node_id": commit_node.hashed_id if hasattr(commit_node, 'hashed_id') else commit_node.id,
+            "sourceId": code_node.id,
+            "targetId": commit_node.hashed_id if hasattr(commit_node, 'hashed_id') else commit_node.id,
             "type": "MODIFIED_BY",
-            "properties": attributes
+            **attributes  # Spread attributes directly into the edge object
         }
     
     @staticmethod

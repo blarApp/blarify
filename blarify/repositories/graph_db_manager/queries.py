@@ -372,6 +372,26 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
     return output
 
 
+def get_code_nodes_by_ids_query() -> str:
+    """Returns Cypher query to get code nodes by their IDs.
+    
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE)
+    WHERE n.node_id IN $node_ids
+      AND n.entityId = $entity_id
+      AND n.repoId = $repo_id
+    RETURN n.node_id as id,
+           n.name as name,
+           n.label as label,
+           n.path as path,
+           n.start_line as start_line,
+           n.end_line as end_line
+    """
+
+
 def get_all_leaf_nodes_query() -> str:
     """
     Returns a Cypher query for retrieving all leaf nodes in the codebase hierarchy.

@@ -9,6 +9,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from blarify.repositories.version_control.abstract_version_controller import AbstractVersionController
+from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
+from blarify.repositories.graph_db_manager.dtos.blame_commit_dto import BlameCommitDto
+from blarify.repositories.graph_db_manager.dtos.blame_line_range_dto import BlameLineRangeDto
+from blarify.repositories.graph_db_manager.dtos.pull_request_info_dto import PullRequestInfoDto
 
 logger = logging.getLogger(__name__)
 
@@ -463,41 +467,44 @@ class GitHub(AbstractVersionController):
         Returns:
             Tuple of (query string, variables dict)
         """
+        # GitHub GraphQL API uses blame on Commit type, not Blob
         query = """
-        query ($owner:String!, $name:String!, $expr:String!, $start:Int!, $end:Int!) {
+        query ($owner:String!, $name:String!, $ref:String!, $path:String!) {
             repository(owner:$owner, name:$name) {
-                object(expression: $expr) {
-                    ... on Blob {
-                        blame(range: {startLine: $start, endLine: $end}) {
-                            ranges {
-                                startingLine
-                                endingLine
-                                age
-                                commit {
-                                    oid
-                                    committedDate
-                                    message
-                                    additions
-                                    deletions
-                                    author {
-                                        name
-                                        email
-                                        user { login }
-                                    }
-                                    committer {
-                                        name
-                                        email
-                                        user { login }
-                                    }
-                                    url
-                                    associatedPullRequests(first: 1) {
-                                        nodes {
-                                            number
-                                            title
-                                            url
-                                            author { login }
-                                            mergedAt
-                                            state
+                ref(qualifiedName: $ref) {
+                    target {
+                        ... on Commit {
+                            blame(path: $path) {
+                                ranges {
+                                    startingLine
+                                    endingLine
+                                    age
+                                    commit {
+                                        oid
+                                        committedDate
+                                        message
+                                        additions
+                                        deletions
+                                        author {
+                                            name
+                                            email
+                                            user { login }
+                                        }
+                                        committer {
+                                            name
+                                            email
+                                            user { login }
+                                        }
+                                        url
+                                        associatedPullRequests(first: 1) {
+                                            nodes {
+                                                number
+                                                title
+                                                url
+                                                author { login }
+                                                mergedAt
+                                                state
+                                            }
                                         }
                                     }
                                 }
@@ -509,24 +516,30 @@ class GitHub(AbstractVersionController):
         }
         """
         
+        # Clean up file path - remove leading slash if present
+        clean_path = file_path.lstrip('/')
+        
+        # Handle ref - if it's a commit SHA, we need to use object instead of ref
+        # For now, let's use the branch name
+        ref_name = ref if ref != "HEAD" else "main"
+        
         variables = {
             "owner": self.repo_owner,
             "name": self.repo_name,
-            "expr": f"{ref}:{file_path}",
-            "start": start_line,
-            "end": end_line
+            "ref": ref_name,
+            "path": clean_path
         }
         
         return query, variables
     
-    def _parse_blame_response(self, response: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _parse_blame_response(self, response: Dict[str, Any]) -> List[BlameCommitDto]:
         """Parse GraphQL blame response into commit list.
         
         Args:
             response: GraphQL response JSON
             
         Returns:
-            List of commit dictionaries with line attribution
+            List of BlameCommitDto objects with line attribution
             
         Raises:
             Exception: If response has errors or unexpected format
@@ -535,25 +548,41 @@ class GitHub(AbstractVersionController):
             error_messages = [e.get("message", "Unknown error") for e in response["errors"]]
             raise Exception(f"GraphQL error: {'; '.join(error_messages)}")
         
-        commits = []
-        seen_shas = {}  # Map SHA to commit index for consolidation
+        commits: List[BlameCommitDto] = []
+        seen_shas: Dict[str, int] = {}  # Map SHA to commit index for consolidation
         
         try:
-            blame_data = response["data"]["repository"]["object"]["blame"]
+            # Navigate through the new response structure
+            blame_data = response["data"]["repository"]["ref"]["target"]["blame"]
             
             for blame_range in blame_data["ranges"]:
                 commit_data = blame_range["commit"]
                 sha = commit_data["oid"]
                 
                 # Extract line range for this blame range
-                line_range = {
-                    "start": blame_range["startingLine"],
-                    "end": blame_range["endingLine"]
-                }
+                line_range = BlameLineRangeDto(
+                    start=blame_range["startingLine"],
+                    end=blame_range["endingLine"]
+                )
                 
                 if sha in seen_shas:
-                    # Add line range to existing commit
-                    commits[seen_shas[sha]]["line_ranges"].append(line_range)
+                    # Add line range to existing commit - need to create new DTO since frozen
+                    existing_commit = commits[seen_shas[sha]]
+                    new_line_ranges = list(existing_commit.line_ranges)
+                    new_line_ranges.append(line_range)
+                    commits[seen_shas[sha]] = BlameCommitDto(
+                        sha=existing_commit.sha,
+                        message=existing_commit.message,
+                        author=existing_commit.author,
+                        author_email=existing_commit.author_email,
+                        author_login=existing_commit.author_login,
+                        timestamp=existing_commit.timestamp,
+                        url=existing_commit.url,
+                        additions=existing_commit.additions,
+                        deletions=existing_commit.deletions,
+                        line_ranges=new_line_ranges,
+                        pr_info=existing_commit.pr_info
+                    )
                 else:
                     # Create new commit entry
                     seen_shas[sha] = len(commits)
@@ -562,32 +591,32 @@ class GitHub(AbstractVersionController):
                     pr_info = None
                     if commit_data.get("associatedPullRequests", {}).get("nodes"):
                         pr = commit_data["associatedPullRequests"]["nodes"][0]
-                        pr_info = {
-                            "number": pr["number"],
-                            "title": pr["title"],
-                            "url": pr["url"],
-                            "author": pr.get("author", {}).get("login"),
-                            "merged_at": pr.get("mergedAt"),
-                            "state": pr.get("state")
-                        }
+                        pr_info = PullRequestInfoDto(
+                            number=pr["number"],
+                            title=pr["title"],
+                            url=pr["url"],
+                            author=pr.get("author", {}).get("login"),
+                            merged_at=pr.get("mergedAt"),
+                            state=pr.get("state", "MERGED")
+                        )
                     
                     # Extract author information safely
                     author_data = commit_data.get("author", {})
                     author_user = author_data.get("user") if author_data else None
                     
-                    commit = {
-                        "sha": sha,
-                        "message": commit_data["message"],
-                        "author": author_data.get("name", "Unknown") if author_data else "Unknown",
-                        "author_email": author_data.get("email") if author_data else None,
-                        "author_login": author_user.get("login") if author_user else None,
-                        "timestamp": commit_data["committedDate"],
-                        "url": commit_data["url"],
-                        "additions": commit_data.get("additions"),
-                        "deletions": commit_data.get("deletions"),
-                        "line_ranges": [line_range],
-                        "pr_info": pr_info
-                    }
+                    commit = BlameCommitDto(
+                        sha=sha,
+                        message=commit_data["message"],
+                        author=author_data.get("name", "Unknown") if author_data else "Unknown",
+                        author_email=author_data.get("email") if author_data else None,
+                        author_login=author_user.get("login") if author_user else None,
+                        timestamp=commit_data["committedDate"],
+                        url=commit_data["url"],
+                        additions=commit_data.get("additions"),
+                        deletions=commit_data.get("deletions"),
+                        line_ranges=[line_range],
+                        pr_info=pr_info
+                    )
                     commits.append(commit)
             
         except KeyError as e:
@@ -602,7 +631,7 @@ class GitHub(AbstractVersionController):
         start_line: int,
         end_line: int,
         ref: str = "HEAD"
-    ) -> List[Dict[str, Any]]:
+    ) -> List[BlameCommitDto]:
         """Get all commits that modified specific line range using blame.
         
         Args:
@@ -612,7 +641,7 @@ class GitHub(AbstractVersionController):
             ref: Git ref (branch, tag, commit SHA) to blame at
             
         Returns:
-            List of commit dictionaries with line attribution
+            List of BlameCommitDto objects with line attribution
         """
         # Check cache first
         cache_key = f"{file_path}:{start_line}-{end_line}@{ref}"
@@ -637,22 +666,31 @@ class GitHub(AbstractVersionController):
     
     def blame_commits_for_nodes(
         self,
-        nodes: List[Dict[str, Any]]
-    ) -> Dict[str, List[Dict[str, Any]]]:
+        nodes: List[CodeNodeDto]
+    ) -> Dict[str, List[BlameCommitDto]]:
         """Get commits for multiple code nodes efficiently.
         
         Args:
-            nodes: List of node dictionaries with path, start_line, end_line
+            nodes: List of CodeNodeDto objects
             
         Returns:
-            Dictionary mapping node IDs to their commit lists
+            Dictionary mapping node IDs to their BlameCommitDto lists
         """
-        results = {}
+        results: Dict[str, List[BlameCommitDto]] = {}
         
         # Group nodes by file to optimize queries
-        nodes_by_file: Dict[str, List[Dict[str, Any]]] = {}
+        nodes_by_file: Dict[str, List[CodeNodeDto]] = {}
         for node in nodes:
-            file_path = node["path"]
+            file_path = node.path
+            # Clean file path - remove file:// prefix and make relative
+            if file_path.startswith("file://"):
+                file_path = file_path[7:]  # Remove file://
+            # Make path relative to repository root
+            import os
+            if os.path.isabs(file_path):
+                # Assuming the repo root is the current directory
+                file_path = os.path.relpath(file_path, os.getcwd())
+            
             if file_path not in nodes_by_file:
                 nodes_by_file[file_path] = []
             nodes_by_file[file_path].append(node)
@@ -671,22 +709,22 @@ class GitHub(AbstractVersionController):
                 
                 # Assign commits to original nodes
                 for node in range_info["nodes"]:
-                    node_commits = []
+                    node_commits: List[BlameCommitDto] = []
                     for commit in commits:
                         # Check if commit actually touches this node's lines
                         if self._ranges_overlap(
-                            commit["line_ranges"],
-                            node["start_line"],
-                            node["end_line"]
+                            [{"start": lr.start, "end": lr.end} for lr in commit.line_ranges],
+                            node.start_line,
+                            node.end_line
                         ):
                             node_commits.append(commit)
                     
-                    results[node["id"]] = node_commits
+                    results[node.id] = node_commits
         
         logger.info(f"Processed blame for {len(nodes)} nodes across {len(nodes_by_file)} files")
         return results
     
-    def _merge_line_ranges(self, nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _merge_line_ranges(self, nodes: List[CodeNodeDto]) -> List[Dict[str, Any]]:
         """Merge overlapping or adjacent line ranges to minimize API calls.
         
         Args:
@@ -699,27 +737,27 @@ class GitHub(AbstractVersionController):
             return []
         
         # Sort nodes by start line
-        sorted_nodes = sorted(nodes, key=lambda n: n["start_line"])
+        sorted_nodes = sorted(nodes, key=lambda n: n.start_line)
         
         merged = []
         current_range = {
-            "start": sorted_nodes[0]["start_line"],
-            "end": sorted_nodes[0]["end_line"],
+            "start": sorted_nodes[0].start_line,
+            "end": sorted_nodes[0].end_line,
             "nodes": [sorted_nodes[0]]
         }
         
         for node in sorted_nodes[1:]:
             # Check if overlapping or adjacent (within 5 lines)
-            if node["start_line"] <= current_range["end"] + 5:
+            if node.start_line <= current_range["end"] + 5:
                 # Merge ranges
-                current_range["end"] = max(current_range["end"], node["end_line"])
+                current_range["end"] = max(current_range["end"], node.end_line)
                 current_range["nodes"].append(node)
             else:
                 # Start new range
                 merged.append(current_range)
                 current_range = {
-                    "start": node["start_line"],
-                    "end": node["end_line"],
+                    "start": node.start_line,
+                    "end": node.end_line,
                     "nodes": [node]
                 }
         

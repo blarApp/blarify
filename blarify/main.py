@@ -122,8 +122,8 @@ def test_documentation_only(root_path: str = None):
     """Test only the documentation workflow, assuming the graph already exists in the database."""
     print("📚 Testing documentation generation workflow only...")
 
-    repoId = "test"
-    entity_id = "test"
+    repoId = "pydata__xarray-6938"
+    entity_id = "swe_agent"
     graph_manager = Neo4jManager(repoId, entity_id)
 
     try:
@@ -136,12 +136,15 @@ def test_documentation_only(root_path: str = None):
             graph_environment=graph_environment,
             company_id=entity_id,
             repo_id=repoId,
+            max_workers=75,
         )
 
         print("📝 Starting documentation creation...")
 
         # Run the documentation creation
-        result = documentation_creator.create_documentation()
+        result = documentation_creator.create_documentation(
+            target_paths=["/blarify/0/pydata__xarray-6938/xarray/core/dataset.py#Dataset.swap_dims"]
+        )
 
         print("✅ Documentation generation completed successfully!")
 
@@ -469,8 +472,8 @@ if __name__ == "__main__":
     # main(root_path=root_path, blarignore_path=blarignore_path)
 
     # Test the targeted workflow discovery with node_path
-    test_targeted_workflow_discovery(root_path=root_path)
+    # test_targeted_workflow_discovery(root_path=root_path)
 
     # Other test options (commented out):
-    # test_documentation_only(root_path=root_path)  # Test full documentation workflow
+    test_documentation_only(root_path=root_path)  # Test full documentation workflow
     # main_with_documentation(root_path=root_path, blarignore_path=blarignore_path)  # Full pipeline

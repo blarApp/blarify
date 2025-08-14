@@ -1845,9 +1845,6 @@ def find_potential_entry_points_query() -> str:
 
     Entry points are defined as nodes with no incoming relationships from:
     - CALLS (not called by other functions)
-    - USES (not used by other code)
-    - ASSIGNS (not assigned to variables)
-    - IMPORTS (not imported by other modules)
 
     Uses correct node labels: FUNCTION, CLASS, FILE (METHOD label is never used in codebase)
 
@@ -1857,8 +1854,8 @@ def find_potential_entry_points_query() -> str:
     return """
     MATCH (entry:NODE {entityId: $entity_id, repoId: $repo_id, layer: 'code'})
     WHERE (entry:FUNCTION)
-      AND NOT ()-[:CALLS|USES|ASSIGNS]->(entry) // No incoming relationships = true entry point
-      AND (entry)-[:CALLS|USES|ASSIGNS]->()
+      AND NOT ()-[:CALLS]->(entry) // No incoming relationships = true entry point
+      AND (entry)-[:CALLS]->()
       AND NOT entry.name IN ['__init__', '__new__', 'constructor', 'initialize', 'init', 'new']
     RETURN entry.node_id as id, 
            entry.name as name, 
@@ -2234,14 +2231,14 @@ def get_call_stack_children_query() -> str:
     Returns a Cypher query for retrieving functions/modules called or used by a function.
 
     This query finds all nodes that are called or used by the given function through
-    CALLS and USES relationships, including the precise call locations.
+    CALLS relationships, including the precise call locations.
 
     Returns:
         str: The Cypher query string
     """
     return """
     MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[r:CALLS|USES]->(child:NODE)
+    -[r:CALLS]->(child:NODE)
     RETURN child.node_id as id,
            child.name as name,
            labels(child) as labels,
@@ -2293,7 +2290,7 @@ def get_function_cycle_detection_query() -> str:
     """
     return """
     MATCH path = (start:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[:CALLS|USES*1..10]->
+    -[:CALLS*1..10]->
     (start)
     WHERE "FUNCTION" IN labels(start)
     WITH path, [n IN nodes(path) | n.name] as function_names
@@ -2425,14 +2422,20 @@ def find_entry_points_for_node_path_query() -> str:
         relationshipFilter: "<CALLS",
         uniqueness: "NODE_GLOBAL"
     }) YIELD path
-    
+
     WITH last(nodes(path)) AS potential_entry
-    
-    // Filter to only nodes that have no incoming CALLS relationships (true entry points)
-    WHERE NOT (potential_entry)<-[:CALLS]-() AND NOT potential_entry.node_path CONTAINS 'test'
-    
-    // Return only the node_id
-    RETURN DISTINCT potential_entry.node_id as id, potential_entry.node_path as path
+
+    // Find all non-test callers
+    OPTIONAL MATCH (potential_entry)<-[:CALLS]-(caller)
+    WHERE NOT caller.node_path CONTAINS 'test'
+
+    // Keep nodes with no non-test callers
+    WITH potential_entry, collect(caller) AS non_test_callers
+    WHERE size(non_test_callers) = 0
+    AND NOT potential_entry.node_path CONTAINS 'test'
+
+    // Return node_id and path
+    RETURN DISTINCT potential_entry.node_id AS id, potential_entry.node_path AS path
     ORDER BY potential_entry.node_id
     """
 

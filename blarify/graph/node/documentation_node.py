@@ -84,7 +84,13 @@ class DocumentationNode(Node):
         if self.children_count is not None:
             obj["attributes"]["children_count"] = self.children_count
         if self.metadata:
-            obj["attributes"]["metadata"] = self.metadata
+            # Ensure metadata is compatible with Neo4j (primitive types only)
+            # Convert all values to strings to ensure Neo4j compatibility
+            neo4j_metadata = {}
+            for key, value in self.metadata.items():
+                if value is not None:
+                    neo4j_metadata[key] = str(value)
+            obj["attributes"]["metadata"] = neo4j_metadata
 
         # Add structured data as JSON strings if present
         if self.examples:

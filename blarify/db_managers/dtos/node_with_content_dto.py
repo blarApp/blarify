@@ -1,10 +1,10 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import BaseModel
 
 
 class NodeWithContentDto(BaseModel):
     """DTO for nodes with full content, used in recursive DFS processing."""
-    
+
     id: str
     name: str
     labels: List[str]
@@ -14,7 +14,7 @@ class NodeWithContentDto(BaseModel):
     content: str = ""
     relationship_type: Optional[str] = None  # Used when retrieved as a child
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Union[str, List[str], int, None]]:
         return {
             "id": self.id,
             "name": self.name,

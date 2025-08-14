@@ -1,6 +1,17 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union, TypedDict, Unpack, TYPE_CHECKING
 from blarify.graph.node import NodeLabels
 from .types.node import Node
+
+if TYPE_CHECKING:
+    from blarify.graph.graph_environment import GraphEnvironment
+
+
+class DocumentationNodeKwargs(TypedDict, total=False):
+    """Type definition for DocumentationNode kwargs."""
+
+    level: int
+    parent: Optional["Node"]
+    graph_environment: Optional["GraphEnvironment"]
 
 
 class DocumentationNode(Node):
@@ -23,7 +34,7 @@ class DocumentationNode(Node):
         source_labels: Optional[List[str]] = None,
         enhanced_content: Optional[str] = None,
         children_count: Optional[int] = None,
-        **kwargs,
+        **kwargs: Unpack[DocumentationNodeKwargs],
     ):
         # Core semantic content
         self.title = title
@@ -59,7 +70,7 @@ class DocumentationNode(Node):
         """Create a unique identifier representation for this information node."""
         return f"{self.source_name}@info"
 
-    def as_object(self) -> dict:
+    def as_object(self) -> dict[str, Union[str, List[str]]]:
         """Convert to dictionary for database storage."""
         obj = super().as_object()
 

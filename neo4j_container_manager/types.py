@@ -11,9 +11,138 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Protocol, Union, Any, TYPE_CHECKING
 from pathlib import Path
+import re
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+
+@dataclass
+class DockerResourceConfig:
+    """Docker resource constraints configuration for containers."""
+    
+    cpu_count: Optional[int] = None  # Number of CPUs to allocate
+    cpu_shares: Optional[int] = None  # CPU shares (relative weight)
+    cpu_period: Optional[int] = None  # CPU CFS period in microseconds
+    cpu_quota: Optional[int] = None  # CPU CFS quota in microseconds
+    mem_limit: Optional[str] = None  # Memory limit (e.g., "20g", "512m")
+    memswap_limit: Optional[str] = None  # Total memory + swap limit
+    mem_reservation: Optional[str] = None  # Memory soft limit
+    shm_size: Optional[str] = None  # Shared memory size (e.g., "2g")
+    ulimits: Optional[List[Dict[str, Union[str, int]]]] = None  # ulimit settings
+    pids_limit: Optional[int] = None  # Process ID limit
+    
+    def __post_init__(self) -> None:
+        """Validate Docker resource configuration."""
+        # Validate cpu_count
+        if self.cpu_count is not None and self.cpu_count <= 0:
+            raise ValueError(f"cpu_count must be positive, got {self.cpu_count}")
+        
+        # Validate cpu_shares
+        if self.cpu_shares is not None and self.cpu_shares < 0:
+            raise ValueError(f"cpu_shares must be non-negative, got {self.cpu_shares}")
+        
+        # Validate cpu_period and cpu_quota
+        if self.cpu_period is not None and self.cpu_period <= 0:
+            raise ValueError(f"cpu_period must be positive, got {self.cpu_period}")
+        if self.cpu_quota is not None and self.cpu_quota <= 0:
+            raise ValueError(f"cpu_quota must be positive, got {self.cpu_quota}")
+        
+        # Validate memory formats
+        memory_fields = [
+            ("mem_limit", self.mem_limit),
+            ("memswap_limit", self.memswap_limit),
+            ("mem_reservation", self.mem_reservation),
+            ("shm_size", self.shm_size),
+        ]
+        
+        for field_name, value in memory_fields:
+            if value is not None:
+                if not self._validate_memory_format(value):
+                    raise ValueError(
+                        f"Invalid {field_name} format: {value}. "
+                        "Use formats like '512m', '1g', '2G', '1024M', etc."
+                    )
+        
+        # Validate pids_limit
+        if self.pids_limit is not None and self.pids_limit <= 0:
+            raise ValueError(f"pids_limit must be positive, got {self.pids_limit}")
+        
+        # Validate ulimits structure
+        if self.ulimits is not None:
+            for ulimit in self.ulimits:
+                # Check if it's actually a dict (this check is for runtime validation)
+                if not hasattr(ulimit, 'get'):
+                    raise ValueError(f"Each ulimit must be a dictionary, got {type(ulimit)}")
+                
+                if "Name" not in ulimit:
+                    raise ValueError("Each ulimit must have a 'Name' field")
+                
+                # Validate that Soft and Hard are present and are integers
+                for field in ["Soft", "Hard"]:
+                    if field in ulimit:
+                        value = ulimit[field]
+                        if not isinstance(value, int) or value < 0:
+                            raise ValueError(
+                                f"ulimit {field} value must be a non-negative integer, "
+                                f"got {value} for {ulimit['Name']}"
+                            )
+    
+    def _validate_memory_format(self, memory: str) -> bool:
+        """Validate Docker memory format string."""
+        # Docker accepts formats like: 512m, 1g, 2G, 1024M, etc.
+        # Can also accept bytes without suffix
+        pattern = r'^(\d+)([bkmgBKMG])?$'
+        match = re.match(pattern, memory.lower())
+        
+        if not match:
+            return False
+        
+        value = int(match.group(1))
+        return value > 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        result: Dict[str, Any] = {}
+        
+        for field_name in [
+            "cpu_count", "cpu_shares", "cpu_period", "cpu_quota",
+            "mem_limit", "memswap_limit", "mem_reservation", "shm_size",
+            "ulimits", "pids_limit"
+        ]:
+            value = getattr(self, field_name)
+            if value is not None:
+                result[field_name] = value
+        
+        return result
+    
+    def to_docker_kwargs(self) -> Dict[str, Any]:
+        """Convert to Docker API keyword arguments."""
+        kwargs: Dict[str, Any] = {}
+        
+        # Direct mappings
+        if self.cpu_count is not None:
+            kwargs["cpu_count"] = self.cpu_count
+        if self.cpu_shares is not None:
+            kwargs["cpu_shares"] = self.cpu_shares
+        if self.cpu_period is not None:
+            kwargs["cpu_period"] = self.cpu_period
+        if self.cpu_quota is not None:
+            kwargs["cpu_quota"] = self.cpu_quota
+        if self.mem_limit is not None:
+            kwargs["mem_limit"] = self.mem_limit
+        if self.memswap_limit is not None:
+            kwargs["memswap_limit"] = self.memswap_limit
+        if self.mem_reservation is not None:
+            kwargs["mem_reservation"] = self.mem_reservation
+        if self.shm_size is not None:
+            kwargs["shm_size"] = self.shm_size
+        if self.ulimits is not None:
+            kwargs["ulimits"] = self.ulimits
+        if self.pids_limit is not None:
+            kwargs["pids_limit"] = self.pids_limit
+        
+        return kwargs
 
 
 class Environment(str, Enum):
@@ -109,10 +238,10 @@ class Neo4jContainerConfig:
     custom_config: Dict[str, str] = field(default_factory=lambda: {})
     startup_timeout: int = 120
     health_check_interval: int = 5
+    docker_resources: Optional[DockerResourceConfig] = None  # Docker resource constraints
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
-        import re
         
         if self.environment == Environment.TEST and not self.test_id:
             import uuid
@@ -185,7 +314,7 @@ class Neo4jContainerConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary for serialization."""
-        return {
+        result = {
             "environment": self.environment.value,
             "username": self.username,
             "password": "***",  # Don't expose password in serialization
@@ -201,6 +330,11 @@ class Neo4jContainerConfig:
             "container_name": self.container_name,
             "volume_name": self.volume_name,
         }
+        
+        if self.docker_resources is not None:
+            result["docker_resources"] = self.docker_resources.to_dict()
+        
+        return result
 
 
 class Neo4jInstanceProtocol(Protocol):

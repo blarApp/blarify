@@ -162,21 +162,28 @@ class Neo4jContainerManager:
                     "mode": "rw"
                 }
             
-            # Create and start the container using Docker API directly
-            container: Container = self._docker_client.containers.run(
-                image=f"neo4j:{config.neo4j_version}",
-                name=config.container_name,
-                environment=environment,
-                ports=ports_config,
-                volumes=volumes_config,
-                detach=True,
-                remove=False,
-                labels={
+            # Prepare Docker run kwargs
+            docker_run_kwargs = {
+                "image": f"neo4j:{config.neo4j_version}",
+                "name": config.container_name,
+                "environment": environment,
+                "ports": ports_config,
+                "volumes": volumes_config,
+                "detach": True,
+                "remove": False,
+                "labels": {
                     "blarify.component": "neo4j-container-manager",
                     "blarify.environment": config.environment.value,
                     "blarify.test_id": config.test_id or "",
                 }
-            )
+            }
+            
+            # Add Docker resource constraints if specified
+            if config.docker_resources:
+                docker_run_kwargs.update(config.docker_resources.to_docker_kwargs())
+            
+            # Create and start the container using Docker API directly
+            container: Container = self._docker_client.containers.run(**docker_run_kwargs)
             
             # Update instance with actual container reference
             instance.container_ref = container

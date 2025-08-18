@@ -7,7 +7,7 @@ readme = "README.md"
 homepage = "https://blar.io"
 repository = "https://github.com/blarApp/blarify"
 license = "MIT"
-packages = [{include = "blarify"}]
+packages = [{include = "blarify"}, {include = "neo4j_container_manager"}]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<=3.14"

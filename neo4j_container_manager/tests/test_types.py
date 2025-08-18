@@ -8,6 +8,7 @@ logic in the types module.
 import pytest
 import time
 from pathlib import Path
+from typing import Dict, List, Union
 
 from neo4j_container_manager.types import (
     Environment,
@@ -21,11 +22,269 @@ from neo4j_container_manager.types import (
     Neo4jContainerError,
     ContainerStartupError,
     PortAllocationError,
+    DockerResourceConfig,
 )
 
 
+class TestDockerResourceConfig:
+    """Test DockerResourceConfig dataclass."""
+    
+    def test_basic_creation(self):
+        """Test basic creation with default values."""
+        config = DockerResourceConfig()
+        
+        assert config.cpu_count is None
+        assert config.cpu_shares is None
+        assert config.mem_limit is None
+        assert config.ulimits is None
+        assert config.pids_limit is None
+    
+    def test_creation_with_all_parameters(self):
+        """Test creation with all parameters specified."""
+        ulimits = [
+            {"Name": "nofile", "Soft": 65536, "Hard": 65536},
+            {"Name": "nproc", "Soft": 32768, "Hard": 32768},
+        ]
+        
+        config = DockerResourceConfig(
+            cpu_count=8,
+            cpu_shares=4096,
+            cpu_period=100000,
+            cpu_quota=200000,
+            mem_limit="20g",
+            memswap_limit="24g",
+            mem_reservation="16g",
+            shm_size="2g",
+            ulimits=ulimits,
+            pids_limit=4096
+        )
+        
+        assert config.cpu_count == 8
+        assert config.cpu_shares == 4096
+        assert config.cpu_period == 100000
+        assert config.cpu_quota == 200000
+        assert config.mem_limit == "20g"
+        assert config.memswap_limit == "24g"
+        assert config.mem_reservation == "16g"
+        assert config.shm_size == "2g"
+        assert config.ulimits == ulimits
+        assert config.pids_limit == 4096
+    
+    def test_cpu_count_validation(self):
+        """Test cpu_count must be positive."""
+        with pytest.raises(ValueError, match="cpu_count must be positive"):
+            DockerResourceConfig(cpu_count=0)
+        
+        with pytest.raises(ValueError, match="cpu_count must be positive"):
+            DockerResourceConfig(cpu_count=-1)
+        
+        # Valid cpu_count
+        config = DockerResourceConfig(cpu_count=4)
+        assert config.cpu_count == 4
+    
+    def test_cpu_shares_validation(self):
+        """Test cpu_shares must be non-negative."""
+        with pytest.raises(ValueError, match="cpu_shares must be non-negative"):
+            DockerResourceConfig(cpu_shares=-1)
+        
+        # Valid cpu_shares (0 is allowed)
+        config = DockerResourceConfig(cpu_shares=0)
+        assert config.cpu_shares == 0
+        
+        config = DockerResourceConfig(cpu_shares=1024)
+        assert config.cpu_shares == 1024
+    
+    def test_cpu_period_and_quota_validation(self):
+        """Test cpu_period and cpu_quota must be positive."""
+        with pytest.raises(ValueError, match="cpu_period must be positive"):
+            DockerResourceConfig(cpu_period=0)
+        
+        with pytest.raises(ValueError, match="cpu_quota must be positive"):
+            DockerResourceConfig(cpu_quota=0)
+        
+        # Valid values
+        config = DockerResourceConfig(cpu_period=100000, cpu_quota=50000)
+        assert config.cpu_period == 100000
+        assert config.cpu_quota == 50000
+    
+    def test_pids_limit_validation(self):
+        """Test pids_limit must be positive."""
+        with pytest.raises(ValueError, match="pids_limit must be positive"):
+            DockerResourceConfig(pids_limit=0)
+        
+        with pytest.raises(ValueError, match="pids_limit must be positive"):
+            DockerResourceConfig(pids_limit=-1)
+        
+        # Valid pids_limit
+        config = DockerResourceConfig(pids_limit=1000)
+        assert config.pids_limit == 1000
+    
+    def test_memory_format_validation_valid(self):
+        """Test valid memory format strings."""
+        valid_formats = [
+            "512m", "1g", "2G", "1024M", "100", "4096k", "1024b",
+            "512M", "10G", "2048m", "100K", "500B"
+        ]
+        
+        for format_str in valid_formats:
+            # Should not raise an error
+            config = DockerResourceConfig(mem_limit=format_str)
+            assert config.mem_limit == format_str
+    
+    def test_memory_format_validation_invalid(self):
+        """Test invalid memory format strings."""
+        invalid_formats = [
+            "invalid", "1.5g", "2gb", "512mb", "1T", "abc", 
+            "-100m", "0", "10 GB", "512 M", ""
+        ]
+        
+        for format_str in invalid_formats:
+            with pytest.raises(ValueError, match="Invalid mem_limit format"):
+                DockerResourceConfig(mem_limit=format_str)
+    
+    def test_all_memory_fields_validation(self):
+        """Test validation for all memory-related fields."""
+        # Test mem_limit
+        with pytest.raises(ValueError, match="Invalid mem_limit format"):
+            DockerResourceConfig(mem_limit="invalid")
+        
+        # Test memswap_limit
+        with pytest.raises(ValueError, match="Invalid memswap_limit format"):
+            DockerResourceConfig(memswap_limit="invalid")
+        
+        # Test mem_reservation
+        with pytest.raises(ValueError, match="Invalid mem_reservation format"):
+            DockerResourceConfig(mem_reservation="invalid")
+        
+        # Test shm_size
+        with pytest.raises(ValueError, match="Invalid shm_size format"):
+            DockerResourceConfig(shm_size="invalid")
+        
+        # Valid configuration with all memory fields
+        config = DockerResourceConfig(
+            mem_limit="20g",
+            memswap_limit="24g",
+            mem_reservation="16g",
+            shm_size="2g"
+        )
+        assert config.mem_limit == "20g"
+        assert config.memswap_limit == "24g"
+        assert config.mem_reservation == "16g"
+        assert config.shm_size == "2g"
+    
+    def test_ulimits_validation(self):
+        """Test ulimits structure validation."""
+        # Invalid: not a dictionary
+        with pytest.raises(ValueError, match="Each ulimit must be a dictionary"):
+            DockerResourceConfig(ulimits=["invalid"])  # type: ignore
+        
+        # Invalid: missing Name field
+        with pytest.raises(ValueError, match="Each ulimit must have a 'Name' field"):
+            DockerResourceConfig(ulimits=[{"Soft": 100, "Hard": 200}])
+        
+        # Invalid: negative Soft value
+        with pytest.raises(ValueError, match="ulimit Soft value must be a non-negative integer"):
+            DockerResourceConfig(ulimits=[{"Name": "nofile", "Soft": -1, "Hard": 100}])
+        
+        # Invalid: non-integer Hard value
+        with pytest.raises(ValueError, match="ulimit Hard value must be a non-negative integer"):
+            DockerResourceConfig(ulimits=[{"Name": "nofile", "Soft": 100, "Hard": "invalid"}])
+        
+        # Valid ulimits
+        valid_ulimits = [
+            {"Name": "nofile", "Soft": 65536, "Hard": 65536},
+            {"Name": "nproc", "Soft": 32768, "Hard": 32768},
+        ]
+        config = DockerResourceConfig(ulimits=valid_ulimits)
+        assert config.ulimits == valid_ulimits
+        
+        # Valid ulimits with only Name (Soft and Hard are optional)
+        minimal_ulimits: List[Dict[str, Union[str, int]]] = [{"Name": "nofile"}]
+        config = DockerResourceConfig(ulimits=minimal_ulimits)
+        assert config.ulimits == minimal_ulimits
+    
+    def test_to_dict_method(self):
+        """Test conversion to dictionary."""
+        # Empty configuration
+        config = DockerResourceConfig()
+        assert config.to_dict() == {}
+        
+        # Partial configuration
+        config = DockerResourceConfig(cpu_count=4, mem_limit="8g")
+        result = config.to_dict()
+        assert result == {"cpu_count": 4, "mem_limit": "8g"}
+        
+        # Full configuration
+        ulimits = [{"Name": "nofile", "Soft": 65536, "Hard": 65536}]
+        config = DockerResourceConfig(
+            cpu_count=8,
+            cpu_shares=4096,
+            cpu_period=100000,
+            cpu_quota=200000,
+            mem_limit="20g",
+            memswap_limit="24g",
+            mem_reservation="16g",
+            shm_size="2g",
+            ulimits=ulimits,
+            pids_limit=4096
+        )
+        
+        result = config.to_dict()
+        assert result["cpu_count"] == 8
+        assert result["cpu_shares"] == 4096
+        assert result["cpu_period"] == 100000
+        assert result["cpu_quota"] == 200000
+        assert result["mem_limit"] == "20g"
+        assert result["memswap_limit"] == "24g"
+        assert result["mem_reservation"] == "16g"
+        assert result["shm_size"] == "2g"
+        assert result["ulimits"] == ulimits
+        assert result["pids_limit"] == 4096
+    
+    def test_to_docker_kwargs_method(self):
+        """Test conversion to Docker API kwargs."""
+        # Empty configuration
+        config = DockerResourceConfig()
+        assert config.to_docker_kwargs() == {}
+        
+        # Partial configuration
+        config = DockerResourceConfig(cpu_count=4, mem_limit="8g", shm_size="1g")
+        kwargs = config.to_docker_kwargs()
+        assert kwargs == {
+            "cpu_count": 4,
+            "mem_limit": "8g",
+            "shm_size": "1g"
+        }
+        
+        # Full configuration
+        ulimits = [{"Name": "nofile", "Soft": 65536, "Hard": 65536}]
+        config = DockerResourceConfig(
+            cpu_count=8,
+            cpu_shares=4096,
+            cpu_period=100000,
+            cpu_quota=200000,
+            mem_limit="20g",
+            memswap_limit="24g",
+            mem_reservation="16g",
+            shm_size="2g",
+            ulimits=ulimits,
+            pids_limit=4096
+        )
+        
+        kwargs = config.to_docker_kwargs()
+        assert kwargs["cpu_count"] == 8
+        assert kwargs["cpu_shares"] == 4096
+        assert kwargs["cpu_period"] == 100000
+        assert kwargs["cpu_quota"] == 200000
+        assert kwargs["mem_limit"] == "20g"
+        assert kwargs["memswap_limit"] == "24g"
+        assert kwargs["mem_reservation"] == "16g"
+        assert kwargs["shm_size"] == "2g"
+        assert kwargs["ulimits"] == ulimits
+        assert kwargs["pids_limit"] == 4096
+
+
 class TestEnvironmentEnum:
-    """Test Environment enum."""
 
     def test_environment_values(self):
         """Test enum values are correct."""
@@ -284,6 +543,27 @@ class TestNeo4jContainerConfig:
         dev_config = Neo4jContainerConfig(environment=Environment.DEVELOPMENT, password="dev-password")
         assert dev_config.volume_name == "blarify-neo4j-dev-data"
 
+    def test_config_with_docker_resources(self):
+        """Test configuration with Docker resource constraints."""
+        docker_resources = DockerResourceConfig(
+            cpu_count=4,
+            mem_limit="8g",
+            shm_size="1g",
+            ulimits=[{"Name": "nofile", "Soft": 65536, "Hard": 65536}]
+        )
+        
+        config = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="test-password",
+            docker_resources=docker_resources
+        )
+        
+        assert config.docker_resources is not None
+        assert config.docker_resources.cpu_count == 4
+        assert config.docker_resources.mem_limit == "8g"
+        assert config.docker_resources.shm_size == "1g"
+        assert config.docker_resources.ulimits == [{"Name": "nofile", "Soft": 65536, "Hard": 65536}]
+
     def test_to_dict_method(self):
         """Test conversion to dictionary."""
         config = Neo4jContainerConfig(
@@ -299,6 +579,26 @@ class TestNeo4jContainerConfig:
         assert result["test_id"] == "test123"
         assert result["container_name"] == "blarify-neo4j-test-test123"
         assert result["volume_name"] == "blarify-neo4j-test-test123-data"
+        
+    def test_to_dict_with_docker_resources(self):
+        """Test to_dict includes docker_resources when present."""
+        docker_resources = DockerResourceConfig(
+            cpu_count=4,
+            mem_limit="8g"
+        )
+        
+        config = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="test-password",
+            test_id="test123",
+            docker_resources=docker_resources
+        )
+        
+        result = config.to_dict()
+        
+        assert "docker_resources" in result
+        assert result["docker_resources"]["cpu_count"] == 4
+        assert result["docker_resources"]["mem_limit"] == "8g"
 
 
 class TestNeo4jContainerInstance:

@@ -418,8 +418,8 @@ class WorkflowCreator:
         """
         Create relationships for a workflow.
 
-        This creates WORKFLOW_STEP relationships between the workflow node
-        and the code nodes that participate in the workflow.
+        This creates both WORKFLOW_STEP relationships and BELONGS_TO_WORKFLOW 
+        relationships connecting all participant nodes to the workflow node.
 
         Args:
             workflow_node: The WorkflowNode instance
@@ -450,6 +450,29 @@ class WorkflowCreator:
                     )
                 )
                 relationships.extend(workflow_step_relationships)
+            
+            # Create BELONGS_TO_WORKFLOW relationships for all participant nodes
+            if workflow_result.workflow_nodes:
+                # Extract unique node IDs from workflow participants
+                node_ids = []
+                for node in workflow_result.workflow_nodes:
+                    node_id = node.get("id")
+                    if node_id and node_id not in node_ids:
+                        node_ids.append(node_id)
+                
+                # Create BELONGS_TO_WORKFLOW relationships
+                if node_ids:
+                    belongs_to_relationships = (
+                        RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
+                            workflow_node=workflow_node,
+                            workflow_node_ids=node_ids
+                        )
+                    )
+                    relationships.extend(belongs_to_relationships)
+                    logger.debug(
+                        f"Created {len(belongs_to_relationships)} BELONGS_TO_WORKFLOW relationships "
+                        f"for workflow {workflow_node.entry_point_name}"
+                    )
 
         except Exception as e:
             logger.exception(f"Error creating workflow relationships: {e}")

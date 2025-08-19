@@ -1,0 +1,1 @@
+"""Cyclic patterns workflow example package."""

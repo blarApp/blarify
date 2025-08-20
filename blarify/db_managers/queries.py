@@ -2480,7 +2480,7 @@ def find_entry_points_for_node_path(
 
 def create_vector_index_query() -> str:
     """Create Neo4j vector index for documentation embeddings.
-    
+
     Returns:
         Cypher query string for creating the vector index
     """
@@ -2497,7 +2497,7 @@ def create_vector_index_query() -> str:
 
 def vector_similarity_search_query() -> str:
     """Cypher query for vector similarity search using Neo4j vector index.
-    
+
     Returns:
         Cypher query string for vector similarity search
     """
@@ -2506,7 +2506,6 @@ def vector_similarity_search_query() -> str:
     YIELD node, score
     WHERE score >= $min_similarity
     RETURN node.node_id as node_id,
-           node.title as title,
            node.content as content,
            score as similarity_score,
            node.source_path as source_path,
@@ -2519,7 +2518,7 @@ def vector_similarity_search_query() -> str:
 
 def hybrid_search_query() -> str:
     """Cypher query for hybrid search combining vector and keyword similarity.
-    
+
     Returns:
         Cypher query string for hybrid search
     """
@@ -2532,7 +2531,6 @@ def hybrid_search_query() -> str:
     WITH node, vector_score,
          CASE 
            WHEN toLower(node.content) CONTAINS toLower($keyword) THEN 1.0
-           WHEN toLower(node.title) CONTAINS toLower($keyword) THEN 0.8
            ELSE 0.0
          END as keyword_score
     
@@ -2542,7 +2540,6 @@ def hybrid_search_query() -> str:
     WHERE combined_score >= $min_score
     
     RETURN node.node_id as node_id,
-           node.title as title,
            node.content as content,
            combined_score as similarity_score,
            node.source_path as source_path,
@@ -2555,26 +2552,20 @@ def hybrid_search_query() -> str:
 
 
 def get_documentation_nodes_for_embedding_query() -> str:
-    """Query to retrieve documentation nodes that need embeddings.
-    
+    """Query to retrieve documentation nodes for embedding processing.
+
     Returns:
         Cypher query string for fetching documentation nodes
     """
     return """
     MATCH (n:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id})
-    WHERE ($skip_existing = false OR n.content_embedding IS NULL)
     RETURN n.node_id as node_id,
-           n.title as title,
            n.content as content,
            n.info_type as info_type,
            n.source_type as source_type,
            n.source_path as source_path,
            n.source_node_id as source_id,
            n.source_labels as source_labels,
-           n.enhanced_content as enhanced_content,
-           n.children_count as children_count,
-           n.examples as examples,
-           n.metadata as metadata,
            n.content_embedding as content_embedding
     LIMIT $batch_size
     """
@@ -2582,7 +2573,7 @@ def get_documentation_nodes_for_embedding_query() -> str:
 
 def update_documentation_embeddings_query() -> str:
     """Query to update embeddings for documentation nodes.
-    
+
     Returns:
         Cypher query string for updating embeddings
     """

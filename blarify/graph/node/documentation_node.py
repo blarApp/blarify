@@ -12,7 +12,6 @@ class DocumentationNode(Node):
 
     def __init__(
         self,
-        title: str,
         content: str,
         info_type: str,
         source_type: str,
@@ -28,7 +27,6 @@ class DocumentationNode(Node):
         **kwargs: Any,
     ):
         # Core semantic content
-        self.title = title
         self.content = content
 
         # Metadata
@@ -70,7 +68,6 @@ class DocumentationNode(Node):
         # Add information-specific attributes
         obj["attributes"].update(
             {
-                "title": self.title,
                 "content": self.content,
                 "info_type": self.info_type,
                 "source_type": self.source_type,

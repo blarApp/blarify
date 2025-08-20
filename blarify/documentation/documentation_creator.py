@@ -116,8 +116,8 @@ class DocumentationCreator:
                 
                 # Update nodes with embeddings
                 for node in result.documentation_nodes:
-                    if node.hashed_id in node_embeddings:
-                        node.content_embedding = node_embeddings[node.hashed_id]
+                    if node.id in node_embeddings:
+                        node.content_embedding = node_embeddings[node.id]
                 
                 logger.info(f"Generated embeddings for {len(node_embeddings)} nodes")
 

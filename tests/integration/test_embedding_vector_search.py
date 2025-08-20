@@ -7,12 +7,13 @@ and performing vector similarity search using Neo4j's native vector index.
 
 import pytest
 from unittest.mock import patch, MagicMock
-import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict
+import random
 
 from blarify.documentation.documentation_creator import DocumentationCreator
 from blarify.services.embedding_service import EmbeddingService
 from blarify.graph.node.documentation_node import DocumentationNode
+from blarify.graph.graph_environment import GraphEnvironment
 from blarify.db_managers.queries import (
     vector_similarity_search_query,
     hybrid_search_query,
@@ -25,18 +26,35 @@ class TestEmbeddingVectorSearch:
     """Test suite for embedding generation and vector search capabilities."""
 
     @pytest.fixture
+    def test_graph_environment(self) -> GraphEnvironment:
+        """Create a test GraphEnvironment."""
+        return GraphEnvironment(
+            environment="test-entity/test-repo",
+            diff_identifier="test-diff",
+            root_path="/test/path"
+        )
+    
+    @pytest.fixture 
+    def test_llm_provider(self):
+        """Create a mock LLM provider for testing."""
+        from unittest.mock import Mock
+        mock = Mock()
+        mock.call_dumb_agent.return_value = "Test documentation content"
+        return mock
+
+    @pytest.fixture
     def mock_embeddings(self) -> Dict[str, List[float]]:
         """Create mock embeddings for testing."""
         # Generate 1536-dimensional vectors (ada-002 dimensions)
-        np.random.seed(42)
+        random.seed(42)
         return {
-            "doc1": np.random.randn(1536).tolist(),
-            "doc2": np.random.randn(1536).tolist(),
-            "doc3": np.random.randn(1536).tolist(),
+            "doc1": [random.gauss(0, 1) for _ in range(1536)],
+            "doc2": [random.gauss(0, 1) for _ in range(1536)],
+            "doc3": [random.gauss(0, 1) for _ in range(1536)],
         }
 
     @pytest.fixture
-    def sample_documentation_nodes(self, test_graph_environment) -> List[DocumentationNode]:
+    def sample_documentation_nodes(self, test_graph_environment: GraphEnvironment) -> List[DocumentationNode]:
         """Create sample documentation nodes for testing."""
         nodes = [
             DocumentationNode(
@@ -44,7 +62,7 @@ class TestEmbeddingVectorSearch:
                 content="This function processes user authentication using JWT tokens",
                 info_type="function",
                 source_type="docstring",
-                source_path="/src/auth/handler.py",
+                source_path="file:///src/auth/handler.py",
                 source_name="authenticate_user",
                 source_id="auth_handler_123",
                 source_labels=["FUNCTION", "PYTHON"],
@@ -55,7 +73,7 @@ class TestEmbeddingVectorSearch:
                 content="Module for managing database connections with connection pooling",
                 info_type="module",
                 source_type="comment",
-                source_path="/src/db/connection.py",
+                source_path="file:///src/db/connection.py",
                 source_name="connection",
                 source_id="db_connection_456",
                 source_labels=["MODULE", "PYTHON"],
@@ -66,7 +84,7 @@ class TestEmbeddingVectorSearch:
                 content="Implements rate limiting for API endpoints using Redis",
                 info_type="class",
                 source_type="docstring",
-                source_path="/src/api/rate_limiter.py",
+                source_path="file:///src/api/rate_limiter.py",
                 source_name="RateLimiter",
                 source_id="rate_limiter_789",
                 source_labels=["CLASS", "PYTHON"],
@@ -212,8 +230,8 @@ class TestEmbeddingVectorSearch:
             db_manager=neo4j_instance,
             agent_caller=test_llm_provider,
             graph_environment=test_graph_environment,
-            company_id=test_graph_environment.entity_id,
-            repo_id=test_graph_environment.repo_id,
+            company_id="test-entity",
+            repo_id="test-repo",
         )
 
         # Run retroactive embedding
@@ -272,8 +290,8 @@ class TestEmbeddingVectorSearch:
             db_manager=neo4j_instance,
             agent_caller=test_llm_provider,
             graph_environment=test_graph_environment,
-            company_id=test_graph_environment.entity_id,
-            repo_id=test_graph_environment.repo_id,
+            company_id="test-entity",
+            repo_id="test-repo",
         )
 
         # Run retroactive embedding with skip_existing=True
@@ -300,13 +318,13 @@ class TestEmbeddingVectorSearch:
         """Test that identical content is only embedded once (caching behavior)."""
         # Mock OpenAI embeddings
         mock_client = MagicMock()
-        mock_client.embed_documents.return_value = [np.random.randn(1536).tolist()]
+        mock_client.embed_documents.return_value = [[random.gauss(0, 1) for _ in range(1536)]]
         mock_openai_embeddings.return_value = mock_client
 
         # Create embedding service
         embedding_service = EmbeddingService()
 
-        # Create nodes with identical content
+        # Create nodes with identical content but different source_ids
         identical_content = "This is the same content for all nodes"
         nodes = []
         for i in range(3):
@@ -315,12 +333,11 @@ class TestEmbeddingVectorSearch:
                 content=identical_content,  # Same content
                 info_type="function",
                 source_type="docstring",
-                source_path=f"/src/file{i}.py",
+                source_path=f"file:///src/file{i}.py",
                 source_name=f"func{i}",
-                source_id=f"id{i}",
+                source_id=f"unique_id_{i}",  # Different source_ids for unique node IDs
                 graph_environment=test_graph_environment,
             )
-            node.node_id = f"node{i}"
             nodes.append(node)
 
         # Generate embeddings

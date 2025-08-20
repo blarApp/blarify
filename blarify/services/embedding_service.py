@@ -113,7 +113,7 @@ class EmbeddingService:
         """
         node_embeddings: Dict[str, List[float]] = {}
         texts_to_embed = []
-        node_ids_to_embed = []
+        content_to_node_ids: Dict[str, List[str]] = {}  # Map content to list of node IDs
         
         # Check cache and prepare texts for embedding
         for node in nodes:
@@ -124,22 +124,28 @@ class EmbeddingService:
             
             # Check if we have this content cached
             if content_hash in self.cache:
-                node_embeddings[node.hashed_id] = self.cache[content_hash]
+                node_embeddings[node.id] = self.cache[content_hash]
             else:
-                texts_to_embed.append(node.content)
-                node_ids_to_embed.append(node.hashed_id)
+                # Track which nodes need this content embedded
+                if node.content not in content_to_node_ids:
+                    content_to_node_ids[node.content] = []
+                    texts_to_embed.append(node.content)
+                content_to_node_ids[node.content].append(node.id)
         
         # Embed uncached texts
         if texts_to_embed:
             embeddings = self.embed_batch(texts_to_embed)
             
             # Store embeddings and update cache
-            for node_id, text, embedding in zip(node_ids_to_embed, texts_to_embed, embeddings):
+            for text, embedding in zip(texts_to_embed, embeddings):
                 if embedding is not None:
-                    node_embeddings[node_id] = embedding
                     # Update cache
                     content_hash = self._get_content_hash(text)
                     self.cache[content_hash] = embedding
+                    
+                    # Map embedding to all nodes with this content
+                    for node_id in content_to_node_ids[text]:
+                        node_embeddings[node_id] = embedding
         
         return node_embeddings
     

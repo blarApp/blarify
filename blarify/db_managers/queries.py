@@ -2476,3 +2476,119 @@ def find_entry_points_for_node_path(
     except Exception as e:
         logger.exception(f"Error finding entry points for node path '{node_path}': {e}")
         return []
+
+
+def create_vector_index_query() -> str:
+    """Create Neo4j vector index for documentation embeddings.
+    
+    Returns:
+        Cypher query string for creating the vector index
+    """
+    return """
+    CREATE VECTOR INDEX documentation_embeddings IF NOT EXISTS
+    FOR (n:DOCUMENTATION) 
+    ON n.content_embedding
+    OPTIONS {indexConfig: {
+        `vector.dimensions`: 1536,
+        `vector.similarity_function`: 'cosine'
+    }}
+    """
+
+
+def vector_similarity_search_query() -> str:
+    """Cypher query for vector similarity search using Neo4j vector index.
+    
+    Returns:
+        Cypher query string for vector similarity search
+    """
+    return """
+    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
+    YIELD node, score
+    WHERE score >= $min_similarity
+    RETURN node.node_id as node_id,
+           node.title as title,
+           node.content as content,
+           score as similarity_score,
+           node.source_path as source_path,
+           node.source_labels as source_labels,
+           node.info_type as info_type,
+           node.enhanced_content as enhanced_content
+    ORDER BY score DESC
+    """
+
+
+def hybrid_search_query() -> str:
+    """Cypher query for hybrid search combining vector and keyword similarity.
+    
+    Returns:
+        Cypher query string for hybrid search
+    """
+    return """
+    // Vector similarity search
+    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
+    YIELD node, score as vector_score
+    
+    // Keyword matching
+    WITH node, vector_score,
+         CASE 
+           WHEN toLower(node.content) CONTAINS toLower($keyword) THEN 1.0
+           WHEN toLower(node.title) CONTAINS toLower($keyword) THEN 0.8
+           ELSE 0.0
+         END as keyword_score
+    
+    // Combine scores with weights
+    WITH node, 
+         ($vector_weight * vector_score + $keyword_weight * keyword_score) as combined_score
+    WHERE combined_score >= $min_score
+    
+    RETURN node.node_id as node_id,
+           node.title as title,
+           node.content as content,
+           combined_score as similarity_score,
+           node.source_path as source_path,
+           node.source_labels as source_labels,
+           node.info_type as info_type,
+           node.enhanced_content as enhanced_content
+    ORDER BY combined_score DESC
+    LIMIT $limit
+    """
+
+
+def get_documentation_nodes_for_embedding_query() -> str:
+    """Query to retrieve documentation nodes that need embeddings.
+    
+    Returns:
+        Cypher query string for fetching documentation nodes
+    """
+    return """
+    MATCH (n:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id})
+    WHERE ($skip_existing = false OR n.content_embedding IS NULL)
+    RETURN n.node_id as node_id,
+           n.title as title,
+           n.content as content,
+           n.info_type as info_type,
+           n.source_type as source_type,
+           n.source_path as source_path,
+           n.source_node_id as source_id,
+           n.source_labels as source_labels,
+           n.enhanced_content as enhanced_content,
+           n.children_count as children_count,
+           n.examples as examples,
+           n.metadata as metadata,
+           n.content_embedding as content_embedding
+    LIMIT $batch_size
+    """
+
+
+def update_documentation_embeddings_query() -> str:
+    """Query to update embeddings for documentation nodes.
+    
+    Returns:
+        Cypher query string for updating embeddings
+    """
+    return """
+    UNWIND $updates as update
+    MATCH (n:DOCUMENTATION {node_id: update.node_id, entityId: $entity_id, repoId: $repo_id})
+    SET n.content_embedding = update.embedding
+    RETURN n.node_id as node_id
+    """

@@ -24,6 +24,7 @@ class DocumentationNode(Node):
         enhanced_content: Optional[str] = None,
         children_count: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        content_embedding: Optional[List[float]] = None,
         **kwargs: Any,
     ):
         # Core semantic content
@@ -43,6 +44,7 @@ class DocumentationNode(Node):
         self.enhanced_content = enhanced_content  # For parent nodes
         self.children_count = children_count  # For parent nodes
         self.metadata = metadata  # Additional metadata for tracking fallback scenarios
+        self.content_embedding = content_embedding  # Vector embedding of content field
 
         # Use source_path as path for Node, and source_id@info as name for uniqueness
         # Set layer to documentation for documentation nodes
@@ -91,6 +93,8 @@ class DocumentationNode(Node):
                 if value is not None:
                     neo4j_metadata[key] = str(value)
             obj["attributes"]["metadata"] = neo4j_metadata
+        if self.content_embedding:
+            obj["attributes"]["content_embedding"] = self.content_embedding
 
         # Add structured data as JSON strings if present
         if self.examples:

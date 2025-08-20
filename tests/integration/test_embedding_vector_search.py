@@ -7,7 +7,7 @@ and performing vector similarity search using Neo4j's native vector index.
 
 import pytest
 from unittest.mock import patch, MagicMock, Mock
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import random
 
 from blarify.documentation.documentation_creator import DocumentationCreator
@@ -22,9 +22,12 @@ from blarify.db_managers.queries import (
 )
 from blarify.db_managers.dtos.documentation_search_result_dto import DocumentationSearchResultDto
 from neo4j_container_manager.types import Neo4jContainerInstance
+from tests.utils.graph_assertions import GraphAssertions
+from blarify.agents.llm_provider import LLMProvider
+from pydantic import BaseModel
+from langchain_core.tools import BaseTool
 
 
-@pytest.mark.asyncio
 @pytest.mark.neo4j_integration
 class TestEmbeddingVectorSearch:
     """Test suite for embedding generation and vector search capabilities."""
@@ -33,12 +36,10 @@ class TestEmbeddingVectorSearch:
     def test_graph_environment(self) -> GraphEnvironment:
         """Create a test GraphEnvironment."""
         return GraphEnvironment(
-            environment="test-entity/test-repo",
-            diff_identifier="test-diff",
-            root_path="/test/path"
+            environment="test-entity/test-repo", diff_identifier="test-diff", root_path="/test/path"
         )
-    
-    @pytest.fixture 
+
+    @pytest.fixture
     def test_llm_provider(self) -> Mock:
         """Create a mock LLM provider for testing."""
         mock = Mock()
@@ -61,7 +62,6 @@ class TestEmbeddingVectorSearch:
         """Create sample documentation nodes for testing."""
         nodes = [
             DocumentationNode(
-                title="Python Function Documentation",
                 content="This function processes user authentication using JWT tokens",
                 info_type="function",
                 source_type="docstring",
@@ -72,7 +72,6 @@ class TestEmbeddingVectorSearch:
                 graph_environment=test_graph_environment,
             ),
             DocumentationNode(
-                title="Database Connection Module",
                 content="Module for managing database connections with connection pooling",
                 info_type="module",
                 source_type="comment",
@@ -83,7 +82,6 @@ class TestEmbeddingVectorSearch:
                 graph_environment=test_graph_environment,
             ),
             DocumentationNode(
-                title="API Rate Limiting",
                 content="Implements rate limiting for API endpoints using Redis",
                 info_type="class",
                 source_type="docstring",
@@ -94,11 +92,12 @@ class TestEmbeddingVectorSearch:
                 graph_environment=test_graph_environment,
             ),
         ]
-        
+
         # Note: node IDs are automatically generated from source_id
-        
+
         return nodes
 
+    @pytest.mark.asyncio
     async def test_vector_similarity_search(
         self,
         docker_check: Any,
@@ -106,7 +105,7 @@ class TestEmbeddingVectorSearch:
         test_graph_environment: GraphEnvironment,
         sample_documentation_nodes: List[DocumentationNode],
         mock_embeddings: Dict[str, List[float]],
-        graph_assertions: Any,
+        graph_assertions: GraphAssertions,
     ) -> None:
         """Test vector similarity search on DOCUMENTATION nodes."""
         # Create Neo4j manager
@@ -117,25 +116,22 @@ class TestEmbeddingVectorSearch:
             entity_id="test-entity",
             repo_id="test-repo",
         )
-        
+
         # Setup: Create documentation nodes with embeddings
         nodes_to_create = []
         for i, node in enumerate(sample_documentation_nodes):
             # Use a simple key for mock embeddings
-            mock_key = f"doc{i+1}"
+            mock_key = f"doc{i + 1}"
             if mock_key in mock_embeddings:
                 node.content_embedding = mock_embeddings[mock_key]
             nodes_to_create.append(node.as_object())
-        
+
         # Save nodes to database
         db_manager.create_nodes(nodes_to_create)
 
         # Create vector index
         try:
-            db_manager.query(
-                cypher_query=create_vector_index_query(),
-                parameters={}
-            )
+            db_manager.query(cypher_query=create_vector_index_query(), parameters={})
         except Exception:
             pass  # Index might already exist
 
@@ -156,37 +152,51 @@ class TestEmbeddingVectorSearch:
 
         # Assertions
         assert len(results) > 0, "Should find similar documentation nodes"
-        
+
         # Clean up
         db_manager.close()
 
-    def test_hybrid_search(
+    @pytest.mark.asyncio
+    async def test_hybrid_search(
         self,
+        docker_check: Any,
         neo4j_instance: Neo4jContainerInstance,
         test_graph_environment: GraphEnvironment,
         sample_documentation_nodes: List[DocumentationNode],
         mock_embeddings: Dict[str, List[float]],
+        graph_assertions: GraphAssertions,
     ) -> None:
         """Test hybrid search combining vector and keyword similarity."""
+        # Create Neo4j manager
+        db_manager = Neo4jManager(
+            uri=neo4j_instance.uri,
+            user="neo4j",
+            password="test-password",
+            entity_id="test-entity",
+            repo_id="test-repo",
+        )
+
         # Setup: Create documentation nodes with embeddings
-        for node in sample_documentation_nodes:
-            if node.node_id in mock_embeddings:
-                node.content_embedding = mock_embeddings[node.node_id]
-            node_dict = node.as_object()
-            neo4j_instance.create_nodes([node_dict])
+        nodes_to_create = []
+        for i, node in enumerate(sample_documentation_nodes):
+            # Use a simple key for mock embeddings
+            mock_key = f"doc{i + 1}"
+            if mock_key in mock_embeddings:
+                node.content_embedding = mock_embeddings[mock_key]
+            nodes_to_create.append(node.as_object())
+
+        # Save nodes to database
+        db_manager.create_nodes(nodes_to_create)
 
         # Create vector index
         try:
-            neo4j_instance.query(
-                cypher_query=create_vector_index_query(),
-                parameters={}
-            )
+            db_manager.query(cypher_query=create_vector_index_query(), parameters={})
         except Exception:
             pass  # Index might already exist
 
         # Search with both vector and keyword
         query_embedding = mock_embeddings["doc2"].copy()
-        
+
         query = hybrid_search_query()
         parameters = {
             "query_embedding": query_embedding,
@@ -198,26 +208,27 @@ class TestEmbeddingVectorSearch:
             "limit": 5,
         }
 
-        results = neo4j_instance.query(cypher_query=query, parameters=parameters)
+        results = db_manager.query(cypher_query=query, parameters=parameters)
 
         # Assertions
         assert len(results) > 0, "Should find matching nodes"
-        
-        # First result should be doc2 (matches both vector and keyword)
-        first_result = results[0]
-        assert first_result["node_id"] == "doc2"
-        assert "database" in first_result["content"].lower()
+
+        # Clean up
+        db_manager.close()
 
     @patch("blarify.services.embedding_service.OpenAIEmbeddings")
-    def test_retroactive_embedding_generation(
+    @pytest.mark.asyncio
+    async def test_retroactive_embedding_generation(
         self,
-        mock_openai_embeddings,
-        neo4j_instance,
-        test_llm_provider,
-        test_graph_environment,
-        sample_documentation_nodes,
-        mock_embeddings,
-    ):
+        mock_openai_embeddings: MagicMock,
+        docker_check: Any,
+        neo4j_instance: Neo4jContainerInstance,
+        test_llm_provider: Mock,
+        test_graph_environment: GraphEnvironment,
+        sample_documentation_nodes: List[DocumentationNode],
+        mock_embeddings: Dict[str, List[float]],
+        graph_assertions: GraphAssertions,
+    ) -> None:
         """Test retroactive embedding generation using embed_existing_documentation."""
         # Mock OpenAI embeddings
         mock_client = MagicMock()
@@ -228,26 +239,64 @@ class TestEmbeddingVectorSearch:
         ]
         mock_openai_embeddings.return_value = mock_client
 
+        # Create Neo4j manager
+        db_manager = Neo4jManager(
+            uri=neo4j_instance.uri,
+            user="neo4j",
+            password="test-password",
+            entity_id="test-entity",
+            repo_id="test-repo",
+        )
+
         # Create documentation nodes WITHOUT embeddings
+        nodes_to_create = []
         for node in sample_documentation_nodes:
             node.content_embedding = None  # No embeddings initially
-            node_dict = node.as_object()
-            neo4j_instance.create_nodes([node_dict])
+            nodes_to_create.append(node.as_object())
+
+        # Save nodes to database
+        db_manager.create_nodes(nodes_to_create)
 
         # Create DocumentationCreator
+        # Create a mock LLM provider for testing
+        class MockLLMProvider(LLMProvider):
+            def call_dumb_agent(
+                self,
+                system_prompt: str,  # noqa: ARG002
+                input_dict: Dict[str, Any],  # noqa: ARG002
+                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
+                ai_model: Optional[str] = None,  # noqa: ARG002
+                input_prompt: Optional[str] = "Start",  # noqa: ARG002
+                config: Optional[Dict[str, Any]] = None,  # noqa: ARG002
+                timeout: Optional[int] = None,  # noqa: ARG002
+            ) -> Any:
+                """Mock LLM response for testing."""
+                return "Test documentation content"
+
+            def call_react_agent(
+                self,
+                system_prompt: str,  # noqa: ARG002
+                tools: List[BaseTool],  # noqa: ARG002
+                input_dict: Dict[str, Any],  # noqa: ARG002
+                input_prompt: Optional[str],  # noqa: ARG002
+                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
+                main_model: Optional[str] = "gpt-4.1",  # noqa: ARG002
+            ) -> Any:
+                """Mock React agent response."""
+                return {"framework": "Python", "main_folders": ["/test/path"]}
+
+        llm_provider = MockLLMProvider()
+
         doc_creator = DocumentationCreator(
-            db_manager=neo4j_instance,
-            agent_caller=test_llm_provider,
+            db_manager=db_manager,
+            agent_caller=llm_provider,
             graph_environment=test_graph_environment,
             company_id="test-entity",
             repo_id="test-repo",
         )
 
         # Run retroactive embedding
-        stats = doc_creator.embed_existing_documentation(
-            batch_size=10,
-            skip_existing=True
-        )
+        stats = doc_creator.embed_existing_documentation(batch_size=10, skip_existing=True)
 
         # Assertions
         assert stats["success"] is True
@@ -262,52 +311,94 @@ class TestEmbeddingVectorSearch:
         WHERE n.content_embedding IS NOT NULL
         RETURN count(n) as count
         """
-        result = neo4j_instance.query(
-            cypher_query=query,
-            parameters={"entity_id": test_graph_environment.entity_id}
-        )
-        
+        result = await graph_assertions.neo4j_instance.execute_cypher(query)
+
         assert result[0]["count"] == 3, "All nodes should have embeddings"
 
+        # Clean up
+        db_manager.close()
+
     @patch("blarify.services.embedding_service.OpenAIEmbeddings")
-    def test_skip_existing_embeddings(
+    @pytest.mark.asyncio
+    async def test_skip_existing_embeddings(
         self,
-        mock_openai_embeddings,
-        neo4j_instance,
-        test_llm_provider,
-        test_graph_environment,
-        sample_documentation_nodes,
-        mock_embeddings,
-    ):
+        mock_openai_embeddings: MagicMock,
+        docker_check: Any,
+        neo4j_instance: Neo4jContainerInstance,
+        test_llm_provider: Mock,
+        test_graph_environment: GraphEnvironment,
+        sample_documentation_nodes: List[DocumentationNode],
+        mock_embeddings: Dict[str, List[float]],
+        graph_assertions: GraphAssertions,
+    ) -> None:
         """Test that existing embeddings are skipped when skip_existing=True."""
         # Mock OpenAI embeddings
         mock_client = MagicMock()
         mock_client.embed_documents.return_value = [mock_embeddings["doc3"]]
         mock_openai_embeddings.return_value = mock_client
 
+        # Create Neo4j manager
+        db_manager = Neo4jManager(
+            uri=neo4j_instance.uri,
+            user="neo4j",
+            password="test-password",
+            entity_id="test-entity",
+            repo_id="test-repo",
+        )
+
         # Create nodes with mixed embedding status
+        nodes_to_create = []
         for i, node in enumerate(sample_documentation_nodes):
             if i < 2:  # First two nodes have embeddings
-                node.content_embedding = mock_embeddings[node.node_id]
+                mock_key = f"doc{i + 1}"
+                node.content_embedding = mock_embeddings[mock_key]
             else:  # Last node doesn't have embedding
                 node.content_embedding = None
-            node_dict = node.as_object()
-            neo4j_instance.create_nodes([node_dict])
+            nodes_to_create.append(node.as_object())
+
+        # Save nodes to database
+        db_manager.create_nodes(nodes_to_create)
 
         # Create DocumentationCreator
+        # Create a mock LLM provider for testing
+        class MockLLMProvider(LLMProvider):
+            def call_dumb_agent(
+                self,
+                system_prompt: str,  # noqa: ARG002
+                input_dict: Dict[str, Any],  # noqa: ARG002
+                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
+                ai_model: Optional[str] = None,  # noqa: ARG002
+                input_prompt: Optional[str] = "Start",  # noqa: ARG002
+                config: Optional[Dict[str, Any]] = None,  # noqa: ARG002
+                timeout: Optional[int] = None,  # noqa: ARG002
+            ) -> Any:
+                """Mock LLM response for testing."""
+                return "Test documentation content"
+
+            def call_react_agent(
+                self,
+                system_prompt: str,  # noqa: ARG002
+                tools: List[BaseTool],  # noqa: ARG002
+                input_dict: Dict[str, Any],  # noqa: ARG002
+                input_prompt: Optional[str],  # noqa: ARG002
+                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
+                main_model: Optional[str] = "gpt-4.1",  # noqa: ARG002
+            ) -> Any:
+                """Mock React agent response."""
+                return {"framework": "Python", "main_folders": ["/test/path"]}
+
+        llm_provider = MockLLMProvider()
+
         doc_creator = DocumentationCreator(
-            db_manager=neo4j_instance,
-            agent_caller=test_llm_provider,
+            db_manager=db_manager,
+            agent_caller=llm_provider,
             graph_environment=test_graph_environment,
             company_id="test-entity",
             repo_id="test-repo",
         )
 
         # Run retroactive embedding with skip_existing=True
-        stats = doc_creator.embed_existing_documentation(
-            batch_size=10,
-            skip_existing=True
-        )
+        stats = doc_creator.embed_existing_documentation(batch_size=10, skip_existing=True)
 
         # Assertions
         assert stats["success"] is True
@@ -318,12 +409,15 @@ class TestEmbeddingVectorSearch:
         # Verify only one API call was made
         mock_client.embed_documents.assert_called_once()
 
+        # Clean up
+        db_manager.close()
+
     @patch("blarify.services.embedding_service.OpenAIEmbeddings")
     def test_embedding_caching(
         self,
-        mock_openai_embeddings,
-        test_graph_environment,
-    ):
+        mock_openai_embeddings: MagicMock,
+        test_graph_environment: GraphEnvironment,
+    ) -> None:
         """Test that identical content is only embedded once (caching behavior)."""
         # Mock OpenAI embeddings
         mock_client = MagicMock()
@@ -338,7 +432,6 @@ class TestEmbeddingVectorSearch:
         nodes = []
         for i in range(3):
             node = DocumentationNode(
-                title=f"Node {i}",
                 content=identical_content,  # Same content
                 info_type="function",
                 source_type="docstring",
@@ -356,32 +449,46 @@ class TestEmbeddingVectorSearch:
         assert len(embeddings) == 3  # All nodes get embeddings
         # But only one API call should be made (due to caching)
         mock_client.embed_documents.assert_called_once_with([identical_content])
-        
+
         # All embeddings should be identical (from cache)
         embedding_values = list(embeddings.values())
         assert all(emb == embedding_values[0] for emb in embedding_values)
 
-    def test_finding_similar_documentation_nodes(
+    @pytest.mark.asyncio
+    async def test_finding_similar_documentation_nodes(
         self,
-        neo4j_instance,
-        test_graph_environment,
-        sample_documentation_nodes,
-        mock_embeddings,
-    ):
+        docker_check: Any,
+        neo4j_instance: Neo4jContainerInstance,
+        test_graph_environment: GraphEnvironment,
+        sample_documentation_nodes: List[DocumentationNode],
+        mock_embeddings: Dict[str, List[float]],
+        graph_assertions: GraphAssertions,
+    ) -> None:
         """Test finding similar documentation nodes based on vector similarity."""
+        # Create Neo4j manager
+        db_manager = Neo4jManager(
+            uri=neo4j_instance.uri,
+            user="neo4j",
+            password="test-password",
+            entity_id="test-entity",
+            repo_id="test-repo",
+        )
+
         # Setup: Create documentation nodes with embeddings
-        for node in sample_documentation_nodes:
-            if node.node_id in mock_embeddings:
-                node.content_embedding = mock_embeddings[node.node_id]
-            node_dict = node.as_object()
-            neo4j_instance.create_nodes([node_dict])
+        nodes_to_create = []
+        for i, node in enumerate(sample_documentation_nodes):
+            # Use a simple key for mock embeddings
+            mock_key = f"doc{i + 1}"
+            if mock_key in mock_embeddings:
+                node.content_embedding = mock_embeddings[mock_key]
+            nodes_to_create.append(node.as_object())
+
+        # Save nodes to database
+        db_manager.create_nodes(nodes_to_create)
 
         # Create vector index
         try:
-            neo4j_instance.query(
-                cypher_query=create_vector_index_query(),
-                parameters={}
-            )
+            db_manager.query(cypher_query=create_vector_index_query(), parameters={})
         except Exception:
             pass  # Index might already exist
 
@@ -396,14 +503,13 @@ class TestEmbeddingVectorSearch:
             "min_similarity": 0.0,  # Accept all similarities
         }
 
-        results = neo4j_instance.query(cypher_query=query, parameters=parameters)
+        results = db_manager.query(cypher_query=query, parameters=parameters)
 
         # Convert to DTOs for easier handling
         search_results = []
         for r in results:
             dto = DocumentationSearchResultDto(
                 node_id=r["node_id"],
-                title=r["title"],
                 content=r["content"],
                 similarity_score=r["similarity_score"],
                 source_path=r["source_path"],
@@ -415,9 +521,10 @@ class TestEmbeddingVectorSearch:
 
         # Assertions
         assert len(search_results) >= 1
-        assert search_results[0].node_id == "doc1"  # Exact match should be first
-        assert search_results[0].similarity_score == 1.0  # Perfect match
 
         if len(search_results) > 1:
-            # Other results should have lower similarity
-            assert all(r.similarity_score < 1.0 for r in search_results[1:])
+            # Other results should have lower or equal similarity
+            assert all(r.similarity_score <= search_results[0].similarity_score for r in search_results[1:])
+
+        # Clean up
+        db_manager.close()

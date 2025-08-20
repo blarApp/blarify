@@ -17,12 +17,12 @@ if TYPE_CHECKING:
 from ..agents.llm_provider import LLMProvider
 from ..db_managers.db_manager import AbstractDbManager
 from ..db_managers.queries import (
-    find_all_entry_points, 
-    find_entry_points_for_node_path, 
+    find_all_entry_points,
+    find_entry_points_for_node_path,
     get_root_folders_and_files,
     get_documentation_nodes_for_embedding_query,
     update_documentation_embeddings_query,
-    create_vector_index_query
+    create_vector_index_query,
 )
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.relationship.relationship_creator import RelationshipCreator
@@ -113,12 +113,12 @@ class DocumentationCreator:
                 logger.info("Generating embeddings for documentation nodes")
                 embedding_service = EmbeddingService()
                 node_embeddings = embedding_service.embed_documentation_nodes(result.documentation_nodes)
-                
+
                 # Update nodes with embeddings
                 for node in result.documentation_nodes:
                     if node.id in node_embeddings:
                         node.content_embedding = node_embeddings[node.id]
-                
+
                 logger.info(f"Generated embeddings for {len(node_embeddings)} nodes")
 
             # Step 4: Save to database if requested
@@ -413,46 +413,43 @@ class DocumentationCreator:
         except Exception as e:
             logger.exception(f"Error saving documentation to database: {e}")
             # Don't raise - this is not critical for the documentation creation process
-    
-    def embed_existing_documentation(
-        self,
-        batch_size: int = 100,
-        skip_existing: bool = True
-    ) -> Dict[str, Any]:
+
+    def embed_existing_documentation(self, batch_size: int = 100, skip_existing: bool = True) -> Dict[str, Any]:
         """
         Embed all existing documentation nodes in the database.
-        
+
         This method queries existing documentation nodes and generates embeddings
         for their content field, then updates the database with the embeddings.
-        
+
         Args:
             batch_size: Number of nodes to process in each batch
             skip_existing: If True, skip nodes that already have embeddings
-            
+
         Returns:
             Dictionary with statistics about the embedding process
         """
+        # Initialize statistics
+        total_processed: int = 0
+        total_embedded: int = 0
+        total_skipped: int = 0
+        errors: List[str] = []
+
         try:
             logger.info("Starting retroactive embedding of existing documentation")
-            
+
             # Create vector index if it doesn't exist
             try:
-                self.db_manager.query(
-                    cypher_query=create_vector_index_query(),
-                    parameters={}
-                )
+                self.db_manager.query(cypher_query=create_vector_index_query(), parameters={})
                 logger.info("Vector index created or already exists")
             except Exception as e:
                 logger.warning(f"Could not create vector index (may already exist): {e}")
-            
+
             # Initialize embedding service
             embedding_service = EmbeddingService(batch_size=batch_size)
-            
-            total_processed: int = 0
-            total_embedded: int = 0
-            total_skipped: int = 0
-            errors: List[str] = []
-            
+
+            # Track processed nodes to avoid infinite loops
+            processed_node_ids = set()
+
             while True:
                 # Query batch of documentation nodes
                 query = get_documentation_nodes_for_embedding_query()
@@ -460,27 +457,39 @@ class DocumentationCreator:
                     "entity_id": self.company_id,
                     "repo_id": self.repo_id,
                     "batch_size": batch_size,
-                    "skip_existing": skip_existing
                 }
-                
+
                 result = self.db_manager.query(cypher_query=query, parameters=parameters)
-                
+
                 if not result:
                     break  # No more nodes to process
-                
+
                 # Convert query results to DocumentationNode objects
                 from blarify.graph.node.documentation_node import DocumentationNode
-                
-                documentation_nodes = []
+
+                documentation_nodes: list[DocumentationNode] = []
+                node_id_mapping = {}  # Map from node object to actual database node_id
+                any_new_nodes = False  # Track if we found any new nodes in this batch
+
                 for record in result:
-                    # Skip if already has embedding and skip_existing is True
-                    if skip_existing and record.get("content_embedding"):
-                        total_skipped += 1
+                    node_id = record.get("node_id", "")
+
+                    # Skip if we've already processed this node in this run
+                    if node_id in processed_node_ids:
                         continue
-                    
+
+                    # Apply skip_existing logic here in the application layer
+                    has_embedding = record.get("content_embedding") is not None
+
+                    if skip_existing and has_embedding:
+                        total_skipped += 1
+                        processed_node_ids.add(node_id)
+                        continue
+
+                    any_new_nodes = True
+
                     # Create DocumentationNode object
                     node = DocumentationNode(
-                        title=record.get("title", ""),
                         content=record.get("content", ""),
                         info_type=record.get("info_type", ""),
                         source_type=record.get("source_type", ""),
@@ -488,69 +497,62 @@ class DocumentationCreator:
                         source_name="",  # Not needed for embedding
                         source_id=record.get("source_id", ""),
                         source_labels=record.get("source_labels", []),
-                        enhanced_content=record.get("enhanced_content"),
-                        children_count=record.get("children_count"),
-                        examples=eval(record.get("examples", "[]")) if record.get("examples") else [],
-                        metadata=record.get("metadata"),
-                        graph_environment=self.graph_environment
+                        graph_environment=self.graph_environment,
                     )
-                    node.node_id = record.get("node_id", "")
+                    # Store the actual database node_id for this node
+                    node_id_mapping[node] = node_id
                     documentation_nodes.append(node)
-                
+                    processed_node_ids.add(node_id)
+
                 if not documentation_nodes:
-                    if len(result) == batch_size:
-                        continue  # All were skipped, try next batch
+                    if not any_new_nodes:
+                        break  # No new nodes found, we're done
                     else:
-                        break  # No more nodes to process
-                
+                        continue  # All were skipped, try next batch
+
                 # Generate embeddings
                 logger.info(f"Generating embeddings for batch of {len(documentation_nodes)} nodes")
                 node_embeddings = embedding_service.embed_documentation_nodes(documentation_nodes)
-                
-                # Prepare updates for database
+
+                # Prepare updates for database using actual database node_ids
                 updates = []
-                for node_id, embedding in node_embeddings.items():
+                for node in documentation_nodes:
+                    node_id_for_lookup = node.id  # This is what embed_documentation_nodes uses as key
+                    actual_db_node_id = node_id_mapping[node]  # This is the actual database node_id
+                    embedding = node_embeddings.get(node_id_for_lookup)
                     if embedding:
-                        updates.append({
-                            "node_id": node_id,
-                            "embedding": embedding
-                        })
+                        updates.append({"node_id": actual_db_node_id, "embedding": embedding})
                         total_embedded += 1
-                
+
                 # Update database with embeddings
                 if updates:
                     update_query = update_documentation_embeddings_query()
-                    update_parameters = {
-                        "entity_id": self.company_id,
-                        "repo_id": self.repo_id,
-                        "updates": updates
-                    }
-                    
+                    update_parameters = {"entity_id": self.company_id, "repo_id": self.repo_id, "updates": updates}
+
                     self.db_manager.query(cypher_query=update_query, parameters=update_parameters)
                     logger.info(f"Updated {len(updates)} nodes with embeddings")
-                
+
                 total_processed += len(documentation_nodes)
-                
+
                 # Break if we processed less than a full batch (no more nodes)
                 if len(result) < batch_size:
                     break
-            
+
             # Return statistics
             stats = {
                 "total_processed": total_processed,
                 "total_embedded": total_embedded,
                 "total_skipped": total_skipped,
                 "errors": errors,
-                "success": True
+                "success": True,
             }
-            
+
             logger.info(
-                f"Embedding complete: processed={total_processed}, "
-                f"embedded={total_embedded}, skipped={total_skipped}"
+                f"Embedding complete: processed={total_processed}, embedded={total_embedded}, skipped={total_skipped}"
             )
-            
+
             return stats
-            
+
         except Exception as e:
             logger.exception(f"Error in embed_existing_documentation: {e}")
             return {
@@ -558,5 +560,5 @@ class DocumentationCreator:
                 "total_embedded": total_embedded,
                 "total_skipped": total_skipped,
                 "errors": [str(e)],
-                "success": False
+                "success": False,
             }

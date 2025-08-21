@@ -2313,7 +2313,6 @@ def get_existing_documentation_for_node_query() -> str:
     MATCH (doc:DOCUMENTATION)-[:DESCRIBES]->(code:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
     WHERE doc.layer = 'documentation'
     RETURN doc.node_id as doc_node_id,
-           doc.title as title,
            doc.content as content,
            doc.info_type as info_type,
            doc.source_path as source_path,
@@ -2353,7 +2352,6 @@ def get_existing_documentation_for_node(
         record = query_result[0]
         return {
             "doc_node_id": record.get("doc_node_id", ""),
-            "title": record.get("title", ""),
             "content": record.get("content", ""),
             "info_type": record.get("info_type", ""),
             "source_path": record.get("source_path", ""),
@@ -2559,6 +2557,7 @@ def get_documentation_nodes_for_embedding_query() -> str:
     """
     return """
     MATCH (n:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id})
+    WHERE n.content_embedding IS NULL OR size(n.content_embedding) = 0
     RETURN n.node_id as node_id,
            n.content as content,
            n.info_type as info_type,

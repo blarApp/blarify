@@ -539,7 +539,6 @@ class RecursiveDFSProcessor:
             Fallback DocumentationNode
         """
         info_node = DocumentationNode(
-            title=f"Description of {node.name}",
             content=f"Error processing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}",
             info_type="error_fallback",
             source_path=node.path,
@@ -591,7 +590,6 @@ class RecursiveDFSProcessor:
 
             # Create DocumentationNode
             info_node = DocumentationNode(
-                title=f"Description of {node.name}",
                 content=response_content,
                 info_type="leaf_description",
                 source_path=node.path,
@@ -615,7 +613,6 @@ class RecursiveDFSProcessor:
             logger.exception(f"Error analyzing leaf node {node.name} ({node.id}): {e}")
             # Return fallback description
             info_node = DocumentationNode(
-                title=f"Description of {node.name}",
                 content=f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}",
                 info_type="leaf_description",
                 source_path=node.path,
@@ -804,7 +801,6 @@ class RecursiveDFSProcessor:
     ) -> DocumentationNode:
         """Create and cache the documentation node for a parent."""
         info_node = DocumentationNode(
-            title=f"Description of {node.name}",
             content=response_content,
             info_type="parent_description",
             source_path=node.path,
@@ -830,7 +826,6 @@ class RecursiveDFSProcessor:
     ) -> DocumentationNode:
         """Create fallback documentation node for failed parent processing."""
         info_node = DocumentationNode(
-            title=f"Description of {node.name}",
             content=f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}",
             info_type="parent_description",
             source_path=node.path,
@@ -1078,7 +1073,6 @@ class RecursiveDFSProcessor:
 
             # Create DocumentationNode from database data
             info_node = DocumentationNode(
-                title=doc_data.get("title", f"Description of {node.name}"),
                 content=doc_data.get("content", ""),
                 info_type=doc_data.get("info_type", "database_cached"),
                 source_path=doc_data.get("source_path", node.path),
@@ -1199,7 +1193,6 @@ class RecursiveDFSProcessor:
 
             # Create documentation node with fallback metadata
             info_node = DocumentationNode(
-                title=f"Description of {node.name}",
                 content=response_content,
                 info_type="parent_description_fallback" if is_fallback else "parent_description",
                 source_path=node.path,
@@ -1275,7 +1268,6 @@ class RecursiveDFSProcessor:
 
             # Create documentation node
             info_node = DocumentationNode(
-                title=f"Description of {node.name}",
                 content=response_content,
                 info_type="enhanced_leaf_fallback" if is_fallback else "enhanced_leaf_description",
                 source_path=node.path,

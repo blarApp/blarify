@@ -3,13 +3,19 @@ This module contains the ChatFallback class, which is used to construct the runn
 """
 
 import logging
-from typing import Optional, Type
+from typing import Any, Dict, Optional, Type
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.runnables import Runnable, RunnableWithFallbacks
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
+
+from blarify.agents.api_key_manager import APIKeyManager
+from blarify.agents.rotating_anthropic import RotatingKeyChatAnthropic
+from blarify.agents.rotating_google import RotatingKeyChatGoogle
+from blarify.agents.rotating_openai import RotatingKeyChatOpenAI
+from blarify.agents.utils import discover_keys_for_provider
 
 logger = logging.getLogger(__name__)
 

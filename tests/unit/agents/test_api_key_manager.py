@@ -3,6 +3,7 @@
 import threading
 import time
 from datetime import datetime, timedelta
+from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -331,3 +332,141 @@ class TestAPIKeyManager:
         
         assert count == 1  # Only key-1 should be available
         assert manager.keys["key-1"].state == KeyStatus.AVAILABLE
+
+
+class TestAPIKeyManagerThreadSafety:
+    """Test thread safety of APIKeyManager."""
+    
+    def test_concurrent_key_selection(self) -> None:
+        """Test thread safety with concurrent key selection."""
+        manager = APIKeyManager("test")
+        for i in range(5):
+            manager.add_key(f"key-{i}")
+        
+        results: list[str] = []
+        lock = threading.Lock()
+        
+        def get_key() -> None:
+            for _ in range(100):
+                key = manager.get_next_available_key()
+                if key:
+                    with lock:
+                        results.append(key)
+        
+        threads = [threading.Thread(target=get_key) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        
+        # Verify no corruption and fair distribution
+        assert len(results) == 1000
+        assert all(key in [f"key-{i}" for i in range(5)] for key in results)
+        
+        # Check reasonable distribution (each key should get some selections)
+        key_counts = {f"key-{i}": 0 for i in range(5)}
+        for key in results:
+            key_counts[key] += 1
+        
+        # Each key should have been selected at least once
+        assert all(count > 0 for count in key_counts.values())
+    
+    def test_concurrent_state_modifications(self) -> None:
+        """Test concurrent state modifications."""
+        manager = APIKeyManager("test")
+        for i in range(10):
+            manager.add_key(f"key-{i}")
+        
+        def modify_states() -> None:
+            for i in range(50):
+                key = f"key-{i % 10}"
+                if i % 3 == 0:
+                    manager.mark_rate_limited(key, retry_after=1)
+                elif i % 3 == 1:
+                    manager.mark_invalid(key)
+                else:
+                    manager.mark_quota_exceeded(key)
+        
+        threads = [threading.Thread(target=modify_states) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        
+        # Verify all keys still exist and have valid states
+        assert len(manager.keys) == 10
+        for key_state in manager.keys.values():
+            assert key_state.state in [
+                KeyStatus.AVAILABLE,
+                KeyStatus.RATE_LIMITED,
+                KeyStatus.INVALID,
+                KeyStatus.QUOTA_EXCEEDED
+            ]
+    
+    def test_concurrent_add_and_select(self) -> None:
+        """Test concurrent key addition and selection."""
+        manager = APIKeyManager("test")
+        
+        def add_keys() -> None:
+            for i in range(50):
+                manager.add_key(f"key-{threading.current_thread().name}-{i}")
+                time.sleep(0.001)  # Small delay to simulate real-world timing
+        
+        def select_keys() -> None:
+            for _ in range(100):
+                manager.get_next_available_key()
+                time.sleep(0.001)
+        
+        add_threads = [threading.Thread(target=add_keys, name=f"adder-{i}") for i in range(3)]
+        select_threads = [threading.Thread(target=select_keys) for _ in range(3)]
+        
+        all_threads = add_threads + select_threads
+        for t in all_threads:
+            t.start()
+        for t in all_threads:
+            t.join()
+        
+        # Verify all keys were added correctly
+        assert len(manager.keys) == 150  # 3 threads * 50 keys each
+    
+    def test_concurrent_cooldown_expiration(self) -> None:
+        """Test concurrent cooldown expiration and key selection."""
+        manager = APIKeyManager("test")
+        for i in range(5):
+            manager.add_key(f"key-{i}")
+        
+        # Mark all keys with short cooldowns
+        for i in range(5):
+            manager.mark_rate_limited(f"key-{i}", retry_after=1)
+        
+        results_before: list[Optional[str]] = []
+        results_after: list[str] = []
+        lock = threading.Lock()
+        
+        def try_get_keys() -> None:
+            # Try before cooldown expires
+            key = manager.get_next_available_key()
+            with lock:
+                results_before.append(key)
+            
+            # Wait for cooldowns to expire
+            time.sleep(1.1)
+            
+            # Try after cooldown expires
+            key = manager.get_next_available_key()
+            if key:
+                with lock:
+                    results_after.append(key)
+        
+        threads = [threading.Thread(target=try_get_keys) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        
+        # Before cooldown expiration, no keys should be available
+        assert all(key is None for key in results_before)
+        
+        # After cooldown expiration, keys should be available
+        assert len(results_after) == 10
+        assert all(key in [f"key-{i}" for i in range(5)] for key in results_after)

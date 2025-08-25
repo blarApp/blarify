@@ -150,3 +150,57 @@ class TestAPIKeyManager:
         """Test returns None when no keys are configured."""
         manager = APIKeyManager("openai")
         assert manager.get_next_available_key() is None
+    
+    def test_mark_rate_limited_without_retry_after(self) -> None:
+        """Test marking a key as rate limited without cooldown."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        
+        manager.mark_rate_limited("key-1")
+        
+        assert manager.keys["key-1"].state == KeyStatus.RATE_LIMITED
+        assert manager.keys["key-1"].cooldown_until is None
+    
+    def test_mark_rate_limited_with_retry_after(self) -> None:
+        """Test marking a key as rate limited with cooldown."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        
+        manager.mark_rate_limited("key-1", retry_after=30)
+        
+        assert manager.keys["key-1"].state == KeyStatus.RATE_LIMITED
+        assert manager.keys["key-1"].cooldown_until is not None
+        # Check cooldown is approximately 30 seconds in the future
+        time_diff = (manager.keys["key-1"].cooldown_until - datetime.now()).total_seconds()
+        assert 29 <= time_diff <= 31
+    
+    def test_mark_invalid(self) -> None:
+        """Test marking a key as invalid."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        
+        initial_error_count = manager.keys["key-1"].error_count
+        manager.mark_invalid("key-1")
+        
+        assert manager.keys["key-1"].state == KeyStatus.INVALID
+        assert manager.keys["key-1"].error_count == initial_error_count + 1
+    
+    def test_mark_quota_exceeded(self) -> None:
+        """Test marking a key as quota exceeded."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        
+        manager.mark_quota_exceeded("key-1")
+        
+        assert manager.keys["key-1"].state == KeyStatus.QUOTA_EXCEEDED
+    
+    def test_state_transitions_on_non_existent_key(self) -> None:
+        """Test state transitions on non-existent keys do nothing."""
+        manager = APIKeyManager("openai")
+        
+        # These should not raise exceptions
+        manager.mark_rate_limited("non-existent")
+        manager.mark_invalid("non-existent")
+        manager.mark_quota_exceeded("non-existent")
+        
+        assert len(manager.keys) == 0

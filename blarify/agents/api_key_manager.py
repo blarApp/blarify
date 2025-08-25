@@ -95,3 +95,37 @@ class APIKeyManager:
                     return key
             
             return None  # No available keys
+    
+    def mark_rate_limited(self, key: str, retry_after: Optional[int] = None) -> None:
+        """Mark a key as rate limited with optional cooldown.
+        
+        Args:
+            key: The API key to mark as rate limited
+            retry_after: Optional seconds to wait before retry
+        """
+        with self._lock:
+            if key in self.keys:
+                self.keys[key].state = KeyStatus.RATE_LIMITED
+                if retry_after:
+                    self.keys[key].cooldown_until = datetime.now() + timedelta(seconds=retry_after)
+    
+    def mark_invalid(self, key: str) -> None:
+        """Mark a key as permanently invalid.
+        
+        Args:
+            key: The API key to mark as invalid
+        """
+        with self._lock:
+            if key in self.keys:
+                self.keys[key].state = KeyStatus.INVALID
+                self.keys[key].error_count += 1
+    
+    def mark_quota_exceeded(self, key: str) -> None:
+        """Mark a key as having exceeded quota.
+        
+        Args:
+            key: The API key to mark as quota exceeded
+        """
+        with self._lock:
+            if key in self.keys:
+                self.keys[key].state = KeyStatus.QUOTA_EXCEEDED

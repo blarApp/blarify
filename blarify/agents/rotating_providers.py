@@ -3,6 +3,7 @@
 import logging
 import threading
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
@@ -134,6 +135,9 @@ class RotatingProviderBase(ABC):
                 last_error = e
                 error_type, retry_after = self.analyze_error(e)
                 
+                # Record the failure
+                self._record_failure(key, error_type)
+                
                 if error_type == ErrorType.RATE_LIMIT:
                     self.key_manager.mark_rate_limited(key, retry_after)
                     logger.warning(f"Rate limit hit for {self.get_provider_name()} key {key[:10]}...")
@@ -156,10 +160,29 @@ class RotatingProviderBase(ABC):
         raise last_error or RuntimeError(f"Max retries exceeded for {self.get_provider_name()}")
     
     def _record_success(self, key: str) -> None:
-        """Record successful request for a key.
+        """Record successful request for a key (thread-safe).
         
         Args:
             key: The API key that was successful
         """
-        # Will be implemented in next step
-        pass
+        with self._lock:
+            if key in self.key_manager.keys:
+                metadata = self.key_manager.keys[key].metadata
+                metadata['request_count'] = metadata.get('request_count', 0) + 1
+                metadata['success_count'] = metadata.get('success_count', 0) + 1
+                metadata['last_success'] = datetime.now().isoformat()
+    
+    def _record_failure(self, key: str, error_type: ErrorType) -> None:
+        """Record failed request for a key (thread-safe).
+        
+        Args:
+            key: The API key that failed
+            error_type: The type of error that occurred
+        """
+        with self._lock:
+            if key in self.key_manager.keys:
+                metadata = self.key_manager.keys[key].metadata
+                metadata['request_count'] = metadata.get('request_count', 0) + 1
+                metadata['failure_count'] = metadata.get('failure_count', 0) + 1
+                metadata[f'{error_type.value}_count'] = metadata.get(f'{error_type.value}_count', 0) + 1
+                metadata['last_failure'] = datetime.now().isoformat()

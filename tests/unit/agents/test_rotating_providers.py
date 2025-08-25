@@ -168,3 +168,65 @@ def test_no_available_keys():
         provider.execute_with_rotation(api_call)
     
     assert "No available API keys" in str(exc_info.value)
+
+
+def test_success_metadata_recording():
+    """Test that successful requests update metadata."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    
+    provider = MockProvider(manager)
+    
+    def api_call() -> str:
+        return "success"
+    
+    # Make multiple successful calls
+    for _ in range(3):
+        provider.execute_with_rotation(api_call)
+    
+    # Check metadata
+    states = manager.get_key_states()
+    key_state = states["key1"]
+    assert key_state.metadata['request_count'] == 3
+    assert key_state.metadata['success_count'] == 3
+    assert 'last_success' in key_state.metadata
+
+
+def test_failure_metadata_recording():
+    """Test that failed requests update metadata."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    manager.add_key("key2")
+    
+    provider = MockProvider(manager)
+    
+    call_count = 0
+    
+    def api_call() -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise Exception("rate_limit")
+        return f"success_{call_count}"
+    
+    result = provider.execute_with_rotation(api_call)
+    assert result == "success_2"
+    assert call_count == 2
+    
+    # Check metadata for both keys
+    states = manager.get_key_states()
+    
+    # key1 was used first and failed with rate_limit
+    key1_metadata = states["key1"].metadata
+    assert key1_metadata['request_count'] == 1
+    assert key1_metadata['failure_count'] == 1
+    assert key1_metadata['rate_limit_count'] == 1
+    assert 'last_failure' in key1_metadata
+    assert key1_metadata.get('success_count', 0) == 0
+    
+    # key2 was used second and succeeded
+    key2_metadata = states["key2"].metadata
+    assert key2_metadata['request_count'] == 1
+    assert key2_metadata['success_count'] == 1
+    assert key2_metadata.get('failure_count', 0) == 0
+    assert 'last_success' in key2_metadata

@@ -84,16 +84,65 @@ class ChatFallback:
 
     def get_chat_model(self, model: str, timeout: Optional[int] = None) -> Runnable:
         """
-        Get the chat model class for the given model.
+        Get the chat model class for the given model, using rotation if multiple keys available.
         If the model is not found in the MODEL_PROVIDER_DICT, raise a ValueError.
         If the model is found, return the chat model class instance.
         """
-        try:
-            chat_model_class: Type[ChatGoogleGenerativeAI | ChatAnthropic | ChatOpenAI] = MODEL_PROVIDER_DICT[model]
-        except KeyError:
+        # First check if model is in MODEL_PROVIDER_DICT
+        if model not in MODEL_PROVIDER_DICT:
             logger.exception(f"Model {model} not found in MODEL_PROVIDER_DICT")
             raise ValueError(f"Model {model} not found in MODEL_PROVIDER_DICT")
+        
+        # Check if we should use rotation for this model
+        if self._should_use_rotation(model):
+            provider = self._get_provider_from_model(model)
+            rotating_class = self._get_rotating_provider_class(provider) if provider else None
+            
+            if rotating_class:
+                logger.info(f"Using rotating provider for {model} ({provider})")
+                return self._create_rotating_model(model, provider, rotating_class, timeout)
+        
+        # Fall back to standard model creation
+        return self._create_standard_model(model, timeout)
 
+    def _create_rotating_model(
+        self, 
+        model: str, 
+        provider: str, 
+        rotating_class: Type[Any],
+        timeout: Optional[int] = None
+    ) -> Runnable:
+        """Create a rotating model instance."""
+        # Create APIKeyManager for the provider
+        key_manager = APIKeyManager(provider, auto_discover=True)
+        
+        # Track that rotation is enabled for this model
+        self._rotation_enabled[model] = True
+        
+        # Get model kwargs
+        model_kwargs: Dict[str, Any] = {
+            "model": model,
+            "timeout": timeout or self.timeout,
+        }
+        
+        # Add model_name for OpenAI (it uses model_name instead of model)
+        if provider == "openai":
+            model_kwargs["model_name"] = model
+            # Remove model key as OpenAI doesn't use it
+            del model_kwargs["model"]
+        
+        # Create rotating provider instance
+        chat_model = rotating_class(key_manager, **model_kwargs)
+        
+        if self.output_schema:
+            chat_model = chat_model.with_structured_output(self.output_schema)
+        
+        return chat_model
+
+    def _create_standard_model(self, model: str, timeout: Optional[int] = None) -> Runnable:
+        """Create a standard (non-rotating) model instance."""
+        chat_model_class: Type[ChatGoogleGenerativeAI | ChatAnthropic | ChatOpenAI] = MODEL_PROVIDER_DICT[model]
+        
         # Use provided timeout or instance timeout
         model_timeout = timeout or self.timeout
         

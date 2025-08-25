@@ -91,23 +91,23 @@ class TestAPIKeyManager:
     def test_auto_discovery_on_initialization(self) -> None:
         """Test auto-discovery of keys on initialization."""
         env_vars = {
-            "OPENAI_API_KEY": "sk-test-base",
-            "OPENAI_API_KEY_1": "sk-test-1",
-            "OPENAI_API_KEY_2": "sk-test-2"
+            "OPENAI_API_KEY": "sk-proj-123456789012345678901234567890",
+            "OPENAI_API_KEY_1": "sk-proj-abcdef123456789012345678901234",
+            "OPENAI_API_KEY_2": "sk-123456789012345678901234567890"
         }
         with patch.dict(os.environ, env_vars, clear=True):
             manager = APIKeyManager("openai")  # auto_discover=True by default
             
             assert len(manager.keys) == 3
-            assert "sk-test-base" in manager.keys
-            assert "sk-test-1" in manager.keys
-            assert "sk-test-2" in manager.keys
+            assert "sk-proj-123456789012345678901234567890" in manager.keys
+            assert "sk-proj-abcdef123456789012345678901234" in manager.keys
+            assert "sk-123456789012345678901234567890" in manager.keys
     
     def test_disabling_auto_discovery(self) -> None:
         """Test disabling auto-discovery."""
         env_vars = {
-            "OPENAI_API_KEY": "sk-test-base",
-            "OPENAI_API_KEY_1": "sk-test-1"
+            "OPENAI_API_KEY": "sk-proj-123456789012345678901234567890",
+            "OPENAI_API_KEY_1": "sk-proj-abcdef123456789012345678901234"
         }
         with patch.dict(os.environ, env_vars, clear=True):
             manager = APIKeyManager("openai", auto_discover=False)
@@ -162,9 +162,9 @@ class TestAPIKeyManager:
     def test_get_next_available_key_round_robin(self) -> None:
         """Test round-robin key selection."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
-        manager.add_key("key-3")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
+        manager.add_key("key-3", validate=False)
         
         # Should return keys in round-robin order
         assert manager.get_next_available_key() == "key-1"
@@ -175,9 +175,9 @@ class TestAPIKeyManager:
     def test_get_next_available_key_skips_unavailable(self) -> None:
         """Test that selection skips unavailable keys."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
-        manager.add_key("key-3")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
+        manager.add_key("key-3", validate=False)
         
         # Mark key-2 as rate limited
         manager.keys["key-2"].state = KeyStatus.RATE_LIMITED
@@ -190,8 +190,8 @@ class TestAPIKeyManager:
     def test_get_next_available_key_returns_none_when_all_exhausted(self) -> None:
         """Test returns None when all keys are exhausted."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
         
         # Mark all keys as invalid
         manager.keys["key-1"].state = KeyStatus.INVALID
@@ -207,7 +207,7 @@ class TestAPIKeyManager:
     def test_mark_rate_limited_without_retry_after(self) -> None:
         """Test marking a key as rate limited without cooldown."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
+        manager.add_key("key-1", validate=False)
         
         manager.mark_rate_limited("key-1")
         
@@ -217,7 +217,7 @@ class TestAPIKeyManager:
     def test_mark_rate_limited_with_retry_after(self) -> None:
         """Test marking a key as rate limited with cooldown."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
+        manager.add_key("key-1", validate=False)
         
         manager.mark_rate_limited("key-1", retry_after=30)
         
@@ -230,7 +230,7 @@ class TestAPIKeyManager:
     def test_mark_invalid(self) -> None:
         """Test marking a key as invalid."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
+        manager.add_key("key-1", validate=False)
         
         initial_error_count = manager.keys["key-1"].error_count
         manager.mark_invalid("key-1")
@@ -241,7 +241,7 @@ class TestAPIKeyManager:
     def test_mark_quota_exceeded(self) -> None:
         """Test marking a key as quota exceeded."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
+        manager.add_key("key-1", validate=False)
         
         manager.mark_quota_exceeded("key-1")
         
@@ -261,8 +261,8 @@ class TestAPIKeyManager:
     def test_automatic_cooldown_expiration(self) -> None:
         """Test automatic cooldown expiration."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
         
         # Mark key-1 with expired cooldown
         past_time = datetime.now() - timedelta(seconds=10)
@@ -289,9 +289,9 @@ class TestAPIKeyManager:
     def test_multiple_keys_with_different_cooldowns(self) -> None:
         """Test multiple keys with different cooldown periods."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
-        manager.add_key("key-3")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
+        manager.add_key("key-3", validate=False)
         
         # All keys start available
         assert manager.get_next_available_key() == "key-1"
@@ -315,7 +315,7 @@ class TestAPIKeyManager:
     def test_no_change_when_cooldown_not_expired(self) -> None:
         """Test no state change when cooldown not expired."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
+        manager.add_key("key-1", validate=False)
         
         # Mark with future cooldown
         manager.mark_rate_limited("key-1", retry_after=60)
@@ -331,8 +331,8 @@ class TestAPIKeyManager:
     def test_get_key_states(self) -> None:
         """Test getting current state of all keys."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
         
         manager.mark_invalid("key-1")
         manager.mark_rate_limited("key-2")
@@ -346,9 +346,9 @@ class TestAPIKeyManager:
     def test_get_available_count(self) -> None:
         """Test getting count of available keys."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
-        manager.add_key("key-3")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
+        manager.add_key("key-3", validate=False)
         
         # All keys initially available
         assert manager.get_available_count() == 3
@@ -368,8 +368,8 @@ class TestAPIKeyManager:
     def test_get_available_count_with_expired_cooldowns(self) -> None:
         """Test available count with expired cooldowns."""
         manager = APIKeyManager("openai", auto_discover=False)
-        manager.add_key("key-1")
-        manager.add_key("key-2")
+        manager.add_key("key-1", validate=False)
+        manager.add_key("key-2", validate=False)
         
         # Mark key-1 with expired cooldown
         past_time = datetime.now() - timedelta(seconds=10)
@@ -393,7 +393,7 @@ class TestAPIKeyManagerThreadSafety:
         """Test thread safety with concurrent key selection."""
         manager = APIKeyManager("test", auto_discover=False)
         for i in range(5):
-            manager.add_key(f"key-{i}")
+            manager.add_key(f"key-{i}", validate=False)
         
         results: list[str] = []
         lock = threading.Lock()
@@ -427,7 +427,7 @@ class TestAPIKeyManagerThreadSafety:
         """Test concurrent state modifications."""
         manager = APIKeyManager("test", auto_discover=False)
         for i in range(10):
-            manager.add_key(f"key-{i}")
+            manager.add_key(f"key-{i}", validate=False)
         
         def modify_states() -> None:
             for i in range(50):
@@ -485,7 +485,7 @@ class TestAPIKeyManagerThreadSafety:
         """Test concurrent cooldown expiration and key selection."""
         manager = APIKeyManager("test", auto_discover=False)
         for i in range(5):
-            manager.add_key(f"key-{i}")
+            manager.add_key(f"key-{i}", validate=False)
         
         # Mark all keys with short cooldowns
         for i in range(5):
@@ -531,7 +531,7 @@ class TestAPIKeyManagerPerformance:
         """Ensure key selection is fast enough."""
         manager = APIKeyManager("test", auto_discover=False)
         for i in range(100):
-            manager.add_key(f"key-{i}")
+            manager.add_key(f"key-{i}", validate=False)
         
         start = time.time()
         for _ in range(10000):
@@ -545,7 +545,7 @@ class TestAPIKeyManagerPerformance:
         """Test performance of state transitions."""
         manager = APIKeyManager("test", auto_discover=False)
         for i in range(100):
-            manager.add_key(f"key-{i}")
+            manager.add_key(f"key-{i}", validate=False)
         
         start = time.time()
         for i in range(1000):
@@ -562,7 +562,7 @@ class TestAPIKeyManagerPerformance:
         """Test performance under concurrent load."""
         manager = APIKeyManager("test", auto_discover=False)
         for i in range(50):
-            manager.add_key(f"key-{i}")
+            manager.add_key(f"key-{i}", validate=False)
         
         operations_count = 0
         lock = threading.Lock()

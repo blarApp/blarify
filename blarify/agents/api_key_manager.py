@@ -129,3 +129,22 @@ class APIKeyManager:
         with self._lock:
             if key in self.keys:
                 self.keys[key].state = KeyStatus.QUOTA_EXCEEDED
+    
+    def get_key_states(self) -> Dict[str, KeyState]:
+        """Get current state of all keys.
+        
+        Returns:
+            Dictionary mapping keys to their current state
+        """
+        with self._lock:
+            return dict(self.keys)
+    
+    def get_available_count(self) -> int:
+        """Get count of currently available keys.
+        
+        Returns:
+            Number of keys currently available for use
+        """
+        with self._lock:
+            self.reset_expired_cooldowns()
+            return sum(1 for state in self.keys.values() if state.is_available())

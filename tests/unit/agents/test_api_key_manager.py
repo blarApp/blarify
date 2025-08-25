@@ -274,3 +274,60 @@ class TestAPIKeyManager:
         assert manager.keys["key-1"].state == KeyStatus.RATE_LIMITED
         assert manager.keys["key-1"].cooldown_until is not None
         assert result is None
+    
+    def test_get_key_states(self) -> None:
+        """Test getting current state of all keys."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        
+        manager.mark_invalid("key-1")
+        manager.mark_rate_limited("key-2")
+        
+        states = manager.get_key_states()
+        
+        assert len(states) == 2
+        assert states["key-1"].state == KeyStatus.INVALID
+        assert states["key-2"].state == KeyStatus.RATE_LIMITED
+    
+    def test_get_available_count(self) -> None:
+        """Test getting count of available keys."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        manager.add_key("key-3")
+        
+        # All keys initially available
+        assert manager.get_available_count() == 3
+        
+        # Mark one as invalid
+        manager.mark_invalid("key-1")
+        assert manager.get_available_count() == 2
+        
+        # Mark another as rate limited
+        manager.mark_rate_limited("key-2")
+        assert manager.get_available_count() == 1
+        
+        # Mark last one as quota exceeded
+        manager.mark_quota_exceeded("key-3")
+        assert manager.get_available_count() == 0
+    
+    def test_get_available_count_with_expired_cooldowns(self) -> None:
+        """Test available count with expired cooldowns."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        
+        # Mark key-1 with expired cooldown
+        past_time = datetime.now() - timedelta(seconds=10)
+        manager.keys["key-1"].state = KeyStatus.RATE_LIMITED
+        manager.keys["key-1"].cooldown_until = past_time
+        
+        # Mark key-2 with future cooldown
+        manager.mark_rate_limited("key-2", retry_after=60)
+        
+        # get_available_count should reset expired cooldowns
+        count = manager.get_available_count()
+        
+        assert count == 1  # Only key-1 should be available
+        assert manager.keys["key-1"].state == KeyStatus.AVAILABLE

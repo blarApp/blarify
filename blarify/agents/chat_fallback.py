@@ -33,11 +33,54 @@ MODEL_PROVIDER_DICT = {
 
 
 class ChatFallback:
+    # Mapping of providers to their rotating classes
+    ROTATING_PROVIDER_MAP: Dict[str, Type[Any]] = {
+        "openai": RotatingKeyChatOpenAI,
+        "anthropic": RotatingKeyChatAnthropic,
+        "google": RotatingKeyChatGoogle,
+    }
+
     def __init__(self, *, model: str, fallback_list: list[str], output_schema: Optional[BaseModel] = None, timeout: Optional[int] = None):
         self.model = model
         self.fallback_list = fallback_list
         self.output_schema = output_schema
         self.timeout = timeout
+        self._rotation_enabled: Dict[str, bool] = {}  # Track which models use rotation
+
+    def _get_provider_from_model(self, model: str) -> Optional[str]:
+        """Get provider name from MODEL_PROVIDER_DICT."""
+        provider_class = MODEL_PROVIDER_DICT.get(model)
+        if not provider_class:
+            return None
+        
+        # Extract provider from class name
+        class_name = provider_class.__name__
+        if "OpenAI" in class_name:
+            return "openai"
+        elif "Anthropic" in class_name:
+            return "anthropic"
+        elif "Google" in class_name or "Gemini" in class_name:
+            return "google"
+        
+        return None
+
+    def _should_use_rotation(self, model: str) -> bool:
+        """Check if multiple keys exist for the model's provider."""
+        provider = self._get_provider_from_model(model)
+        if not provider:
+            return False
+        
+        keys = discover_keys_for_provider(provider)
+        has_multiple = len(keys) > 1
+        
+        if has_multiple:
+            logger.debug(f"Found {len(keys)} keys for {provider}, enabling rotation")
+        
+        return has_multiple
+
+    def _get_rotating_provider_class(self, provider: str) -> Optional[Type[Any]]:
+        """Get the rotating provider class for a provider."""
+        return self.ROTATING_PROVIDER_MAP.get(provider)
 
     def get_chat_model(self, model: str, timeout: Optional[int] = None) -> Runnable:
         """

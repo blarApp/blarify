@@ -1,6 +1,7 @@
 """Unit tests for RotatingKeyChatGoogle."""
+# pyright: reportPrivateUsage=false
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -15,7 +16,7 @@ def test_google_resource_exhausted_detection() -> None:
     manager.add_key("test-key-123")
 
     wrapper = RotatingKeyChatGoogle(manager)
-    wrapper._current_key = "test-key-123"
+    wrapper._current_key = "test-key-123"  # noqa: SLF001
 
     error = Exception("Error code: 429, Status: RESOURCE_EXHAUSTED")
     error_type, retry = wrapper.analyze_error(error)
@@ -29,16 +30,16 @@ def test_google_exponential_backoff() -> None:
     manager.add_key("test-key-123")
 
     wrapper = RotatingKeyChatGoogle(manager)
-    wrapper._current_key = "test-key-123"
+    wrapper._current_key = "test-key-123"  # noqa: SLF001
 
     # First backoff
-    assert wrapper._calculate_backoff() == 1
+    assert wrapper._calculate_backoff() == 1  # noqa: SLF001
     # Second backoff
-    assert wrapper._calculate_backoff() == 2
+    assert wrapper._calculate_backoff() == 2  # noqa: SLF001
     # Third backoff
-    assert wrapper._calculate_backoff() == 4
+    assert wrapper._calculate_backoff() == 4  # noqa: SLF001
     # Fourth backoff
-    assert wrapper._calculate_backoff() == 8
+    assert wrapper._calculate_backoff() == 8  # noqa: SLF001
 
 
 def test_google_backoff_reset() -> None:
@@ -47,16 +48,16 @@ def test_google_backoff_reset() -> None:
     manager.add_key("test-key-123")
 
     wrapper = RotatingKeyChatGoogle(manager)
-    wrapper._current_key = "test-key-123"
+    wrapper._current_key = "test-key-123"  # noqa: SLF001
 
     # Set some backoff
-    wrapper._backoff_multipliers["test-key-123"] = 3
+    wrapper._backoff_multipliers["test-key-123"] = 3  # noqa: SLF001
 
     # Reset backoff
-    wrapper._reset_backoff("test-key-123")
+    wrapper._reset_backoff("test-key-123")  # noqa: SLF001
 
     # Next backoff should start from beginning
-    assert wrapper._calculate_backoff() == 1
+    assert wrapper._calculate_backoff() == 1  # noqa: SLF001
 
 
 def test_google_quota_vs_rate_limit() -> None:
@@ -154,13 +155,13 @@ def test_google_max_backoff() -> None:
     manager.add_key("test-key-123")
 
     wrapper = RotatingKeyChatGoogle(manager)
-    wrapper._current_key = "test-key-123"
+    wrapper._current_key = "test-key-123"  # noqa: SLF001
 
     # Set a high multiplier to test max backoff
-    wrapper._backoff_multipliers["test-key-123"] = 10
+    wrapper._backoff_multipliers["test-key-123"] = 10  # noqa: SLF001
 
     # Should be capped at 300
-    assert wrapper._calculate_backoff() == 300
+    assert wrapper._calculate_backoff() == 300  # noqa: SLF001
 
 
 def test_google_provider_name() -> None:
@@ -180,8 +181,8 @@ def test_google_create_client() -> None:
     wrapper = RotatingKeyChatGoogle(manager, model="gemini-pro", temperature=0.7)
 
     # Mock the ChatGoogleGenerativeAI to avoid actual instantiation
-    with pytest.mock.patch("blarify.agents.rotating_google.ChatGoogleGenerativeAI") as mock_chat:
-        wrapper._create_client("test-key-123")
+    with patch("blarify.agents.rotating_google.ChatGoogleGenerativeAI") as mock_chat:
+        _ = wrapper._create_client("test-key-123")  # noqa: SLF001
         mock_chat.assert_called_once_with(
             google_api_key="test-key-123", model="gemini-pro", temperature=0.7
         )
@@ -193,10 +194,10 @@ def test_google_backoff_no_current_key() -> None:
     manager.add_key("test-key-123")
 
     wrapper = RotatingKeyChatGoogle(manager)
-    wrapper._current_key = None
+    wrapper._current_key = None  # noqa: SLF001
 
     # Should return default 60 seconds
-    assert wrapper._calculate_backoff() == 60
+    assert wrapper._calculate_backoff() == 60  # noqa: SLF001
 
 
 def test_google_headers_no_response() -> None:
@@ -217,21 +218,21 @@ def test_google_execute_with_rotation_success() -> None:
     manager.add_key("test-key-123")
 
     wrapper = RotatingKeyChatGoogle(manager)
-    wrapper._current_key = "test-key-123"
-    wrapper._backoff_multipliers["test-key-123"] = 3
+    wrapper._current_key = "test-key-123"  # noqa: SLF001
+    wrapper._backoff_multipliers["test-key-123"] = 3  # noqa: SLF001
 
     # Mock successful execution
     def success_func() -> str:
         return "success"
 
     # Mock the parent class execute_with_rotation
-    with pytest.mock.patch.object(
+    with patch.object(
         RotatingKeyChatGoogle.__bases__[0], "execute_with_rotation", return_value="success"
     ):
         result = wrapper.execute_with_rotation(success_func)
         assert result == "success"
         # Backoff should be reset
-        assert "test-key-123" not in wrapper._backoff_multipliers
+        assert "test-key-123" not in wrapper._backoff_multipliers  # noqa: SLF001
 
 
 def test_google_execute_with_rotation_failure() -> None:
@@ -245,7 +246,7 @@ def test_google_execute_with_rotation_failure() -> None:
         raise ValueError("Test error")
 
     # Mock the parent class execute_with_rotation to raise
-    with pytest.mock.patch.object(
+    with patch.object(
         RotatingKeyChatGoogle.__bases__[0],
         "execute_with_rotation",
         side_effect=ValueError("Test error"),

@@ -126,16 +126,18 @@ class RotatingKeyChatGoogle(RotatingProviderBase):
         """
         headers = {}
 
-        if hasattr(error, "response") and hasattr(error.response, "headers"):
-            # Get any headers that might be useful for debugging
-            response_headers = error.response.headers
+        if hasattr(error, "response"):
+            response = getattr(error, "response")
+            if hasattr(response, "headers"):
+                # Get any headers that might be useful for debugging
+                response_headers = response.headers
 
-            # Google might have some standard headers
-            standard_headers = ["date", "content-type", "server"]
+                # Google might have some standard headers
+                standard_headers = ["date", "content-type", "server"]
 
-            for header in standard_headers:
-                if header in response_headers:
-                    headers[header] = response_headers[header]
+                for header in standard_headers:
+                    if header in response_headers:
+                        headers[header] = response_headers[header]
 
         return headers
 
@@ -158,6 +160,6 @@ class RotatingKeyChatGoogle(RotatingProviderBase):
             if self._current_key:
                 self._reset_backoff(self._current_key)
             return result
-        except Exception as e:
+        except Exception:
             # Re-raise the exception
             raise

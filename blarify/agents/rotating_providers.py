@@ -56,3 +56,28 @@ class RotatingProviderBase(ABC):
             The provider name
         """
         pass
+    
+    @abstractmethod
+    def analyze_error(self, error: Exception) -> Tuple[ErrorType, Optional[int]]:
+        """Analyze an error and determine its type and retry timing.
+        
+        Args:
+            error: The exception to analyze
+            
+        Returns:
+            Tuple of (ErrorType, retry_after_seconds)
+            retry_after_seconds is only set for RATE_LIMIT errors
+        """
+        pass
+    
+    @abstractmethod
+    def extract_headers_from_error(self, error: Exception) -> Dict[str, str]:
+        """Extract HTTP headers from provider-specific error if available.
+        
+        Args:
+            error: The exception that may contain headers
+            
+        Returns:
+            Dictionary of headers (empty if none available)
+        """
+        pass

@@ -12,6 +12,30 @@ from blarify.agents.utils import discover_keys_for_provider, validate_key
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class KeyManagerConfig:
+    """Configuration for APIKeyManager."""
+    
+    auto_discover: bool = True
+    validate_keys: bool = True
+    max_error_count: int = 3
+    default_cooldown_seconds: int = 60
+
+
+@dataclass
+class KeyStatistics:
+    """Statistics for API key usage."""
+    
+    total_keys: int
+    available_keys: int
+    rate_limited_keys: int
+    invalid_keys: int
+    quota_exceeded_keys: int
+    total_requests: int
+    successful_requests: int
+    failed_requests: int
+
+
 class KeyStatus(Enum):
     """Status enum for API key states."""
     
@@ -44,20 +68,27 @@ class KeyState:
 class APIKeyManager:
     """Manages multiple API keys with thread-safe operations and rotation support."""
     
-    def __init__(self, provider: str, auto_discover: bool = True) -> None:
+    def __init__(self, provider: str, config: Optional[KeyManagerConfig] = None, auto_discover: Optional[bool] = None) -> None:
         """Initialize API Key Manager.
         
         Args:
             provider: Name of the provider (e.g., 'openai', 'anthropic', 'google')
-            auto_discover: Whether to automatically discover keys from environment
+            config: Configuration for the key manager
+            auto_discover: Override for auto_discover config (for backward compatibility)
         """
         self.provider = provider
+        self.config = config or KeyManagerConfig()
+        
+        # Handle backward compatibility for auto_discover parameter
+        if auto_discover is not None:
+            self.config.auto_discover = auto_discover
+            
         self.keys: Dict[str, KeyState] = {}
         self._lock = threading.RLock()
         self._key_order: List[str] = []
         self._current_index = 0
         
-        if auto_discover:
+        if self.config.auto_discover:
             self._auto_discover_keys()
         
         logger.debug(f"Initialized APIKeyManager for {provider}")
@@ -71,17 +102,18 @@ class APIKeyManager:
         if discovered_keys:
             logger.info(f"Discovered {len(discovered_keys)} keys for {self.provider}")
     
-    def add_key(self, key: str, validate: bool = True) -> bool:
+    def add_key(self, key: str, validate: Optional[bool] = None) -> bool:
         """Add a new API key to the manager with validation.
         
         Args:
             key: The API key to add
-            validate: Whether to validate the key format
+            validate: Whether to validate the key format (uses config default if None)
             
         Returns:
             True if key was added, False otherwise
         """
-        if validate and not validate_key(key, self.provider):
+        should_validate = validate if validate is not None else self.config.validate_keys
+        if should_validate and not validate_key(key, self.provider):
             logger.warning(f"Invalid key format for {self.provider}: {key[:10] if len(key) > 10 else key}...")
             return False
         
@@ -187,3 +219,119 @@ class APIKeyManager:
         with self._lock:
             self.reset_expired_cooldowns()
             return sum(1 for state in self.keys.values() if state.is_available())
+    
+    def remove_key(self, key: str) -> bool:
+        """Remove a key from management.
+        
+        Args:
+            key: The API key to remove
+            
+        Returns:
+            True if key was removed, False if not found
+        """
+        with self._lock:
+            if key in self.keys:
+                del self.keys[key]
+                self._key_order.remove(key)
+                # Adjust current index if needed
+                if self._current_index >= len(self._key_order) and self._key_order:
+                    self._current_index = 0
+                logger.debug(f"Removed key {key[:8]}... from {self.provider}")
+                return True
+        return False
+    
+    def cleanup_invalid_keys(self) -> int:
+        """Remove keys that have exceeded error threshold.
+        
+        Returns:
+            Number of keys removed
+        """
+        removed = 0
+        with self._lock:
+            keys_to_remove = [
+                key for key, state in self.keys.items()
+                if state.state == KeyStatus.INVALID 
+                and state.error_count >= self.config.max_error_count
+            ]
+            for key in keys_to_remove:
+                self.remove_key(key)
+                removed += 1
+        
+        if removed:
+            logger.info(f"Removed {removed} invalid keys for {self.provider}")
+        return removed
+    
+    def get_statistics(self) -> KeyStatistics:
+        """Get current statistics for all keys.
+        
+        Returns:
+            Statistics object with current metrics
+        """
+        with self._lock:
+            self.reset_expired_cooldowns()
+            
+            stats = KeyStatistics(
+                total_keys=len(self.keys),
+                available_keys=sum(1 for s in self.keys.values() if s.state == KeyStatus.AVAILABLE),
+                rate_limited_keys=sum(1 for s in self.keys.values() if s.state == KeyStatus.RATE_LIMITED),
+                invalid_keys=sum(1 for s in self.keys.values() if s.state == KeyStatus.INVALID),
+                quota_exceeded_keys=sum(1 for s in self.keys.values() if s.state == KeyStatus.QUOTA_EXCEEDED),
+                total_requests=sum(s.metadata.get('request_count', 0) for s in self.keys.values()),
+                successful_requests=sum(s.metadata.get('success_count', 0) for s in self.keys.values()),
+                failed_requests=sum(s.metadata.get('failure_count', 0) for s in self.keys.values())
+            )
+            return stats
+    
+    def refresh_keys(self) -> int:
+        """Re-discover keys from environment and add new ones.
+        
+        Returns:
+            Number of new keys added
+        """
+        discovered_keys = discover_keys_for_provider(self.provider)
+        
+        new_keys = 0
+        for key in discovered_keys:
+            if key not in self.keys:
+                if self.add_key(key):
+                    new_keys += 1
+        
+        if new_keys:
+            logger.info(f"Added {new_keys} new keys for {self.provider}")
+        
+        return new_keys
+    
+    def export_state(self) -> Dict[str, Any]:
+        """Export current state for persistence.
+        
+        Returns:
+            Dictionary containing the current state
+        """
+        with self._lock:
+            state = {
+                'provider': self.provider,
+                'keys': {}
+            }
+            for key, key_state in self.keys.items():
+                state['keys'][key] = {
+                    'state': key_state.state.value,
+                    'cooldown_until': key_state.cooldown_until.isoformat() if key_state.cooldown_until else None,
+                    'error_count': key_state.error_count,
+                    'metadata': key_state.metadata
+                }
+            return state
+    
+    def import_state(self, state: Dict[str, Any]) -> None:
+        """Import previously exported state.
+        
+        Args:
+            state: State dictionary to import
+        """
+        with self._lock:
+            for key, key_data in state.get('keys', {}).items():
+                if key in self.keys:
+                    self.keys[key].state = KeyStatus(key_data['state'])
+                    self.keys[key].error_count = key_data.get('error_count', 0)
+                    if key_data.get('cooldown_until'):
+                        self.keys[key].cooldown_until = datetime.fromisoformat(key_data['cooldown_until'])
+                    self.keys[key].metadata = key_data.get('metadata', {})

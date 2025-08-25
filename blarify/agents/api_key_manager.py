@@ -1,10 +1,13 @@
 """API Key Manager for handling multiple API keys with rotation support."""
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class KeyStatus(Enum):
@@ -50,6 +53,7 @@ class APIKeyManager:
         self._lock = threading.RLock()
         self._key_order: List[str] = []
         self._current_index = 0
+        logger.debug(f"Initialized APIKeyManager for {provider}")
     
     def add_key(self, key: str) -> None:
         """Add a new API key to the manager.
@@ -61,6 +65,7 @@ class APIKeyManager:
             if key not in self.keys:
                 self.keys[key] = KeyState(key=key, state=KeyStatus.AVAILABLE)
                 self._key_order.append(key)
+                logger.debug(f"Added API key for {self.provider}: {key[:8]}...")
     
     def reset_expired_cooldowns(self) -> None:
         """Reset keys whose cooldown period has expired."""
@@ -71,6 +76,7 @@ class APIKeyManager:
                     if key_state.cooldown_until and now >= key_state.cooldown_until:
                         key_state.state = KeyStatus.AVAILABLE
                         key_state.cooldown_until = None
+                        logger.debug(f"Key {key_state.key[:8]}... cooldown expired, now available")
     
     def get_next_available_key(self) -> Optional[str]:
         """Get next available key using round-robin selection.
@@ -92,8 +98,10 @@ class APIKeyManager:
                 key_state = self.keys[key]
                 if key_state.is_available():
                     key_state.last_used = datetime.now()
+                    logger.debug(f"Selected key {key[:8]}... for {self.provider}")
                     return key
             
+            logger.warning(f"No available API keys for {self.provider}")
             return None  # No available keys
     
     def mark_rate_limited(self, key: str, retry_after: Optional[int] = None) -> None:
@@ -108,6 +116,9 @@ class APIKeyManager:
                 self.keys[key].state = KeyStatus.RATE_LIMITED
                 if retry_after:
                     self.keys[key].cooldown_until = datetime.now() + timedelta(seconds=retry_after)
+                    logger.debug(f"Key {key[:8]}... marked as rate limited for {retry_after}s")
+                else:
+                    logger.debug(f"Key {key[:8]}... marked as rate limited")
     
     def mark_invalid(self, key: str) -> None:
         """Mark a key as permanently invalid.
@@ -119,6 +130,7 @@ class APIKeyManager:
             if key in self.keys:
                 self.keys[key].state = KeyStatus.INVALID
                 self.keys[key].error_count += 1
+                logger.warning(f"Key {key[:8]}... marked as invalid, error count: {self.keys[key].error_count}")
     
     def mark_quota_exceeded(self, key: str) -> None:
         """Mark a key as having exceeded quota.
@@ -129,6 +141,7 @@ class APIKeyManager:
         with self._lock:
             if key in self.keys:
                 self.keys[key].state = KeyStatus.QUOTA_EXCEEDED
+                logger.warning(f"Key {key[:8]}... marked as quota exceeded")
     
     def get_key_states(self) -> Dict[str, KeyState]:
         """Get current state of all keys.

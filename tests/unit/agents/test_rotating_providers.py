@@ -292,3 +292,68 @@ def test_key_rotation_metrics():
     metrics = provider.get_metrics_snapshot()
     assert metrics.key_rotations == 1
     assert metrics.last_rotation is not None
+
+
+def test_invoke_with_rotation():
+    """Test invoke method uses rotation logic."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    manager.add_key("key2")
+    
+    provider = MockProvider(manager)
+    
+    # Mock client with invoke method
+    mock_client = Mock()
+    mock_client.invoke = Mock(side_effect=[Exception("rate_limit"), "invoke_result"])
+    
+    # Override _create_client to return our mock
+    provider._create_client = Mock(return_value=mock_client)
+    
+    result = provider.invoke("test_input")
+    assert result == "invoke_result"
+    
+    # Should have created client twice (once for failure, once for success)
+    assert provider._create_client.call_count == 2
+    # First call with key1, second with key2
+    provider._create_client.assert_any_call("key1")
+    provider._create_client.assert_any_call("key2")
+
+
+def test_stream_with_rotation():
+    """Test stream method uses rotation logic."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    
+    provider = MockProvider(manager)
+    
+    # Mock client with stream method
+    mock_client = Mock()
+    mock_client.stream = Mock(return_value="stream_result")
+    
+    provider._create_client = Mock(return_value=mock_client)
+    
+    result = provider.stream("test_input")
+    assert result == "stream_result"
+    
+    provider._create_client.assert_called_once_with("key1")
+    mock_client.stream.assert_called_once_with("test_input")
+
+
+def test_batch_with_rotation():
+    """Test batch method uses rotation logic."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    
+    provider = MockProvider(manager)
+    
+    # Mock client with batch method
+    mock_client = Mock()
+    mock_client.batch = Mock(return_value=["result1", "result2"])
+    
+    provider._create_client = Mock(return_value=mock_client)
+    
+    result = provider.batch(["input1", "input2"])
+    assert result == ["result1", "result2"]
+    
+    provider._create_client.assert_called_once_with("key1")
+    mock_client.batch.assert_called_once_with(["input1", "input2"])

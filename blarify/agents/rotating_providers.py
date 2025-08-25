@@ -253,3 +253,57 @@ class RotatingProviderBase(ABC):
         """
         with self._lock:
             return copy.deepcopy(self.metrics)
+    
+    def invoke(self, *args: Any, **kwargs: Any) -> Any:
+        """Override invoke to use rotation logic.
+        
+        Args:
+            *args: Positional arguments to pass to the underlying client
+            **kwargs: Keyword arguments to pass to the underlying client
+            
+        Returns:
+            The result from the underlying client's invoke method
+        """
+        def _invoke() -> Any:
+            if not self._current_key:
+                raise RuntimeError("No current key available")
+            client = self._create_client(self._current_key)
+            return client.invoke(*args, **kwargs)
+        
+        return self.execute_with_rotation(_invoke)
+    
+    def stream(self, *args: Any, **kwargs: Any) -> Any:
+        """Override stream to use rotation logic.
+        
+        Args:
+            *args: Positional arguments to pass to the underlying client
+            **kwargs: Keyword arguments to pass to the underlying client
+            
+        Returns:
+            The result from the underlying client's stream method
+        """
+        def _stream() -> Any:
+            if not self._current_key:
+                raise RuntimeError("No current key available")
+            client = self._create_client(self._current_key)
+            return client.stream(*args, **kwargs)
+        
+        return self.execute_with_rotation(_stream)
+    
+    def batch(self, *args: Any, **kwargs: Any) -> Any:
+        """Override batch to use rotation logic.
+        
+        Args:
+            *args: Positional arguments to pass to the underlying client
+            **kwargs: Keyword arguments to pass to the underlying client
+            
+        Returns:
+            The result from the underlying client's batch method
+        """
+        def _batch() -> Any:
+            if not self._current_key:
+                raise RuntimeError("No current key available")
+            client = self._create_client(self._current_key)
+            return client.batch(*args, **kwargs)
+        
+        return self.execute_with_rotation(_batch)

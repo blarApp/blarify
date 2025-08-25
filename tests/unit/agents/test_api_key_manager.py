@@ -1,9 +1,11 @@
 """Unit tests for API Key Manager."""
 
+import os
 import threading
 import time
 from datetime import datetime, timedelta
 from typing import Optional
+from unittest.mock import patch
 
 from blarify.agents.api_key_manager import APIKeyManager, KeyState, KeyStatus
 
@@ -79,34 +81,87 @@ class TestAPIKeyManager:
     
     def test_initialization(self) -> None:
         """Test APIKeyManager initialization."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         
         assert manager.provider == "openai"
         assert manager.keys == {}
         assert manager._key_order == []  # type: ignore[attr-defined]
         assert manager._current_index == 0  # type: ignore[attr-defined]
     
+    def test_auto_discovery_on_initialization(self) -> None:
+        """Test auto-discovery of keys on initialization."""
+        env_vars = {
+            "OPENAI_API_KEY": "sk-test-base",
+            "OPENAI_API_KEY_1": "sk-test-1",
+            "OPENAI_API_KEY_2": "sk-test-2"
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            manager = APIKeyManager("openai")  # auto_discover=True by default
+            
+            assert len(manager.keys) == 3
+            assert "sk-test-base" in manager.keys
+            assert "sk-test-1" in manager.keys
+            assert "sk-test-2" in manager.keys
+    
+    def test_disabling_auto_discovery(self) -> None:
+        """Test disabling auto-discovery."""
+        env_vars = {
+            "OPENAI_API_KEY": "sk-test-base",
+            "OPENAI_API_KEY_1": "sk-test-1"
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            manager = APIKeyManager("openai", auto_discover=False)
+            
+            assert len(manager.keys) == 0  # No keys discovered
+    
+    def test_auto_discovery_with_no_env_keys(self) -> None:
+        """Test auto-discovery when no environment keys exist."""
+        with patch.dict(os.environ, {}, clear=True):
+            manager = APIKeyManager("openai")  # auto_discover=True by default
+            
+            assert len(manager.keys) == 0
+    
     def test_add_key(self) -> None:
         """Test adding a new key to the manager."""
-        manager = APIKeyManager("openai")
-        manager.add_key("test-key-1")
+        manager = APIKeyManager("openai", auto_discover=False)
+        result = manager.add_key("sk-test-key-123456789012345678901234", validate=False)
         
-        assert "test-key-1" in manager.keys
-        assert manager.keys["test-key-1"].state == KeyStatus.AVAILABLE
-        assert "test-key-1" in manager._key_order  # type: ignore[attr-defined]
+        assert result is True
+        assert "sk-test-key-123456789012345678901234" in manager.keys
+        assert manager.keys["sk-test-key-123456789012345678901234"].state == KeyStatus.AVAILABLE
+        assert "sk-test-key-123456789012345678901234" in manager._key_order  # type: ignore[attr-defined]
+    
+    def test_add_key_with_validation_valid(self) -> None:
+        """Test adding a valid key with validation enabled."""
+        manager = APIKeyManager("openai", auto_discover=False)
+        result = manager.add_key("sk-proj-abcdef123456789012345678901234567890")  # validation=True by default
+        
+        assert result is True
+        assert "sk-proj-abcdef123456789012345678901234567890" in manager.keys
+    
+    def test_add_key_with_validation_invalid(self) -> None:
+        """Test adding an invalid key with validation enabled."""
+        manager = APIKeyManager("openai", auto_discover=False)
+        result = manager.add_key("invalid-key")  # validation=True by default
+        
+        assert result is False
+        assert "invalid-key" not in manager.keys
+        assert len(manager.keys) == 0
     
     def test_add_duplicate_key(self) -> None:
         """Test that duplicate keys are not added."""
-        manager = APIKeyManager("openai")
-        manager.add_key("test-key-1")
-        manager.add_key("test-key-1")  # Try to add duplicate
+        manager = APIKeyManager("openai", auto_discover=False)
+        result1 = manager.add_key("sk-test-key-123456789012345678901234", validate=False)
+        result2 = manager.add_key("sk-test-key-123456789012345678901234", validate=False)  # Try to add duplicate
         
+        assert result1 is True
+        assert result2 is False
         assert len(manager.keys) == 1
         assert len(manager._key_order) == 1  # type: ignore[attr-defined]
     
     def test_get_next_available_key_round_robin(self) -> None:
         """Test round-robin key selection."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         manager.add_key("key-3")
@@ -119,7 +174,7 @@ class TestAPIKeyManager:
     
     def test_get_next_available_key_skips_unavailable(self) -> None:
         """Test that selection skips unavailable keys."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         manager.add_key("key-3")
@@ -134,7 +189,7 @@ class TestAPIKeyManager:
     
     def test_get_next_available_key_returns_none_when_all_exhausted(self) -> None:
         """Test returns None when all keys are exhausted."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         
@@ -146,12 +201,12 @@ class TestAPIKeyManager:
     
     def test_get_next_available_key_with_no_keys(self) -> None:
         """Test returns None when no keys are configured."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         assert manager.get_next_available_key() is None
     
     def test_mark_rate_limited_without_retry_after(self) -> None:
         """Test marking a key as rate limited without cooldown."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         
         manager.mark_rate_limited("key-1")
@@ -161,7 +216,7 @@ class TestAPIKeyManager:
     
     def test_mark_rate_limited_with_retry_after(self) -> None:
         """Test marking a key as rate limited with cooldown."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         
         manager.mark_rate_limited("key-1", retry_after=30)
@@ -174,7 +229,7 @@ class TestAPIKeyManager:
     
     def test_mark_invalid(self) -> None:
         """Test marking a key as invalid."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         
         initial_error_count = manager.keys["key-1"].error_count
@@ -185,7 +240,7 @@ class TestAPIKeyManager:
     
     def test_mark_quota_exceeded(self) -> None:
         """Test marking a key as quota exceeded."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         
         manager.mark_quota_exceeded("key-1")
@@ -194,7 +249,7 @@ class TestAPIKeyManager:
     
     def test_state_transitions_on_non_existent_key(self) -> None:
         """Test state transitions on non-existent keys do nothing."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         
         # These should not raise exceptions
         manager.mark_rate_limited("non-existent")
@@ -205,7 +260,7 @@ class TestAPIKeyManager:
     
     def test_automatic_cooldown_expiration(self) -> None:
         """Test automatic cooldown expiration."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         
@@ -233,7 +288,7 @@ class TestAPIKeyManager:
     
     def test_multiple_keys_with_different_cooldowns(self) -> None:
         """Test multiple keys with different cooldown periods."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         manager.add_key("key-3")
@@ -259,7 +314,7 @@ class TestAPIKeyManager:
     
     def test_no_change_when_cooldown_not_expired(self) -> None:
         """Test no state change when cooldown not expired."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         
         # Mark with future cooldown
@@ -275,7 +330,7 @@ class TestAPIKeyManager:
     
     def test_get_key_states(self) -> None:
         """Test getting current state of all keys."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         
@@ -290,7 +345,7 @@ class TestAPIKeyManager:
     
     def test_get_available_count(self) -> None:
         """Test getting count of available keys."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         manager.add_key("key-3")
@@ -312,7 +367,7 @@ class TestAPIKeyManager:
     
     def test_get_available_count_with_expired_cooldowns(self) -> None:
         """Test available count with expired cooldowns."""
-        manager = APIKeyManager("openai")
+        manager = APIKeyManager("openai", auto_discover=False)
         manager.add_key("key-1")
         manager.add_key("key-2")
         
@@ -336,7 +391,7 @@ class TestAPIKeyManagerThreadSafety:
     
     def test_concurrent_key_selection(self) -> None:
         """Test thread safety with concurrent key selection."""
-        manager = APIKeyManager("test")
+        manager = APIKeyManager("test", auto_discover=False)
         for i in range(5):
             manager.add_key(f"key-{i}")
         
@@ -370,7 +425,7 @@ class TestAPIKeyManagerThreadSafety:
     
     def test_concurrent_state_modifications(self) -> None:
         """Test concurrent state modifications."""
-        manager = APIKeyManager("test")
+        manager = APIKeyManager("test", auto_discover=False)
         for i in range(10):
             manager.add_key(f"key-{i}")
         
@@ -402,7 +457,7 @@ class TestAPIKeyManagerThreadSafety:
     
     def test_concurrent_add_and_select(self) -> None:
         """Test concurrent key addition and selection."""
-        manager = APIKeyManager("test")
+        manager = APIKeyManager("test", auto_discover=False)
         
         def add_keys() -> None:
             for i in range(50):
@@ -428,7 +483,7 @@ class TestAPIKeyManagerThreadSafety:
     
     def test_concurrent_cooldown_expiration(self) -> None:
         """Test concurrent cooldown expiration and key selection."""
-        manager = APIKeyManager("test")
+        manager = APIKeyManager("test", auto_discover=False)
         for i in range(5):
             manager.add_key(f"key-{i}")
         
@@ -474,7 +529,7 @@ class TestAPIKeyManagerPerformance:
     
     def test_key_selection_performance(self) -> None:
         """Ensure key selection is fast enough."""
-        manager = APIKeyManager("test")
+        manager = APIKeyManager("test", auto_discover=False)
         for i in range(100):
             manager.add_key(f"key-{i}")
         
@@ -488,7 +543,7 @@ class TestAPIKeyManagerPerformance:
     
     def test_state_transition_performance(self) -> None:
         """Test performance of state transitions."""
-        manager = APIKeyManager("test")
+        manager = APIKeyManager("test", auto_discover=False)
         for i in range(100):
             manager.add_key(f"key-{i}")
         
@@ -505,7 +560,7 @@ class TestAPIKeyManagerPerformance:
     
     def test_concurrent_performance(self) -> None:
         """Test performance under concurrent load."""
-        manager = APIKeyManager("test")
+        manager = APIKeyManager("test", auto_discover=False)
         for i in range(50):
             manager.add_key(f"key-{i}")
         

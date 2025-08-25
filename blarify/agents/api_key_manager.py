@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from blarify.agents.utils import discover_keys_for_provider, validate_key
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,30 +44,54 @@ class KeyState:
 class APIKeyManager:
     """Manages multiple API keys with thread-safe operations and rotation support."""
     
-    def __init__(self, provider: str) -> None:
+    def __init__(self, provider: str, auto_discover: bool = True) -> None:
         """Initialize API Key Manager.
         
         Args:
             provider: Name of the provider (e.g., 'openai', 'anthropic', 'google')
+            auto_discover: Whether to automatically discover keys from environment
         """
         self.provider = provider
         self.keys: Dict[str, KeyState] = {}
         self._lock = threading.RLock()
         self._key_order: List[str] = []
         self._current_index = 0
+        
+        if auto_discover:
+            self._auto_discover_keys()
+        
         logger.debug(f"Initialized APIKeyManager for {provider}")
     
-    def add_key(self, key: str) -> None:
-        """Add a new API key to the manager.
+    def _auto_discover_keys(self) -> None:
+        """Automatically discover and add keys from environment."""
+        discovered_keys = discover_keys_for_provider(self.provider)
+        for key in discovered_keys:
+            self.add_key(key)
+        
+        if discovered_keys:
+            logger.info(f"Discovered {len(discovered_keys)} keys for {self.provider}")
+    
+    def add_key(self, key: str, validate: bool = True) -> bool:
+        """Add a new API key to the manager with validation.
         
         Args:
             key: The API key to add
+            validate: Whether to validate the key format
+            
+        Returns:
+            True if key was added, False otherwise
         """
+        if validate and not validate_key(key, self.provider):
+            logger.warning(f"Invalid key format for {self.provider}: {key[:10] if len(key) > 10 else key}...")
+            return False
+        
         with self._lock:
             if key not in self.keys:
                 self.keys[key] = KeyState(key=key, state=KeyStatus.AVAILABLE)
                 self._key_order.append(key)
                 logger.debug(f"Added API key for {self.provider}: {key[:8]}...")
+                return True
+        return False
     
     def reset_expired_cooldowns(self) -> None:
         """Reset keys whose cooldown period has expired."""

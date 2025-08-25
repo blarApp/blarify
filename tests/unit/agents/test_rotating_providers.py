@@ -79,3 +79,92 @@ def test_abstract_method_enforcement():
         IncompleteProvider(manager)
     
     assert "Can't instantiate abstract class" in str(exc_info.value)
+
+
+def test_successful_execution():
+    """Test successful execution without errors."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    
+    provider = MockProvider(manager)
+    
+    def api_call() -> str:
+        return "success"
+    
+    result = provider.execute_with_rotation(api_call)
+    assert result == "success"
+
+
+def test_rotation_on_rate_limit():
+    """Test key rotation when rate limit is hit."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    manager.add_key("key2")
+    
+    provider = MockProvider(manager)
+    
+    call_count = 0
+    
+    def api_call() -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise Exception("rate_limit")
+        return f"success_{call_count}"
+    
+    result = provider.execute_with_rotation(api_call)
+    assert result == "success_2"
+    assert call_count == 2
+    
+    # Check that first key was marked as rate limited
+    states = manager.get_key_states()
+    rate_limited_count = sum(1 for state in states.values() if state.state.value == "rate_limited")
+    assert rate_limited_count == 1
+
+
+def test_non_retryable_error_propagation():
+    """Test that non-retryable errors are not retried."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    
+    provider = MockProvider(manager)
+    
+    # Override analyze_error for this test
+    original_analyze = provider.analyze_error
+    
+    def analyze_non_retryable(error: Exception) -> Tuple[ErrorType, Optional[int]]:
+        return (ErrorType.NON_RETRYABLE, None)
+    
+    provider.analyze_error = analyze_non_retryable
+    
+    call_count = 0
+    
+    def api_call() -> str:
+        nonlocal call_count
+        call_count += 1
+        raise Exception("fatal error")
+    
+    with pytest.raises(Exception) as exc_info:
+        provider.execute_with_rotation(api_call)
+    
+    assert str(exc_info.value) == "fatal error"
+    assert call_count == 1  # Should not retry
+    
+    # Restore original method
+    provider.analyze_error = original_analyze
+
+
+def test_no_available_keys():
+    """Test behavior when no keys are available."""
+    manager = APIKeyManager("test", auto_discover=False)
+    # No keys added
+    
+    provider = MockProvider(manager)
+    
+    def api_call() -> str:
+        return "success"
+    
+    with pytest.raises(RuntimeError) as exc_info:
+        provider.execute_with_rotation(api_call)
+    
+    assert "No available API keys" in str(exc_info.value)

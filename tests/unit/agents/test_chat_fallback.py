@@ -1,7 +1,7 @@
 """Tests for ChatFallback integration with rotating providers."""
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -13,7 +13,7 @@ class TestChatFallbackIntegration:
 
     def test_single_key_backwards_compatibility(self) -> None:
         """Test that single key configurations work without changes."""
-        with patch.dict(os.environ, {'OPENAI_API_KEY': 'sk-test123'}, clear=True):
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'sk-test123456789012345678901234567890'}, clear=True):
             # Test with a known OpenAI model
             openai_models = [m for m in MODEL_PROVIDER_DICT.keys() if "gpt" in m or "o4" in m or "o3" in m]
             if openai_models:
@@ -32,9 +32,9 @@ class TestChatFallbackIntegration:
     def test_multiple_keys_triggers_rotation(self) -> None:
         """Test that multiple keys trigger rotation."""
         with patch.dict(os.environ, {
-            'OPENAI_API_KEY': 'sk-test1',
-            'OPENAI_API_KEY_1': 'sk-test2',
-            'OPENAI_API_KEY_2': 'sk-test3'
+            'OPENAI_API_KEY': 'sk-test1234567890123456789012345678901',
+            'OPENAI_API_KEY_1': 'sk-test1234567890123456789012345678902',
+            'OPENAI_API_KEY_2': 'sk-test1234567890123456789012345678903'
         }, clear=True):
             # Test with a known OpenAI model
             openai_models = [m for m in MODEL_PROVIDER_DICT.keys() if "gpt" in m or "o4" in m or "o3" in m]
@@ -50,7 +50,8 @@ class TestChatFallbackIntegration:
                 
                 # Should get RotatingKeyChatOpenAI
                 assert hasattr(chat_model, 'key_manager')
-                assert chat_model.key_manager.get_available_count() == 3
+                if hasattr(chat_model, 'key_manager'):
+                    assert chat_model.key_manager.get_available_count() == 3  # type: ignore
 
     def test_unknown_model_raises_error(self) -> None:
         """Test that unknown models raise ValueError."""
@@ -67,9 +68,9 @@ class TestChatFallbackIntegration:
     def test_model_provider_dict_coverage(self) -> None:
         """Test all models in MODEL_PROVIDER_DICT can be created."""
         with patch.dict(os.environ, {
-            'OPENAI_API_KEY': 'sk-test',
-            'ANTHROPIC_API_KEY': 'sk-ant-test',
-            'GOOGLE_API_KEY': 'google-test'
+            'OPENAI_API_KEY': 'sk-test1234567890123456789012345678901',
+            'ANTHROPIC_API_KEY': 'sk-ant-test1234567890123456789012345',
+            'GOOGLE_API_KEY': 'google-test1234567890123456789012345'
         }):
             for model in MODEL_PROVIDER_DICT.keys():
                 fallback = ChatFallback(
@@ -89,9 +90,9 @@ class TestChatFallbackIntegration:
     def test_fallback_chain_with_rotation(self) -> None:
         """Test fallback chain works with rotating providers."""
         with patch.dict(os.environ, {
-            'OPENAI_API_KEY': 'sk-test1',
-            'OPENAI_API_KEY_1': 'sk-test2',
-            'ANTHROPIC_API_KEY': 'sk-ant-test'
+            'OPENAI_API_KEY': 'sk-test1234567890123456789012345678901',
+            'OPENAI_API_KEY_1': 'sk-test1234567890123456789012345678902',
+            'ANTHROPIC_API_KEY': 'sk-ant-test1234567890123456789012345'
         }, clear=True):
             # Get first OpenAI and first Anthropic model
             openai_models = [m for m in MODEL_PROVIDER_DICT.keys() if "gpt" in m or "o4" in m or "o3" in m]
@@ -116,8 +117,8 @@ class TestChatFallbackIntegration:
     def test_create_with_fallbacks_class_method(self) -> None:
         """Test the create_with_fallbacks class method."""
         with patch.dict(os.environ, {
-            'OPENAI_API_KEY': 'sk-test1',
-            'ANTHROPIC_API_KEY': 'sk-ant-test'
+            'OPENAI_API_KEY': 'sk-test1234567890123456789012345678901',
+            'ANTHROPIC_API_KEY': 'sk-ant-test1234567890123456789012345'
         }, clear=True):
             # Get first OpenAI and first Anthropic model
             openai_models = [m for m in MODEL_PROVIDER_DICT.keys() if "gpt" in m or "o4" in m or "o3" in m]
@@ -145,9 +146,9 @@ class TestChatFallbackIntegration:
     def test_rotation_status_tracking(self) -> None:
         """Test rotation status tracking."""
         with patch.dict(os.environ, {
-            'OPENAI_API_KEY': 'sk-test1',
-            'OPENAI_API_KEY_1': 'sk-test2',
-            'ANTHROPIC_API_KEY': 'sk-ant-test'
+            'OPENAI_API_KEY': 'sk-test1234567890123456789012345678901',
+            'OPENAI_API_KEY_1': 'sk-test1234567890123456789012345678902',
+            'ANTHROPIC_API_KEY': 'sk-ant-test1234567890123456789012345'
         }, clear=True):
             fallback = ChatFallback(
                 model="gpt-4.1",
@@ -159,7 +160,7 @@ class TestChatFallbackIntegration:
             status = fallback.get_rotation_status()
             
             # Check OpenAI models show rotation enabled
-            for model, info in status.items():
+            for _model, info in status.items():
                 if info['provider'] == 'openai':
                     assert info['rotation_enabled'] is True
                     assert info['keys_count'] == 2
@@ -177,23 +178,23 @@ class TestChatFallbackIntegration:
         )
         
         # Test OpenAI models
-        assert fallback._get_provider_from_model("gpt-4.1") == "openai"
-        assert fallback._get_provider_from_model("o4-mini") == "openai"
+        assert fallback._get_provider_from_model("gpt-4.1") == "openai"  # type: ignore
+        assert fallback._get_provider_from_model("o4-mini") == "openai"  # type: ignore
         
         # Test Anthropic models
-        assert fallback._get_provider_from_model("claude-3-5-haiku-latest") == "anthropic"
+        assert fallback._get_provider_from_model("claude-3-5-haiku-latest") == "anthropic"  # type: ignore
         
         # Test Google models  
-        assert fallback._get_provider_from_model("gemini-2.5-flash-preview-05-20") == "google"
+        assert fallback._get_provider_from_model("gemini-2.5-flash-preview-05-20") == "google"  # type: ignore
         
         # Test unknown model
-        assert fallback._get_provider_from_model("unknown-model") is None
+        assert fallback._get_provider_from_model("unknown-model") is None  # type: ignore
 
     def test_rotation_enabled_tracking(self) -> None:
         """Test that rotation enabled state is tracked."""
         with patch.dict(os.environ, {
-            'OPENAI_API_KEY': 'sk-test1',
-            'OPENAI_API_KEY_1': 'sk-test2',
+            'OPENAI_API_KEY': 'sk-test1234567890123456789012345678901',
+            'OPENAI_API_KEY_1': 'sk-test1234567890123456789012345678902',
         }, clear=True):
             fallback = ChatFallback(
                 model="gpt-4.1",
@@ -203,15 +204,15 @@ class TestChatFallbackIntegration:
             )
             
             # Initially empty
-            assert fallback._rotation_enabled == {}
+            assert fallback._rotation_enabled == {}  # type: ignore
             
             # After getting a rotating model
-            chat_model = fallback.get_chat_model("gpt-4.1")
-            assert fallback._rotation_enabled.get("gpt-4.1") is True
+            _ = fallback.get_chat_model("gpt-4.1")
+            assert fallback._rotation_enabled.get("gpt-4.1") is True  # type: ignore
 
     def test_single_model_without_fallbacks(self) -> None:
         """Test using a single model without any fallbacks."""
-        with patch.dict(os.environ, {'OPENAI_API_KEY': 'sk-test'}, clear=True):
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'sk-test1234567890123456789012345678901'}, clear=True):
             openai_models = [m for m in MODEL_PROVIDER_DICT.keys() if "gpt" in m]
             if openai_models:
                 chain = ChatFallback.create_with_fallbacks(

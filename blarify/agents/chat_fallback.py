@@ -3,7 +3,7 @@ This module contains the ChatFallback class, which is used to construct the runn
 """
 
 import logging
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, Optional, Type, Union
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.runnables import Runnable, RunnableWithFallbacks
@@ -40,7 +40,7 @@ class ChatFallback:
         "google": RotatingKeyChatGoogle,
     }
 
-    def __init__(self, *, model: str, fallback_list: list[str], output_schema: Optional[BaseModel] = None, timeout: Optional[int] = None):
+    def __init__(self, *, model: str, fallback_list: list[str], output_schema: Optional[Type[BaseModel]] = None, timeout: Optional[int] = None):
         self.model = model
         self.fallback_list = fallback_list
         self.output_schema = output_schema
@@ -82,7 +82,7 @@ class ChatFallback:
         """Get the rotating provider class for a provider."""
         return self.ROTATING_PROVIDER_MAP.get(provider)
 
-    def get_chat_model(self, model: str, timeout: Optional[int] = None) -> Runnable:
+    def get_chat_model(self, model: str, timeout: Optional[int] = None) -> Runnable[Any, Any]:
         """
         Get the chat model class for the given model, using rotation if multiple keys available.
         If the model is not found in the MODEL_PROVIDER_DICT, raise a ValueError.
@@ -96,11 +96,11 @@ class ChatFallback:
         # Check if we should use rotation for this model
         if self._should_use_rotation(model):
             provider = self._get_provider_from_model(model)
-            rotating_class = self._get_rotating_provider_class(provider) if provider else None
-            
-            if rotating_class:
-                logger.info(f"Using rotating provider for {model} ({provider})")
-                return self._create_rotating_model(model, provider, rotating_class, timeout)
+            if provider:
+                rotating_class = self._get_rotating_provider_class(provider)
+                if rotating_class:
+                    logger.info(f"Using rotating provider for {model} ({provider})")
+                    return self._create_rotating_model(model, provider, rotating_class, timeout)
         
         # Fall back to standard model creation
         return self._create_standard_model(model, timeout)
@@ -111,7 +111,7 @@ class ChatFallback:
         provider: str, 
         rotating_class: Type[Any],
         timeout: Optional[int] = None
-    ) -> Runnable:
+    ) -> Runnable[Any, Any]:
         """Create a rotating model instance."""
         # Create APIKeyManager for the provider
         key_manager = APIKeyManager(provider, auto_discover=True)
@@ -119,17 +119,16 @@ class ChatFallback:
         # Track that rotation is enabled for this model
         self._rotation_enabled[model] = True
         
-        # Get model kwargs
+        # Get model kwargs based on provider
         model_kwargs: Dict[str, Any] = {
-            "model": model,
             "timeout": timeout or self.timeout,
         }
         
-        # Add model_name for OpenAI (it uses model_name instead of model)
-        if provider == "openai":
+        # Different providers use different parameter names
+        if provider == "anthropic":
             model_kwargs["model_name"] = model
-            # Remove model key as OpenAI doesn't use it
-            del model_kwargs["model"]
+        else:  # OpenAI and Google use 'model'
+            model_kwargs["model"] = model
         
         # Create rotating provider instance
         chat_model = rotating_class(key_manager, **model_kwargs)
@@ -139,46 +138,57 @@ class ChatFallback:
         
         return chat_model
 
-    def _create_standard_model(self, model: str, timeout: Optional[int] = None) -> Runnable:
+    def _create_standard_model(self, model: str, timeout: Optional[int] = None) -> Runnable[Any, Any]:
         """Create a standard (non-rotating) model instance."""
-        chat_model_class: Type[ChatGoogleGenerativeAI | ChatAnthropic | ChatOpenAI] = MODEL_PROVIDER_DICT[model]
+        chat_model_class: Type[Union[ChatGoogleGenerativeAI, ChatAnthropic, ChatOpenAI]] = MODEL_PROVIDER_DICT[model]
         
         # Use provided timeout or instance timeout
         model_timeout = timeout or self.timeout
         
+        chat_model: Any  # Will be one of the chat model types
         if issubclass(chat_model_class, ChatGoogleGenerativeAI):
             chat_model = ChatGoogleGenerativeAI(
                 model=model,
                 timeout=model_timeout
             ) if model_timeout else ChatGoogleGenerativeAI(model=model)
         elif issubclass(chat_model_class, ChatAnthropic):
-            chat_model = ChatAnthropic(
-                model=model,
-                timeout=model_timeout
-            ) if model_timeout else ChatAnthropic(model=model)
+            if model_timeout:
+                chat_model = ChatAnthropic(
+                    model_name=model,
+                    timeout=model_timeout,
+                    stop=None
+                )
+            else:
+                chat_model = ChatAnthropic(
+                    model_name=model,
+                    timeout=None,
+                    stop=None
+                )
         elif issubclass(chat_model_class, ChatOpenAI):
             chat_model = ChatOpenAI(
-                model_name=model,
+                model=model,
                 timeout=model_timeout
-            ) if model_timeout else ChatOpenAI(model_name=model)
+            ) if model_timeout else ChatOpenAI(model=model)
+        else:
+            raise ValueError(f"Unsupported chat model class for model {model}")
 
         if self.output_schema:
             chat_model = chat_model.with_structured_output(self.output_schema)
         return chat_model
 
-    def get_fallback_chat_model(self) -> RunnableWithFallbacks:
+    def get_fallback_chat_model(self) -> RunnableWithFallbacks[Any, Any]:
         """
         Get the fallback chat model for the given model.
         If the model is found, return the fallback chat model.
         Return the runnable with fallbacks.
         """
-        fallback_list: list[Runnable] = []
+        fallback_list: list[Runnable[Any, Any]] = []
         for fallback_model in self.fallback_list:
             if fallback_model in MODEL_PROVIDER_DICT and fallback_model != self.model:
                 fallback_list.append(self.get_chat_model(fallback_model, self.timeout))
-        model: Runnable = self.get_chat_model(self.model, self.timeout)
-        model: RunnableWithFallbacks = model.with_fallbacks(fallback_list)
-        return model
+        primary_model: Runnable[Any, Any] = self.get_chat_model(self.model, self.timeout)
+        result: RunnableWithFallbacks[Any, Any] = primary_model.with_fallbacks(fallback_list)
+        return result
 
     def get_rotation_status(self) -> Dict[str, Dict[str, Any]]:
         """Get rotation status for all configured models."""
@@ -200,9 +210,9 @@ class ChatFallback:
     def create_with_fallbacks(
         cls,
         models: list[str],
-        output_schema: Optional[BaseModel] = None,
+        output_schema: Optional[Type[BaseModel]] = None,
         timeout: Optional[int] = None,
-    ) -> RunnableWithFallbacks:
+    ) -> RunnableWithFallbacks[Any, Any]:
         """Create a chat model with fallbacks, using rotation where available.
         
         Args:

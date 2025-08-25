@@ -9,6 +9,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
+from langchain_core.runnables import Runnable
+
 from blarify.agents.api_key_manager import APIKeyManager
 
 logger = logging.getLogger(__name__)
@@ -41,7 +43,7 @@ class ProviderMetrics:
     error_breakdown: Dict[str, int] = field(default_factory=dict)
 
 
-class RotatingProviderBase(ABC):
+class RotatingProviderBase(Runnable[Any, Any], ABC):
     """Abstract base class for providers with rotating API keys."""
 
     def __init__(self, key_manager: APIKeyManager, **kwargs: Any) -> None:

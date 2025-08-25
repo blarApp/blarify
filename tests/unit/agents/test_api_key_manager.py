@@ -83,8 +83,8 @@ class TestAPIKeyManager:
         
         assert manager.provider == "openai"
         assert manager.keys == {}
-        assert manager._key_order == []
-        assert manager._current_index == 0
+        assert manager._key_order == []  # type: ignore[attr-defined]
+        assert manager._current_index == 0  # type: ignore[attr-defined]
     
     def test_add_key(self) -> None:
         """Test adding a new key to the manager."""
@@ -93,7 +93,7 @@ class TestAPIKeyManager:
         
         assert "test-key-1" in manager.keys
         assert manager.keys["test-key-1"].state == KeyStatus.AVAILABLE
-        assert "test-key-1" in manager._key_order
+        assert "test-key-1" in manager._key_order  # type: ignore[attr-defined]
     
     def test_add_duplicate_key(self) -> None:
         """Test that duplicate keys are not added."""
@@ -102,7 +102,7 @@ class TestAPIKeyManager:
         manager.add_key("test-key-1")  # Try to add duplicate
         
         assert len(manager.keys) == 1
-        assert len(manager._key_order) == 1
+        assert len(manager._key_order) == 1  # type: ignore[attr-defined]
     
     def test_get_next_available_key_round_robin(self) -> None:
         """Test round-robin key selection."""

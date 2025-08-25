@@ -11,13 +11,16 @@ import pytest
 def multi_provider_env() -> Any:
     """Environment with multiple keys for each provider."""
     env_vars: Dict[str, str] = {
-        "OPENAI_API_KEY": "sk-test1",
-        "OPENAI_API_KEY_1": "sk-test2",
-        "OPENAI_API_KEY_2": "sk-test3",
-        "ANTHROPIC_API_KEY": "sk-ant-test1",
-        "ANTHROPIC_API_KEY_1": "sk-ant-test2",
-        "GOOGLE_API_KEY": "google-test1",
-        "GOOGLE_API_KEY_1": "google-test2",
+        # Valid OpenAI keys (start with sk- and > 20 chars)
+        "OPENAI_API_KEY": "sk-test1234567890abcdefghijklmnop",
+        "OPENAI_API_KEY_1": "sk-test2234567890abcdefghijklmnop",
+        "OPENAI_API_KEY_2": "sk-test3234567890abcdefghijklmnop",
+        # Valid Anthropic keys (start with sk-ant- and > 20 chars)
+        "ANTHROPIC_API_KEY": "sk-ant-test1234567890abcdefghijklmnop",
+        "ANTHROPIC_API_KEY_1": "sk-ant-test2234567890abcdefghijklmnop",
+        # Valid Google keys (just need to be > 20 chars)
+        "GOOGLE_API_KEY": "google-test1234567890abcdefghijklmnop",
+        "GOOGLE_API_KEY_1": "google-test2234567890abcdefghijklmnop",
     }
     with patch.dict(os.environ, env_vars, clear=True):
         yield env_vars
@@ -27,9 +30,9 @@ def multi_provider_env() -> Any:
 def single_provider_env() -> Any:
     """Environment with single key for each provider."""
     env_vars: Dict[str, str] = {
-        "OPENAI_API_KEY": "sk-test-single",
-        "ANTHROPIC_API_KEY": "sk-ant-single",
-        "GOOGLE_API_KEY": "google-single",
+        "OPENAI_API_KEY": "sk-test-single1234567890abcdefghijklmnop",
+        "ANTHROPIC_API_KEY": "sk-ant-single1234567890abcdefghijklmnop",
+        "GOOGLE_API_KEY": "google-single1234567890abcdefghijklmnop",
     }
     with patch.dict(os.environ, env_vars, clear=True):
         yield env_vars
@@ -95,3 +98,5 @@ def mock_invalid_key_error() -> Callable[[], Mock]:
         return error
 
     return _create_error
+
+

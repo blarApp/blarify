@@ -204,3 +204,73 @@ class TestAPIKeyManager:
         manager.mark_quota_exceeded("non-existent")
         
         assert len(manager.keys) == 0
+    
+    def test_automatic_cooldown_expiration(self) -> None:
+        """Test automatic cooldown expiration."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        
+        # Mark key-1 with expired cooldown
+        past_time = datetime.now() - timedelta(seconds=10)
+        manager.keys["key-1"].state = KeyStatus.RATE_LIMITED
+        manager.keys["key-1"].cooldown_until = past_time
+        
+        # Mark key-2 with future cooldown
+        future_time = datetime.now() + timedelta(seconds=60)
+        manager.keys["key-2"].state = KeyStatus.RATE_LIMITED
+        manager.keys["key-2"].cooldown_until = future_time
+        
+        # Call get_next_available_key which internally calls reset_expired_cooldowns
+        result = manager.get_next_available_key()
+        
+        # key-1 should be available again
+        assert manager.keys["key-1"].state == KeyStatus.AVAILABLE
+        assert manager.keys["key-1"].cooldown_until is None
+        assert result == "key-1"
+        
+        # key-2 should still be rate limited
+        assert manager.keys["key-2"].state == KeyStatus.RATE_LIMITED
+        assert manager.keys["key-2"].cooldown_until == future_time
+    
+    def test_multiple_keys_with_different_cooldowns(self) -> None:
+        """Test multiple keys with different cooldown periods."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        manager.add_key("key-3")
+        
+        # All keys start available
+        assert manager.get_next_available_key() == "key-1"
+        
+        # Mark all as rate limited with different cooldowns
+        manager.mark_rate_limited("key-1", retry_after=1)
+        manager.mark_rate_limited("key-2", retry_after=2)
+        manager.mark_rate_limited("key-3", retry_after=3)
+        
+        # No keys available immediately
+        assert manager.get_next_available_key() is None
+        
+        # Wait for key-1 to become available
+        time.sleep(1.1)
+        assert manager.get_next_available_key() == "key-1"
+        
+        # key-2 and key-3 should still be rate limited
+        assert manager.keys["key-2"].state == KeyStatus.RATE_LIMITED
+        assert manager.keys["key-3"].state == KeyStatus.RATE_LIMITED
+    
+    def test_no_change_when_cooldown_not_expired(self) -> None:
+        """Test no state change when cooldown not expired."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        
+        # Mark with future cooldown
+        manager.mark_rate_limited("key-1", retry_after=60)
+        
+        # Try to get key (calls reset_expired_cooldowns)
+        result = manager.get_next_available_key()
+        
+        # Should still be rate limited
+        assert manager.keys["key-1"].state == KeyStatus.RATE_LIMITED
+        assert manager.keys["key-1"].cooldown_until is not None
+        assert result is None

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from blarify.agents.api_key_manager import KeyState, KeyStatus
+from blarify.agents.api_key_manager import APIKeyManager, KeyState, KeyStatus
 
 
 class TestKeyStatus:
@@ -74,3 +74,34 @@ class TestKeyState:
             cooldown_until=past_time
         )
         assert key_state.is_available() is True
+
+
+class TestAPIKeyManager:
+    """Tests for APIKeyManager class."""
+    
+    def test_initialization(self) -> None:
+        """Test APIKeyManager initialization."""
+        manager = APIKeyManager("openai")
+        
+        assert manager.provider == "openai"
+        assert manager.keys == {}
+        assert manager._key_order == []
+        assert manager._current_index == 0
+    
+    def test_add_key(self) -> None:
+        """Test adding a new key to the manager."""
+        manager = APIKeyManager("openai")
+        manager.add_key("test-key-1")
+        
+        assert "test-key-1" in manager.keys
+        assert manager.keys["test-key-1"].state == KeyStatus.AVAILABLE
+        assert "test-key-1" in manager._key_order
+    
+    def test_add_duplicate_key(self) -> None:
+        """Test that duplicate keys are not added."""
+        manager = APIKeyManager("openai")
+        manager.add_key("test-key-1")
+        manager.add_key("test-key-1")  # Try to add duplicate
+        
+        assert len(manager.keys) == 1
+        assert len(manager._key_order) == 1

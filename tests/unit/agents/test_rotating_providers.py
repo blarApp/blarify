@@ -25,7 +25,7 @@ def test_cannot_instantiate_abstract_class():
     manager = APIKeyManager("test", auto_discover=False)
 
     with pytest.raises(TypeError) as exc_info:
-        RotatingProviderBase(manager)
+        RotatingProviderBase(manager)  # type: ignore[abstract]
 
     assert "Can't instantiate abstract class" in str(exc_info.value)
 
@@ -61,7 +61,7 @@ def test_mock_provider_creation():
 
     assert provider.get_provider_name() == "mock"
     assert provider.key_manager == manager
-    assert provider._current_key is None
+    assert provider._current_key is None  # type: ignore[attr-defined]
 
 
 def test_abstract_method_enforcement():
@@ -80,7 +80,7 @@ def test_abstract_method_enforcement():
             return {}
 
     with pytest.raises(TypeError) as exc_info:
-        IncompleteProvider(manager)
+        IncompleteProvider(manager)  # type: ignore[abstract]
 
     assert "Can't instantiate abstract class" in str(exc_info.value)
 
@@ -98,7 +98,7 @@ def test_successful_execution():
     assert result == "success"
     api_call.assert_called_once()
     # Verify the key was set before the call
-    assert provider._current_key == "key1"
+    assert provider._current_key == "key1"  # type: ignore[attr-defined]
 
 
 def test_rotation_on_rate_limit():
@@ -310,16 +310,16 @@ def test_invoke_with_rotation():
     mock_client.invoke = Mock(side_effect=[Exception("rate_limit"), "invoke_result"])
 
     # Override _create_client to return our mock
-    provider._create_client = Mock(return_value=mock_client)
+    provider._create_client = Mock(return_value=mock_client)  # type: ignore[assignment]
 
     result = provider.invoke("test_input")
     assert result == "invoke_result"
 
     # Should have created client twice (once for failure, once for success)
-    assert provider._create_client.call_count == 2
+    assert provider._create_client.call_count == 2  # type: ignore[attr-defined]
     # First call with key1, second with key2
-    provider._create_client.assert_any_call("key1")
-    provider._create_client.assert_any_call("key2")
+    provider._create_client.assert_any_call("key1")  # type: ignore[attr-defined]
+    provider._create_client.assert_any_call("key2")  # type: ignore[attr-defined]
 
 
 def test_stream_with_rotation():
@@ -333,12 +333,12 @@ def test_stream_with_rotation():
     mock_client = Mock()
     mock_client.stream = Mock(return_value="stream_result")
 
-    provider._create_client = Mock(return_value=mock_client)
+    provider._create_client = Mock(return_value=mock_client)  # type: ignore[assignment]
 
     result = provider.stream("test_input")
     assert result == "stream_result"
 
-    provider._create_client.assert_called_once_with("key1")
+    provider._create_client.assert_called_once_with("key1")  # type: ignore[attr-defined]
     mock_client.stream.assert_called_once_with("test_input")
 
 
@@ -353,12 +353,12 @@ def test_batch_with_rotation():
     mock_client = Mock()
     mock_client.batch = Mock(return_value=["result1", "result2"])
 
-    provider._create_client = Mock(return_value=mock_client)
+    provider._create_client = Mock(return_value=mock_client)  # type: ignore[assignment]
 
     result = provider.batch(["input1", "input2"])
     assert result == ["result1", "result2"]
 
-    provider._create_client.assert_called_once_with("key1")
+    provider._create_client.assert_called_once_with("key1")  # type: ignore[attr-defined]
     mock_client.batch.assert_called_once_with(["input1", "input2"])
 
 
@@ -428,8 +428,8 @@ def test_metrics_thread_safety():
     def update_metrics() -> None:
         """Update metrics many times."""
         for _ in range(100):
-            provider._update_metrics()
-            provider._update_metrics(ErrorType.RATE_LIMIT)
+            provider._update_metrics()  # type: ignore[attr-defined]
+            provider._update_metrics(ErrorType.RATE_LIMIT)  # type: ignore[attr-defined]
 
     threads = [threading.Thread(target=update_metrics) for _ in range(10)]
     for t in threads:
@@ -456,9 +456,9 @@ def test_concurrent_metadata_updates():
         """Update metadata for a key."""
         for _ in range(50):
             if success:
-                provider._record_success(key)
+                provider._record_success(key)  # type: ignore[attr-defined]
             else:
-                provider._record_failure(key, ErrorType.RATE_LIMIT)
+                provider._record_failure(key, ErrorType.RATE_LIMIT)  # type: ignore[attr-defined]
             time.sleep(0.001)  # Small delay to increase chance of race conditions
 
     threads = []
@@ -503,7 +503,7 @@ def test_concurrent_key_selection():
             provider.execute_with_rotation(api_call)
 
             with lock:
-                selected_keys.append(provider._current_key)
+                selected_keys.append(provider._current_key)  # type: ignore[attr-defined]
 
     threads = [threading.Thread(target=select_and_use_key) for _ in range(10)]
     for t in threads:

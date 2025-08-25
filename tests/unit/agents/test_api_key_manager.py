@@ -4,9 +4,6 @@ import threading
 import time
 from datetime import datetime, timedelta
 from typing import Optional
-from unittest.mock import patch
-
-import pytest
 
 from blarify.agents.api_key_manager import APIKeyManager, KeyState, KeyStatus
 
@@ -470,3 +467,66 @@ class TestAPIKeyManagerThreadSafety:
         # After cooldown expiration, keys should be available
         assert len(results_after) == 10
         assert all(key in [f"key-{i}" for i in range(5)] for key in results_after)
+
+
+class TestAPIKeyManagerPerformance:
+    """Performance tests for APIKeyManager."""
+    
+    def test_key_selection_performance(self) -> None:
+        """Ensure key selection is fast enough."""
+        manager = APIKeyManager("test")
+        for i in range(100):
+            manager.add_key(f"key-{i}")
+        
+        start = time.time()
+        for _ in range(10000):
+            manager.get_next_available_key()
+        duration = time.time() - start
+        
+        # Should complete 10k selections in under 100ms
+        assert duration < 0.1, f"Key selection took {duration:.3f}s, expected < 0.1s"
+    
+    def test_state_transition_performance(self) -> None:
+        """Test performance of state transitions."""
+        manager = APIKeyManager("test")
+        for i in range(100):
+            manager.add_key(f"key-{i}")
+        
+        start = time.time()
+        for i in range(1000):
+            key = f"key-{i % 100}"
+            manager.mark_rate_limited(key, retry_after=1)
+            manager.mark_invalid(key)
+            manager.mark_quota_exceeded(key)
+        duration = time.time() - start
+        
+        # Should complete 3k state transitions in under 100ms
+        assert duration < 0.1, f"State transitions took {duration:.3f}s, expected < 0.1s"
+    
+    def test_concurrent_performance(self) -> None:
+        """Test performance under concurrent load."""
+        manager = APIKeyManager("test")
+        for i in range(50):
+            manager.add_key(f"key-{i}")
+        
+        operations_count = 0
+        lock = threading.Lock()
+        
+        def perform_operations() -> None:
+            nonlocal operations_count
+            for _ in range(1000):
+                manager.get_next_available_key()
+                with lock:
+                    operations_count += 1
+        
+        start = time.time()
+        threads = [threading.Thread(target=perform_operations) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        duration = time.time() - start
+        
+        # Should complete 10k operations across 10 threads in under 1 second
+        assert duration < 1.0, f"Concurrent operations took {duration:.3f}s, expected < 1.0s"
+        assert operations_count == 10000

@@ -1,7 +1,7 @@
 """Google (Gemini/Vertex AI) provider wrapper with automatic key rotation support."""
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -9,6 +9,8 @@ from blarify.agents.api_key_manager import APIKeyManager
 from blarify.agents.rotating_providers import ErrorType, RotatingProviderBase
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class RotatingKeyChatGoogle(RotatingProviderBase):
@@ -136,3 +138,26 @@ class RotatingKeyChatGoogle(RotatingProviderBase):
                     headers[header] = response_headers[header]
 
         return headers
+
+    def execute_with_rotation(self, func: Callable[[], T], max_retries: int = 3) -> T:
+        """Override to add backoff reset on success.
+
+        Args:
+            func: The function to execute
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            The result from func
+
+        Raises:
+            The last error if all retries fail
+        """
+        try:
+            result = super().execute_with_rotation(func, max_retries)
+            # Reset backoff on success
+            if self._current_key:
+                self._reset_backoff(self._current_key)
+            return result
+        except Exception as e:
+            # Re-raise the exception
+            raise

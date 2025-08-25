@@ -139,8 +139,11 @@ class APIKeyManager:
     def get_next_available_key(self) -> Optional[str]:
         """Get next available key using round-robin selection.
         
+        If no keys are currently available, returns the key that will
+        become available soonest (for rate-limited keys).
+        
         Returns:
-            The next available API key, or None if no keys are available
+            The next available API key, or None if no keys exist or all are invalid/quota exceeded
         """
         with self._lock:
             self.reset_expired_cooldowns()
@@ -148,7 +151,7 @@ class APIKeyManager:
             if not self._key_order:
                 return None
             
-            # Try each key once
+            # First, try to find an immediately available key
             for _ in range(len(self._key_order)):
                 key = self._key_order[self._current_index]
                 self._current_index = (self._current_index + 1) % len(self._key_order)
@@ -159,8 +162,27 @@ class APIKeyManager:
                     logger.debug(f"Selected key {key[:8]}... for {self.provider}")
                     return key
             
-            logger.warning(f"No available API keys for {self.provider}")
-            return None  # No available keys
+            # No immediately available keys - find the one that will be available soonest
+            # Only consider rate-limited keys (not invalid or quota exceeded)
+            best_key = None
+            earliest_available = None
+            now = datetime.now()
+            
+            for key, key_state in self.keys.items():
+                if key_state.state == KeyStatus.RATE_LIMITED and key_state.cooldown_until:
+                    if earliest_available is None or key_state.cooldown_until < earliest_available:
+                        earliest_available = key_state.cooldown_until
+                        best_key = key
+            
+            if best_key:
+                # Return the key that will be available soonest
+                wait_time = (earliest_available - now).total_seconds()
+                logger.warning(f"All keys rate limited for {self.provider}, returning key that will be available in {wait_time:.1f}s")
+                return best_key
+            
+            # All keys are either invalid or quota exceeded
+            logger.warning(f"No usable API keys for {self.provider} (all invalid or quota exceeded)")
+            return None
     
     def mark_rate_limited(self, key: str, retry_after: Optional[int] = None) -> None:
         """Mark a key as rate limited with optional cooldown.

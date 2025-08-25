@@ -1,6 +1,7 @@
 """Tests for rotating provider base class."""
 
 from typing import Any, Dict, Optional, Tuple
+from unittest.mock import Mock
 
 import pytest
 
@@ -88,11 +89,13 @@ def test_successful_execution():
     
     provider = MockProvider(manager)
     
-    def api_call() -> str:
-        return "success"
+    api_call = Mock(return_value="success")
     
     result = provider.execute_with_rotation(api_call)
     assert result == "success"
+    api_call.assert_called_once()
+    # Verify the key was set before the call
+    assert provider._current_key == "key1"
 
 
 def test_rotation_on_rate_limit():
@@ -230,3 +233,62 @@ def test_failure_metadata_recording():
     assert key2_metadata['success_count'] == 1
     assert key2_metadata.get('failure_count', 0) == 0
     assert 'last_success' in key2_metadata
+
+
+def test_provider_metrics_tracking():
+    """Test that provider metrics are tracked correctly."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    manager.add_key("key2")
+    
+    provider = MockProvider(manager)
+    
+    # Successful call
+    api_call_success = Mock(return_value="success")
+    provider.execute_with_rotation(api_call_success)
+    api_call_success.assert_called_once()
+    
+    # Check metrics after success
+    metrics = provider.get_metrics_snapshot()
+    assert metrics.total_requests == 1
+    assert metrics.successful_requests == 1
+    assert metrics.failed_requests == 0
+    assert provider.get_success_rate() == 100.0
+    
+    # Failed call with rate limit (will exhaust retries)
+    api_call_fail = Mock(side_effect=Exception("rate_limit"))
+    try:
+        provider.execute_with_rotation(api_call_fail, max_retries=1)
+    except Exception:
+        pass
+    api_call_fail.assert_called_once()
+    
+    # Check metrics after failure
+    metrics = provider.get_metrics_snapshot()
+    assert metrics.total_requests == 2
+    assert metrics.successful_requests == 1
+    assert metrics.failed_requests == 1
+    assert metrics.rate_limit_hits == 1
+    assert metrics.error_breakdown.get("rate_limit") == 1
+    assert provider.get_success_rate() == 50.0
+
+
+def test_key_rotation_metrics():
+    """Test that key rotation is tracked in metrics."""
+    manager = APIKeyManager("test", auto_discover=False)
+    manager.add_key("key1")
+    manager.add_key("key2")
+    
+    provider = MockProvider(manager)
+    
+    # Mock that fails once then succeeds
+    api_call = Mock(side_effect=[Exception("rate_limit"), "success"])
+    
+    result = provider.execute_with_rotation(api_call)
+    assert result == "success"
+    assert api_call.call_count == 2
+    
+    # Check rotation metrics
+    metrics = provider.get_metrics_snapshot()
+    assert metrics.key_rotations == 1
+    assert metrics.last_rotation is not None

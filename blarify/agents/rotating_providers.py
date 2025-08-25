@@ -1,8 +1,10 @@
 """API providers with rotating API key support."""
 
+import copy
 import logging
 import threading
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
@@ -24,6 +26,21 @@ class ErrorType(Enum):
     NON_RETRYABLE = "non_retryable"
 
 
+@dataclass
+class ProviderMetrics:
+    """Metrics for provider usage."""
+    
+    total_requests: int = 0
+    successful_requests: int = 0
+    failed_requests: int = 0
+    rate_limit_hits: int = 0
+    auth_failures: int = 0
+    quota_exceeded_count: int = 0
+    key_rotations: int = 0
+    last_rotation: Optional[datetime] = None
+    error_breakdown: Dict[str, int] = field(default_factory=dict)
+
+
 class RotatingProviderBase(ABC):
     """Abstract base class for providers with rotating API keys."""
     
@@ -38,6 +55,7 @@ class RotatingProviderBase(ABC):
         self.kwargs = kwargs
         self._current_key: Optional[str] = None
         self._lock = threading.RLock()  # For thread-safe operations
+        self.metrics = ProviderMetrics()
     
     @abstractmethod
     def _create_client(self, api_key: str) -> Any:
@@ -121,22 +139,28 @@ class RotatingProviderBase(ABC):
                     raise RuntimeError(f"All available keys exhausted for {self.get_provider_name()}")
                 
                 keys_tried.add(key)
+                if self._current_key and self._current_key != key:
+                    # Key rotation occurred
+                    self.metrics.key_rotations += 1
+                    self.metrics.last_rotation = datetime.now()
                 self._current_key = key
             
             try:
                 # Create client with current key and execute
                 result = func()
                 
-                # Success - update metadata
+                # Success - update metadata and metrics
                 self._record_success(key)
+                self._update_metrics()
                 return result
                 
             except Exception as e:
                 last_error = e
                 error_type, retry_after = self.analyze_error(e)
                 
-                # Record the failure
+                # Record the failure and update metrics
                 self._record_failure(key, error_type)
+                self._update_metrics(error_type)
                 
                 if error_type == ErrorType.RATE_LIMIT:
                     self.key_manager.mark_rate_limited(key, retry_after)
@@ -186,3 +210,46 @@ class RotatingProviderBase(ABC):
                 metadata['failure_count'] = metadata.get('failure_count', 0) + 1
                 metadata[f'{error_type.value}_count'] = metadata.get(f'{error_type.value}_count', 0) + 1
                 metadata['last_failure'] = datetime.now().isoformat()
+    
+    def _update_metrics(self, error_type: Optional[ErrorType] = None) -> None:
+        """Update provider metrics (thread-safe).
+        
+        Args:
+            error_type: The type of error if this was a failure
+        """
+        with self._lock:
+            self.metrics.total_requests += 1
+            
+            if error_type:
+                self.metrics.failed_requests += 1
+                self.metrics.error_breakdown[error_type.value] = \
+                    self.metrics.error_breakdown.get(error_type.value, 0) + 1
+                
+                if error_type == ErrorType.RATE_LIMIT:
+                    self.metrics.rate_limit_hits += 1
+                elif error_type == ErrorType.AUTH_ERROR:
+                    self.metrics.auth_failures += 1
+                elif error_type == ErrorType.QUOTA_EXCEEDED:
+                    self.metrics.quota_exceeded_count += 1
+            else:
+                self.metrics.successful_requests += 1
+    
+    def get_success_rate(self) -> float:
+        """Get success rate as percentage (thread-safe).
+        
+        Returns:
+            Success rate as a percentage (0-100)
+        """
+        with self._lock:
+            if self.metrics.total_requests == 0:
+                return 0.0
+            return (self.metrics.successful_requests / self.metrics.total_requests) * 100
+    
+    def get_metrics_snapshot(self) -> ProviderMetrics:
+        """Get a snapshot of current metrics (thread-safe).
+        
+        Returns:
+            A deep copy of the current metrics
+        """
+        with self._lock:
+            return copy.deepcopy(self.metrics)

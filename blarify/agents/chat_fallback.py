@@ -179,3 +179,66 @@ class ChatFallback:
         model: Runnable = self.get_chat_model(self.model, self.timeout)
         model: RunnableWithFallbacks = model.with_fallbacks(fallback_list)
         return model
+
+    def get_rotation_status(self) -> Dict[str, Dict[str, Any]]:
+        """Get rotation status for all configured models."""
+        status: Dict[str, Dict[str, Any]] = {}
+        
+        for model in MODEL_PROVIDER_DICT.keys():
+            provider = self._get_provider_from_model(model)
+            if provider:
+                keys = discover_keys_for_provider(provider)
+                status[model] = {
+                    'provider': provider,
+                    'rotation_enabled': len(keys) > 1,
+                    'keys_count': len(keys)
+                }
+        
+        return status
+
+    @classmethod
+    def create_with_fallbacks(
+        cls,
+        models: list[str],
+        output_schema: Optional[BaseModel] = None,
+        timeout: Optional[int] = None,
+    ) -> RunnableWithFallbacks:
+        """Create a chat model with fallbacks, using rotation where available.
+        
+        Args:
+            models: List of model names, first is primary, rest are fallbacks
+            output_schema: Optional schema for structured output
+            timeout: Optional timeout for all models
+        
+        Returns:
+            RunnableWithFallbacks with rotation support where available
+        
+        Raises:
+            ValueError: If no models provided or unknown model specified
+        """
+        if not models:
+            raise ValueError("At least one model must be provided")
+        
+        # Validate all models exist in MODEL_PROVIDER_DICT
+        for model in models:
+            if model not in MODEL_PROVIDER_DICT:
+                raise ValueError(f"Unknown model: {model}")
+        
+        # Create instance with first model as primary
+        instance = cls(
+            model=models[0],
+            fallback_list=models[1:] if len(models) > 1 else [],
+            output_schema=output_schema,
+            timeout=timeout,
+        )
+        
+        # Log rotation status for all models
+        for model in models:
+            if instance._should_use_rotation(model):
+                provider = instance._get_provider_from_model(model)
+                if provider:
+                    keys_count = len(discover_keys_for_provider(provider))
+                    logger.info(f"Model {model} using {keys_count} rotating keys")
+        
+        # Return the fallback chain
+        return instance.get_fallback_chat_model()

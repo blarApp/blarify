@@ -105,3 +105,48 @@ class TestAPIKeyManager:
         
         assert len(manager.keys) == 1
         assert len(manager._key_order) == 1
+    
+    def test_get_next_available_key_round_robin(self) -> None:
+        """Test round-robin key selection."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        manager.add_key("key-3")
+        
+        # Should return keys in round-robin order
+        assert manager.get_next_available_key() == "key-1"
+        assert manager.get_next_available_key() == "key-2"
+        assert manager.get_next_available_key() == "key-3"
+        assert manager.get_next_available_key() == "key-1"  # Back to first
+    
+    def test_get_next_available_key_skips_unavailable(self) -> None:
+        """Test that selection skips unavailable keys."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        manager.add_key("key-3")
+        
+        # Mark key-2 as rate limited
+        manager.keys["key-2"].state = KeyStatus.RATE_LIMITED
+        
+        # Should skip key-2
+        assert manager.get_next_available_key() == "key-1"
+        assert manager.get_next_available_key() == "key-3"  # Skips key-2
+        assert manager.get_next_available_key() == "key-1"  # Back to key-1
+    
+    def test_get_next_available_key_returns_none_when_all_exhausted(self) -> None:
+        """Test returns None when all keys are exhausted."""
+        manager = APIKeyManager("openai")
+        manager.add_key("key-1")
+        manager.add_key("key-2")
+        
+        # Mark all keys as invalid
+        manager.keys["key-1"].state = KeyStatus.INVALID
+        manager.keys["key-2"].state = KeyStatus.INVALID
+        
+        assert manager.get_next_available_key() is None
+    
+    def test_get_next_available_key_with_no_keys(self) -> None:
+        """Test returns None when no keys are configured."""
+        manager = APIKeyManager("openai")
+        assert manager.get_next_available_key() is None

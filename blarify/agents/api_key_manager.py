@@ -188,6 +188,26 @@ class APIKeyManager:
             logger.warning(f"No usable API keys for {self.provider} (all invalid or quota exceeded)")
             return None
 
+    def is_key_available(self, key: str) -> bool:
+        """Check if a specific key is available for use without rotating.
+        
+        Args:
+            key: The API key to check
+            
+        Returns:
+            True if the key is available, False otherwise
+        """
+        with self._lock:
+            if key not in self.keys:
+                return False
+            
+            # Reset expired cooldowns before checking
+            self.reset_expired_cooldowns()
+            
+            # Check if the key is available
+            key_state = self.keys[key]
+            return key_state.is_available()
+
     def mark_rate_limited(self, key: str, retry_after: Optional[int] = None) -> None:
         """Mark a key as rate limited with optional cooldown.
 

@@ -9,11 +9,10 @@ skeleton comment replacement.
 import re
 import logging
 import concurrent.futures
-import contextvars
-import functools
 import threading
 from typing import Dict, List, Optional, Any, Set
-from concurrent.futures import Future
+from concurrent.futures import Future, as_completed
+from collections import deque, defaultdict
 from pydantic import BaseModel, Field, ConfigDict
 
 from ...agents.llm_provider import LLMProvider
@@ -249,10 +248,9 @@ class RecursiveDFSProcessor:
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
-        Entry point - processes a node (folder or file) recursively.
+        Entry point - processes a node (folder or file) iteratively.
 
-        For folders, this performs recursive DFS processing of all children.
-        For files, this processes the file as a leaf node.
+        Uses an iterative, batch-based approach for efficient thread reuse.
 
         Args:
             node_path: Path to the node (folder or file) to process
@@ -261,7 +259,7 @@ class RecursiveDFSProcessor:
             ProcessingResult with all information nodes and relationships
         """
         try:
-            logger.info(f"Starting recursive DFS processing for node: {node_path}")
+            logger.info(f"Starting iterative DFS processing for node: {node_path}")
 
             # Get the root node (folder or file)
             root_node: Optional[NodeWithContentDto] = self.root_node
@@ -275,8 +273,8 @@ class RecursiveDFSProcessor:
             with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 self._global_executor = executor
 
-                # Process the node recursively
-                root_description = self._process_node_recursive(root_node)
+                # Process the node iteratively
+                root_description = self._process_node_iterative(root_node)
 
             # Clear executor reference
             self._global_executor = None
@@ -286,7 +284,7 @@ class RecursiveDFSProcessor:
             all_documentation_nodes = list(self.node_descriptions.values())
             all_source_nodes = list(self.source_nodes_cache.values())
 
-            logger.info(f"Completed recursive DFS processing. Generated {len(all_descriptions_as_dicts)} descriptions")
+            logger.info(f"Completed iterative DFS processing. Generated {len(all_descriptions_as_dicts)} descriptions")
 
             return ProcessingResult(
                 node_path=node_path,
@@ -298,7 +296,7 @@ class RecursiveDFSProcessor:
             )
 
         except Exception as e:
-            logger.exception(f"Error in recursive DFS processing: {e}")
+            logger.exception(f"Error in iterative DFS processing: {e}")
             return ProcessingResult(node_path=node_path, error=str(e))
 
     def _get_processing_path(self) -> Set[str]:
@@ -307,225 +305,298 @@ class RecursiveDFSProcessor:
             self._thread_local.processing_path = set()
         return self._thread_local.processing_path
 
-    def _process_node_recursive(self, node: NodeWithContentDto) -> DocumentationNode:
+    def _process_node_iterative(self, root_node: NodeWithContentDto) -> DocumentationNode:
         """
-        Core recursive method - processes a node and all its children using queue-based coordination.
-
+        Process a node and all its children using an iterative, batch-based approach.
+        
+        This method replaces the recursive implementation to prevent thread pool exhaustion.
+        It uses a work queue and processes nodes in batches, enabling thread reuse.
+        
         Args:
-            node: The node to process
-
+            root_node: The root node to process
+            
         Returns:
-            DocumentationNodeDescription for this node
+            DocumentationNode for the root node
+        """
+        # Track all nodes to process and their dependencies
+        nodes_to_process: Dict[str, NodeWithContentDto] = {}
+        node_children: Dict[str, List[str]] = defaultdict(list)
+        node_parents: Dict[str, List[str]] = defaultdict(list)
+        processing_results: Dict[str, DocumentationNode] = {}
+        
+        # Build the complete node graph using BFS
+        queue = deque([root_node])
+        visited = set()
+        
+        while queue:
+            node = queue.popleft()
+            if node.id in visited:
+                continue
+            visited.add(node.id)
+            nodes_to_process[node.id] = node
+            
+            # Get children based on navigation strategy
+            children = self._get_navigation_children(node)
+            for child in children:
+                # Check for cycles
+                if child.id not in visited:
+                    queue.append(child)
+                    node_children[node.id].append(child.id)
+                    node_parents[child.id].append(node.id)
+                else:
+                    # Handle cycle - don't add to queue but track relationship
+                    logger.info(f"Detected cycle: {node.name} -> {child.name}")
+                    if child.id != node.id:  # Not self-reference
+                        node_children[node.id].append(child.id)
+                        # Don't add to parents to avoid circular dependency
+        
+        # Process nodes in bottom-up order using batch processing
+        return self._process_batch_iterative(
+            nodes_to_process,
+            node_children,
+            node_parents,
+            processing_results,
+            root_node.id
+        )
+    
+    def _process_batch_iterative(
+        self,
+        nodes_to_process: Dict[str, NodeWithContentDto],
+        node_children: Dict[str, List[str]],
+        node_parents: Dict[str, List[str]],
+        processing_results: Dict[str, DocumentationNode],
+        root_id: str
+    ) -> DocumentationNode:
+        """
+        Process nodes in batches with bottom-up order and immediate thread harvesting.
+        
+        Args:
+            nodes_to_process: All nodes that need processing
+            node_children: Mapping of node_id -> list of child_ids
+            node_parents: Mapping of node_id -> list of parent_ids
+            processing_results: Results accumulator
+            root_id: ID of the root node
+            
+        Returns:
+            DocumentationNode for the root node
+        """
+        processed_nodes: Set[str] = set()
+        
+        while len(processed_nodes) < len(nodes_to_process):
+            # Get next batch of processable nodes (leaves or nodes with all children processed)
+            batch = self._get_processable_batch(
+                nodes_to_process,
+                node_children,
+                processed_nodes,
+                processing_results
+            )
+            
+            if not batch:
+                # Handle remaining nodes with cycles or errors
+                remaining = set(nodes_to_process.keys()) - processed_nodes
+                if remaining:
+                    logger.warning(f"Processing {len(remaining)} nodes with unresolved dependencies")
+                    for node_id in remaining:
+                        if node_id not in processing_results:
+                            node = nodes_to_process[node_id]
+                            # Process as leaf with cycle indication
+                            result = self._process_node_with_cycle_fallback(node)
+                            processing_results[node_id] = result
+                            self.node_descriptions[node_id] = result
+                            processed_nodes.add(node_id)
+                break
+            
+            # Process batch with immediate thread harvesting using as_completed
+            self._process_batch_with_harvesting(batch, nodes_to_process, node_children, processing_results)
+            processed_nodes.update(batch)
+        
+        # Return the root node's result
+        return processing_results.get(root_id, self._create_fallback_description(
+            nodes_to_process[root_id],
+            "Failed to process root node"
+        ))
+    
+    def _get_processable_batch(
+        self,
+        nodes_to_process: Dict[str, NodeWithContentDto],
+        node_children: Dict[str, List[str]],
+        processed_nodes: Set[str],
+        processing_results: Dict[str, DocumentationNode]
+    ) -> List[str]:
+        """
+        Get the next batch of nodes that can be processed (bottom-up order).
+        
+        A node is processable if:
+        1. It's a leaf node (no children), OR
+        2. All its children have been processed
+        
+        Args:
+            nodes_to_process: All nodes to process
+            node_children: Child relationships
+            processed_nodes: Already processed node IDs
+            processing_results: Results so far
+            
+        Returns:
+            List of node IDs ready for processing
+        """
+        batch = []
+        
+        for node_id in nodes_to_process.keys():
+            if node_id in processed_nodes:
+                continue
+                
+            children = node_children.get(node_id, [])
+            
+            # Check if all children are processed (or it's a leaf)
+            if not children:
+                # Leaf node
+                batch.append(node_id)
+            else:
+                # Check if all children are processed
+                all_children_ready = all(
+                    child_id in processing_results or child_id in processed_nodes
+                    for child_id in children
+                )
+                if all_children_ready:
+                    batch.append(node_id)
+        
+        # Limit batch size to available threads
+        if self._global_executor:
+            available_threads = min(self.max_workers, len(batch))
+            return batch[:available_threads]
+        return batch
+    
+    def _process_batch_with_harvesting(
+        self,
+        batch: List[str],
+        nodes_to_process: Dict[str, NodeWithContentDto],
+        node_children: Dict[str, List[str]],
+        processing_results: Dict[str, DocumentationNode]
+    ) -> None:
+        """
+        Process a batch of nodes using thread pool with immediate harvesting.
+        
+        Uses concurrent.futures.as_completed() for immediate thread reuse.
+        
+        Args:
+            batch: Node IDs to process in this batch
+            nodes_to_process: All nodes
+            node_children: Child relationships
+            processing_results: Results accumulator
+        """
+        if not self._global_executor:
+            # Fallback to sequential processing
+            for node_id in batch:
+                node = nodes_to_process[node_id]
+                result = self._process_single_node_iterative(node, node_children, processing_results)
+                processing_results[node_id] = result
+                self.node_descriptions[node_id] = result
+            return
+        
+        # Submit all tasks to thread pool
+        futures_to_node = {}
+        for node_id in batch:
+            node = nodes_to_process[node_id]
+            future = self._global_executor.submit(
+                self._process_single_node_iterative,
+                node,
+                node_children,
+                processing_results
+            )
+            futures_to_node[future] = (node_id, node)
+        
+        # Process results as they complete (immediate thread harvesting)
+        for future in as_completed(futures_to_node):
+            node_id, node = futures_to_node[future]
+            try:
+                result = future.result(timeout=30)
+                processing_results[node_id] = result
+                self.node_descriptions[node_id] = result
+                logger.debug(f"Completed processing: {node.name}")
+            except Exception as e:
+                logger.error(f"Error processing node {node.name}: {e}")
+                # Create fallback result
+                fallback = self._create_fallback_description(node, str(e))
+                processing_results[node_id] = fallback
+                self.node_descriptions[node_id] = fallback
+    
+    def _process_single_node_iterative(
+        self,
+        node: NodeWithContentDto,
+        node_children: Dict[str, List[str]],
+        processing_results: Dict[str, DocumentationNode]
+    ) -> DocumentationNode:
+        """
+        Process a single node (leaf or parent) in the iterative approach.
+        
+        Args:
+            node: Node to process
+            node_children: Child relationships
+            processing_results: Already processed results
+            
+        Returns:
+            DocumentationNode for this node
         """
         node_id = node.id
-
-        # Check if already completed (no lock needed for read-only check)
+        
+        # Check if already in cache (from database or previous processing)
         if node_id in self.node_descriptions:
-            logger.info(f"DEBUG: Cache hit for node: {node.name} ({node_id})")
             return self.node_descriptions[node_id]
-
+        
         # Check database for existing documentation
         existing_doc = self._check_database_for_existing_documentation(node)
         if existing_doc:
-            # Cache it and return immediately
             self.node_descriptions[node_id] = existing_doc
             self.node_source_mapping[existing_doc.hashed_id] = node_id
             self.source_nodes_cache[node_id] = node
             self.source_to_description[node_id] = existing_doc.content
-            logger.info(f"DEBUG: Database cache hit for node: {node.name} ({node_id})")
             return existing_doc
-
-        # Get current thread ID for tracking
-        thread_id = str(threading.get_ident())
-
-        # Try to become the processor for this node using Future for broadcast
-        with self.futures_lock:
-            fut = self.processing_futures.get(node_id)
-            if fut is None:
-                # We're the first thread for this node - we'll process it
-                fut = Future()
-                self.processing_futures[node_id] = fut
-                self.dependency_tracker.register_processor(node_id, thread_id)
-                should_process = True
-            else:
-                # Another thread is already processing this node - check if we can safely wait
-                can_wait = self.dependency_tracker.register_waiter(node_id, thread_id)
-                should_process = False
-
-                if not can_wait:
-                    # Would create deadlock - use fallback strategy
-                    logger.warning(
-                        f"Potential deadlock detected for node {node.name} ({node_id}), using fallback strategy"
-                    )
-                    return self._handle_deadlock_fallback(node)
-
-        if should_process:
-            # We're the processor thread - do the actual work
-            logger.info(f"DEBUG: Processing node: {node.name} ({node_id})")
-
-            # Get and update the processing path to detect cycles
-            processing_path = self._get_processing_path()
-            processing_path.add(node_id)
-
-            try:
-                # Get immediate children based on navigation strategy (hierarchy or call stack)
-                children = self._get_navigation_children(node)
-
-                if not children:  # LEAF NODE
-                    logger.info(f"DEBUG: Processing leaf node: {node.name}")
-                    description = self._process_leaf_node(node)
-                else:  # PARENT NODE
-                    logger.info(f"DEBUG: Processing parent node: {node.name} with {len(children)} children")
-
-                    # Process ALL children using navigation-based strategy
-                    child_descriptions = self._process_children_parallel(children, node)
-
-                    # Process parent with complete child context
-                    description = self._process_parent_node(node, child_descriptions)
-
-                # Cache the result in existing node_descriptions
-                self.node_descriptions[node_id] = description
-                logger.info(f"DEBUG: Cached result for node: {node.name} ({node_id})")
-
-                # Broadcast result to all waiting threads via Future
-                fut.set_result(description)
-
-                return description
-
-            except Exception as e:
-                # Propagate error to all waiting threads via Future
-                logger.exception(f"Error processing node {node.name} ({node_id}): {e}")
-                fut.set_exception(e)
-                raise
-            finally:
-                # Always remove from processing path and clean up futures mapping
-                processing_path.discard(node_id)
-                # Clean up the future from processing_futures to avoid memory leak
-                with self.futures_lock:
-                    self.processing_futures.pop(node_id, None)
-                # Clean up dependency tracker
-                self.dependency_tracker.unregister_processor(node_id)
-                self.processing_timeouts.pop(node_id, None)
+        
+        # Get children IDs for this node
+        child_ids = node_children.get(node_id, [])
+        
+        if not child_ids:
+            # Leaf node - process directly
+            return self._process_leaf_node(node)
         else:
-            # We're a waiter thread - wait for the processor to complete with timeout
-            logger.info(f"DEBUG: Waiting for another thread to complete {node.name} ({node_id})")
-
-            try:
-                # Wait with timeout to avoid infinite blocking
-                result = fut.result(timeout=self.fallback_timeout_seconds)
-                logger.info(f"DEBUG: Received result from processor thread for {node.name} ({node_id})")
-                return result
-            except concurrent.futures.TimeoutError:
-                logger.warning(
-                    f"Timeout waiting for node {node.name} ({node_id}) after {self.fallback_timeout_seconds}s, "
-                    f"using fallback strategy"
-                )
-                return self._handle_timeout_fallback(node)
-            finally:
-                # Always unregister as waiter
-                self.dependency_tracker.unregister_waiter(node_id, thread_id)
-
-    def _get_available_threads(self) -> int:
-        """Get number of available threads in the thread pool."""
-        if self._global_executor is None:
-            return 0
-
-        try:
-            # Conservative approach: always assume limited availability to prevent deadlocks
-            # The _threads attribute doesn't accurately reflect available threads
-            # since it includes all threads ever created, not just active ones
-            max_workers = self._global_executor._max_workers
-
-            # Dynamic calculation based on active futures (nodes being processed)
-            # This gives a more accurate picture of thread availability
-            active_nodes = len(self.processing_futures)
-            conservative_available = max(1, max_workers - active_nodes)
-
-            logger.debug(f"Thread pool: max_workers={max_workers}, conservative_available={conservative_available}")
-            return conservative_available
-        except Exception as e:
-            logger.warning(f"Could not check thread pool capacity: {e}")
-            return 0
-
-    def _process_children_parallel(
-        self, children: List[NodeWithContentDto], parent_node: NodeWithContentDto
-    ) -> List[DocumentationNode]:
+            # Parent node - gather child descriptions
+            child_descriptions = []
+            for child_id in child_ids:
+                if child_id in processing_results:
+                    child_descriptions.append(processing_results[child_id])
+                elif child_id in self.node_descriptions:
+                    child_descriptions.append(self.node_descriptions[child_id])
+                # Skip children that aren't ready (cycles)
+            
+            # Process parent with available children
+            return self._process_parent_node(node, child_descriptions)
+    
+    def _process_node_with_cycle_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
         """
-        Process child nodes using navigation-based strategy to prevent recursion deadlocks.
-
+        Process a node that's part of a cycle using fallback strategy.
+        
         Args:
-            children: List of child nodes to process
-            parent_node: Parent node to determine navigation strategy
-
+            node: Node that's part of a cycle
+            
         Returns:
-            List of processed child descriptions
+            DocumentationNode with cycle indication
         """
-        if not children:
-            return []
+        try:
+            # Process as leaf but with cycle indication in content
+            info_node = self._process_leaf_node(node)
+            
+            # Add cycle indication to content
+            original_content = info_node.content
+            info_node.content = f"{original_content}\n\n**Note: This node is part of a circular dependency.**"
+            info_node.metadata = {"has_cycle": True}
+            
+            return info_node
+            
+        except Exception as e:
+            logger.error(f"Error in cycle fallback for {node.name}: {e}")
+            return self._create_fallback_description(node, f"Cycle processing error: {e}")
 
-        child_descriptions: List[DocumentationNode] = []
 
-        # Hierarchy navigation - safe to parallelize with capacity checking
-        available_threads = self._get_available_threads()
-        needs_parallel = len(children) > 1 and self.max_workers > 1 and self._global_executor is not None
-        # Since _get_available_threads() already returns a conservative estimate (max_workers // 3),
-        # we just need to check if we have enough threads for the children
-        has_capacity = available_threads >= len(children)
-
-        if not needs_parallel or not has_capacity:
-            # Process sequentially if:
-            # - Single child or single worker mode
-            # - No thread pool available
-            # - Not enough thread capacity
-            if not has_capacity and needs_parallel:
-                logger.info(
-                    f"Thread pool near capacity ({available_threads} available), processing {len(children)} children sequentially"
-                )
-
-            for child in children:
-                child_desc = self._process_node_recursive(child)
-                child_descriptions.append(child_desc)
-        else:
-            # Process in parallel - we have enough thread capacity and it's safe (hierarchy navigation)
-            logger.debug(
-                f"Hierarchy navigation: processing {len(children)} children in parallel ({available_threads} threads available)"
-            )
-            futures = []
-            for child in children:
-                ctx = contextvars.copy_context()
-                try:
-                    if self._global_executor is None:
-                        child_desc = self._process_node_recursive(child)
-                        child_descriptions.append(child_desc)
-                        continue
-
-                    future = self._global_executor.submit(
-                        ctx.run, functools.partial(self._process_node_recursive, child)
-                    )
-                    futures.append((future, child))
-                except RuntimeError as e:
-                    if "can't start new thread" in str(e):
-                        logger.warning(
-                            f"Thread pool exhausted during submission, processing {child.name} ({child.id}) sequentially"
-                        )
-                        # Fall back to sequential processing for this child
-                        child_desc = self._process_node_recursive(child)
-                        child_descriptions.append(child_desc)
-                    else:
-                        raise
-
-            # Collect results from submitted futures
-            for future, child in futures:
-                try:
-                    child_desc = future.result()
-                    child_descriptions.append(child_desc)
-                except Exception as e:
-                    logger.exception(f"Error processing child node {child.name} ({child.id}): {e}")
-                    # Create fallback description for failed child
-                    fallback_desc = self._create_fallback_description(child, str(e))
-                    child_descriptions.append(fallback_desc)
-
-        return child_descriptions
 
     def _create_fallback_description(self, node: NodeWithContentDto, error_msg: str) -> DocumentationNode:
         """

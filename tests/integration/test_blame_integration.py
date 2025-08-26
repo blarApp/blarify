@@ -146,85 +146,126 @@ def format_output(data: Dict) -> str:
                     if node_id:
                         test_node_ids.append(node_id)
 
+        # Import DTOs for proper mocking
+        from blarify.repositories.version_control.dtos.blame_commit_dto import BlameCommitDto
+        from blarify.repositories.version_control.dtos.blame_line_range_dto import BlameLineRangeDto
+        from blarify.repositories.version_control.dtos.pull_request_info_dto import PullRequestInfoDto
+
         # Step 2: Mock GitHub blame responses
         def mock_blame_response(file_path: str, start_line: int, end_line: int, ref: str = "HEAD"):
             """Generate mock blame response based on file and lines."""
             if "main.py" in file_path:
                 if start_line <= 7:  # authenticate function
                     return [
-                        {
-                            "sha": "abc123",
-                            "message": "Implement authentication system",
-                            "author": "Alice Developer",
-                            "author_email": "alice@example.com",
-                            "author_login": "alice",
-                            "timestamp": "2024-01-01T10:00:00Z",
-                            "url": "https://github.com/test/repo/commit/abc123",
-                            "line_ranges": [{"start": start_line, "end": min(end_line, 7)}],
-                            "pr_info": {
-                                "number": 42,
-                                "title": "Add authentication feature",
-                                "url": "https://github.com/test/repo/pull/42",
-                                "author": "alice",
-                                "merged_at": "2024-01-01T11:00:00Z",
-                                "state": "MERGED",
-                            },
-                        }
+                        BlameCommitDto(
+                            sha="abc123",
+                            message="Implement authentication system",
+                            author="Alice Developer",
+                            author_email="alice@example.com",
+                            author_login="alice",
+                            timestamp="2024-01-01T10:00:00Z",
+                            url="https://github.com/test/repo/commit/abc123",
+                            line_ranges=[BlameLineRangeDto(start=start_line, end=min(end_line, 7))],
+                            pr_info=PullRequestInfoDto(
+                                number=42,
+                                title="Add authentication feature",
+                                url="https://github.com/test/repo/pull/42",
+                                author="alice",
+                                merged_at="2024-01-01T11:00:00Z",
+                                state="MERGED",
+                            ),
+                        )
                     ]
                 elif start_line <= 17:  # process_data function
                     return [
-                        {
-                            "sha": "def456",
-                            "message": "Add data processing functionality",
-                            "author": "Bob Developer",
-                            "author_email": "bob@example.com",
-                            "timestamp": "2024-01-02T10:00:00Z",
-                            "url": "https://github.com/test/repo/commit/def456",
-                            "line_ranges": [{"start": max(start_line, 9), "end": min(end_line, 17)}],
-                            "pr_info": None,
-                        }
+                        BlameCommitDto(
+                            sha="def456",
+                            message="Add data processing functionality",
+                            author="Bob Developer",
+                            author_email="bob@example.com",
+                            timestamp="2024-01-02T10:00:00Z",
+                            url="https://github.com/test/repo/commit/def456",
+                            line_ranges=[BlameLineRangeDto(start=max(start_line, 9), end=min(end_line, 17))],
+                            pr_info=None,
+                        )
                     ]
                 else:  # DataProcessor class
                     return [
-                        {
-                            "sha": "ghi789",
-                            "message": "Refactor into DataProcessor class",
-                            "author": "Charlie Developer",
-                            "author_email": "charlie@example.com",
-                            "author_login": "charlie",
-                            "timestamp": "2024-01-03T10:00:00Z",
-                            "url": "https://github.com/test/repo/commit/ghi789",
-                            "line_ranges": [{"start": max(start_line, 19), "end": end_line}],
-                            "pr_info": {
-                                "number": 55,
-                                "title": "Refactor data processing",
-                                "url": "https://github.com/test/repo/pull/55",
-                                "author": "charlie",
-                                "merged_at": "2024-01-03T11:00:00Z",
-                            },
-                        }
+                        BlameCommitDto(
+                            sha="ghi789",
+                            message="Refactor into DataProcessor class",
+                            author="Charlie Developer",
+                            author_email="charlie@example.com",
+                            author_login="charlie",
+                            timestamp="2024-01-03T10:00:00Z",
+                            url="https://github.com/test/repo/commit/ghi789",
+                            line_ranges=[BlameLineRangeDto(start=max(start_line, 19), end=end_line)],
+                            pr_info=PullRequestInfoDto(
+                                number=55,
+                                title="Refactor data processing",
+                                url="https://github.com/test/repo/pull/55",
+                                author="charlie",
+                                merged_at="2024-01-03T11:00:00Z",
+                                state="MERGED",
+                            ),
+                        )
                     ]
             else:  # utils.py
                 return [
-                    {
-                        "sha": "jkl012",
-                        "message": "Add utility functions",
-                        "author": "Dana Developer",
-                        "author_email": "dana@example.com",
-                        "timestamp": "2024-01-04T10:00:00Z",
-                        "url": "https://github.com/test/repo/commit/jkl012",
-                        "line_ranges": [{"start": start_line, "end": end_line}],
-                        "pr_info": None,
-                    }
+                    BlameCommitDto(
+                        sha="jkl012",
+                        message="Add utility functions",
+                        author="Dana Developer",
+                        author_email="dana@example.com",
+                        timestamp="2024-01-04T10:00:00Z",
+                        url="https://github.com/test/repo/commit/jkl012",
+                        line_ranges=[BlameLineRangeDto(start=start_line, end=end_line)],
+                        pr_info=None,
+                    )
                 ]
 
+        # Need to mock the query_nodes_by_ids to return proper DTOs
+        from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
+        
+        def mock_query_nodes_by_ids(node_ids: list[str]) -> list[CodeNodeDto]:
+            """Mock query_nodes_by_ids to return CodeNodeDto objects."""
+            nodes = []
+            for idx, node_id in enumerate(node_ids):
+                nodes.append(
+                    CodeNodeDto(
+                        id=node_id,
+                        name=f"test_node_{idx}",
+                        label="FUNCTION" if "func" in node_id else "CLASS",
+                        path="/test/main.py",
+                        start_line=1 + (idx * 10),
+                        end_line=10 + (idx * 10),
+                    )
+                )
+            return nodes
+
         # Step 3: Run blame-based GitHub integration
-        def mock_blame_for_nodes(nodes_dict: Any) -> Any:
+        def mock_blame_for_nodes(nodes: list[CodeNodeDto]) -> dict[str, list[BlameCommitDto]]:
             """Mock function for blame_commits_for_nodes."""
-            return {
-                str(node_id): mock_blame_response("/fake/path.py", 1, 10)
-                for node_id in (nodes_dict if isinstance(nodes_dict, list) else [])
-            }
+            # blame_commits_for_nodes expects a list of CodeNodeDto and returns Dict[str, List[BlameCommitDto]]
+            result = {}
+            # Return all 4 commits for testing
+            commits = [
+                mock_blame_response("/fake/main.py", 1, 7)[0],  # abc123
+                mock_blame_response("/fake/main.py", 9, 17)[0],  # def456
+                mock_blame_response("/fake/main.py", 19, 30)[0],  # ghi789
+                mock_blame_response("/fake/utils.py", 1, 10)[0],  # jkl012
+            ]
+            
+            # Assign commits to nodes
+            for node in nodes:
+                # For testing, assign one commit per node
+                if nodes.index(node) < len(commits):
+                    result[node.id] = [commits[nodes.index(node)]]
+                else:
+                    # If we have more nodes than commits, cycle through
+                    result[node.id] = [commits[nodes.index(node) % len(commits)]]
+            
+            return result
 
         with patch("blarify.integrations.github_creator.GitHub") as mock_github_class:
             mock_github = Mock(spec=GitHub)
@@ -242,6 +283,9 @@ def format_output(data: Dict) -> str:
                 repo_name="repo",
             )
             creator.github_repo = mock_github
+            
+            # Mock the _query_nodes_by_ids method
+            creator._query_nodes_by_ids = Mock(side_effect=mock_query_nodes_by_ids)
 
             result = creator.create_github_integration_from_nodes(node_ids=test_node_ids, save_to_database=True)
 
@@ -281,12 +325,11 @@ def format_output(data: Dict) -> str:
         # Verify blame attribution in relationships
         for rel in modified_by_rels:
             if isinstance(rel, dict):
-                # Dictionary-based relationship
-                props = rel.get("properties", {})
-                assert props.get("attribution_method") == "blame"
-                assert props.get("attribution_accuracy") == "exact"
-                assert "blamed_lines" in props
-                assert props.get("total_lines_affected", 0) > 0
+                # Dictionary-based relationship - the attributes are spread directly in the dict
+                assert rel.get("attribution_method") == "blame"
+                assert rel.get("attribution_accuracy") == "exact"
+                assert "blamed_lines" in rel
+                assert rel.get("total_lines_affected", 0) > 0
             else:
                 # Object-based relationship
                 assert hasattr(rel, "attribution_method")
@@ -302,6 +345,10 @@ def format_output(data: Dict) -> str:
 
     def test_blame_accuracy_vs_patch_parsing(self, test_repo_path: str, mock_db_manager: Mock) -> None:
         """Test that blame provides more accurate attribution than patch parsing."""
+        from blarify.repositories.version_control.dtos.blame_commit_dto import BlameCommitDto
+        from blarify.repositories.version_control.dtos.blame_line_range_dto import BlameLineRangeDto
+        from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
+        
         # Create node IDs representing a file with multiple functions
         test_node_ids = [
             "func1",
@@ -309,46 +356,63 @@ def format_output(data: Dict) -> str:
             "func3",
         ]
 
+        # Mock query_nodes_by_ids to return proper DTOs
+        def mock_query_nodes_by_ids(node_ids: list[str]) -> list[CodeNodeDto]:
+            """Mock query_nodes_by_ids to return CodeNodeDto objects."""
+            nodes = []
+            for idx, node_id in enumerate(node_ids):
+                nodes.append(
+                    CodeNodeDto(
+                        id=node_id,
+                        name=f"function_{idx+1}",
+                        label="FUNCTION",
+                        path="/test/main.py",
+                        start_line=1 + (idx * 10),
+                        end_line=10 + (idx * 10),
+                    )
+                )
+            return nodes
+
         # Mock blame results - each function has a different author/commit
         blame_results = {
             "func1": [
-                {
-                    "sha": "commit123",
-                    "message": "Add function_one",
-                    "author": "Alice",
-                    "author_email": "alice@example.com",
-                    "author_login": "alice",
-                    "timestamp": "2024-01-01T10:00:00Z",
-                    "url": "https://github.com/test/repo/commit/commit123",
-                    "line_ranges": [{"start": 1, "end": 10}],
-                    "pr_info": None,
-                }
+                BlameCommitDto(
+                    sha="commit123",
+                    message="Add function_one",
+                    author="Alice",
+                    author_email="alice@example.com",
+                    author_login="alice",
+                    timestamp="2024-01-01T10:00:00Z",
+                    url="https://github.com/test/repo/commit/commit123",
+                    line_ranges=[BlameLineRangeDto(start=1, end=10)],
+                    pr_info=None,
+                )
             ],
             "func2": [
-                {
-                    "sha": "commit456",
-                    "message": "Add function_two",
-                    "author": "Bob",
-                    "author_email": "bob@example.com",
-                    "author_login": "bob",
-                    "timestamp": "2024-01-02T10:00:00Z",
-                    "url": "https://github.com/test/repo/commit/commit456",
-                    "line_ranges": [{"start": 12, "end": 20}],
-                    "pr_info": None,
-                }
+                BlameCommitDto(
+                    sha="commit456",
+                    message="Add function_two",
+                    author="Bob",
+                    author_email="bob@example.com",
+                    author_login="bob",
+                    timestamp="2024-01-02T10:00:00Z",
+                    url="https://github.com/test/repo/commit/commit456",
+                    line_ranges=[BlameLineRangeDto(start=12, end=20)],
+                    pr_info=None,
+                )
             ],
             "func3": [
-                {
-                    "sha": "commit789",
-                    "message": "Add function_three",
-                    "author": "Charlie",
-                    "author_email": "charlie@example.com",
-                    "author_login": "charlie",
-                    "timestamp": "2024-01-03T10:00:00Z",
-                    "url": "https://github.com/test/repo/commit/commit789",
-                    "line_ranges": [{"start": 22, "end": 30}],
-                    "pr_info": None,
-                }
+                BlameCommitDto(
+                    sha="commit789",
+                    message="Add function_three",
+                    author="Charlie",
+                    author_email="charlie@example.com",
+                    author_login="charlie",
+                    timestamp="2024-01-03T10:00:00Z",
+                    url="https://github.com/test/repo/commit/commit789",
+                    line_ranges=[BlameLineRangeDto(start=22, end=30)],
+                    pr_info=None,
+                )
             ],
         }
 
@@ -367,6 +431,9 @@ def format_output(data: Dict) -> str:
                 repo_name="repo",
             )
             creator.github_repo = mock_github
+            
+            # Mock the _query_nodes_by_ids method
+            creator._query_nodes_by_ids = Mock(side_effect=mock_query_nodes_by_ids)
 
             result = creator.create_github_integration_from_nodes(node_ids=test_node_ids, save_to_database=False)
 
@@ -376,35 +443,67 @@ def format_output(data: Dict) -> str:
 
     def test_pr_association_through_blame(self, test_repo_path: str, mock_db_manager: Mock) -> None:
         """Test that PRs are correctly associated through blame results."""
+        from blarify.repositories.version_control.dtos.blame_commit_dto import BlameCommitDto
+        from blarify.repositories.version_control.dtos.blame_line_range_dto import BlameLineRangeDto
+        from blarify.repositories.version_control.dtos.pull_request_info_dto import PullRequestInfoDto
+        from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
+        
         test_node_ids = ["node1"]
+        
+        # Mock query_nodes_by_ids to return proper DTOs
+        def mock_query_nodes_by_ids(node_ids: list[str]) -> list[CodeNodeDto]:
+            """Mock query_nodes_by_ids to return CodeNodeDto objects."""
+            nodes = []
+            for node_id in node_ids:
+                nodes.append(
+                    CodeNodeDto(
+                        id=node_id,
+                        name="test_node",
+                        label="FUNCTION",
+                        path="/test/main.py",
+                        start_line=1,
+                        end_line=50,
+                    )
+                )
+            return nodes
 
         # Mock blame showing multiple commits from same PR
         blame_results = {
             "node1": [
-                {
-                    "sha": "commit1",
-                    "message": "Start feature implementation",
-                    "author": "Dev",
-                    "timestamp": "2024-01-01T00:00:00Z",
-                    "line_ranges": [{"start": 1, "end": 25}],
-                    "pr_info": {
-                        "number": 100,
-                        "title": "Implement new feature",
-                        "url": "https://github.com/test/repo/pull/100",
-                    },
-                },
-                {
-                    "sha": "commit2",
-                    "message": "Complete feature implementation",
-                    "author": "Dev",
-                    "timestamp": "2024-01-01T01:00:00Z",
-                    "line_ranges": [{"start": 26, "end": 50}],
-                    "pr_info": {
-                        "number": 100,
-                        "title": "Implement new feature",
-                        "url": "https://github.com/test/repo/pull/100",
-                    },
-                },
+                BlameCommitDto(
+                    sha="commit1",
+                    message="Start feature implementation",
+                    author="Dev",
+                    author_email="dev@example.com",
+                    timestamp="2024-01-01T00:00:00Z",
+                    url="https://github.com/test/repo/commit/commit1",
+                    line_ranges=[BlameLineRangeDto(start=1, end=25)],
+                    pr_info=PullRequestInfoDto(
+                        number=100,
+                        title="Implement new feature",
+                        url="https://github.com/test/repo/pull/100",
+                        author="dev",
+                        merged_at="2024-01-01T02:00:00Z",
+                        state="MERGED",
+                    ),
+                ),
+                BlameCommitDto(
+                    sha="commit2",
+                    message="Complete feature implementation",
+                    author="Dev",
+                    author_email="dev@example.com",
+                    timestamp="2024-01-01T01:00:00Z",
+                    url="https://github.com/test/repo/commit/commit2",
+                    line_ranges=[BlameLineRangeDto(start=26, end=50)],
+                    pr_info=PullRequestInfoDto(
+                        number=100,
+                        title="Implement new feature",
+                        url="https://github.com/test/repo/pull/100",
+                        author="dev",
+                        merged_at="2024-01-01T02:00:00Z",
+                        state="MERGED",
+                    ),
+                ),
             ]
         }
 
@@ -423,6 +522,9 @@ def format_output(data: Dict) -> str:
                 repo_name="repo",
             )
             creator.github_repo = mock_github
+            
+            # Mock the _query_nodes_by_ids method
+            creator._query_nodes_by_ids = Mock(side_effect=mock_query_nodes_by_ids)
 
             result = creator.create_github_integration_from_nodes(node_ids=test_node_ids, save_to_database=False)
 

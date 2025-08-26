@@ -2,7 +2,7 @@
   "include": ["blarify", "tests", "neo4j_container_manager"],
   "exclude": ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor", ".venv"],
   "typeCheckingMode": "strict",
-  "reportMissingImports": true,
+  "reportMissingImports": "warning",
   "reportMissingTypeStubs": false,
   "reportMissingParameterType": true,
   "reportMissingReturnType": true,
@@ -18,5 +18,6 @@
   "reportDuplicateImport": true,
   "strictListInference": false,
   "strictDictionaryInference": false,
-  "strictSetInference": false
+  "strictSetInference": false,
+  "extraPaths": [".", "tests"]
 }

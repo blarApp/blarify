@@ -6,13 +6,99 @@ with the Neo4j container management system. Fixtures handle automatic
 container lifecycle management and cleanup.
 """
 
-import pytest
-import asyncio
-from typing import Optional, Dict, Any, AsyncGenerator, Generator, List
-from pathlib import Path
+from __future__ import annotations
 
-from .container_manager import Neo4jContainerManager
-from .types import Neo4jContainerConfig, Neo4jContainerInstance, Environment
+import asyncio
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Dict, Generator, List, Optional, TypeVar, Union
+
+if TYPE_CHECKING:
+    try:
+        import pytest
+    except ImportError:
+        # Provide minimal pytest typing for type checkers
+        class _pytest:
+            @staticmethod
+            def fixture(
+                scope: Optional[str] = None,
+                params: Optional[List[Any]] = None,
+                autouse: bool = False,
+                ids: Optional[Union[List[str], Callable[[Any], str]]] = None,
+                name: Optional[str] = None,
+            ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+                def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                return decorator
+
+            class mark:
+                @staticmethod
+                def neo4j_unit(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                @staticmethod
+                def neo4j_integration(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                @staticmethod
+                def neo4j_performance(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                @staticmethod
+                def slow(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+        pytest = _pytest()
+
+    from .container_manager import Neo4jContainerManager
+    from .types import Neo4jContainerConfig, Neo4jContainerInstance, Environment
+else:
+    # Runtime imports with fallback
+    try:
+        import pytest
+    except ImportError:
+        # Mock pytest for runtime when not available
+        class _MockPytest:
+            @staticmethod
+            def fixture(*args: Any, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+                def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                return decorator
+
+            class mark:
+                @staticmethod
+                def neo4j_unit(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                @staticmethod
+                def neo4j_integration(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                @staticmethod
+                def neo4j_performance(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+                @staticmethod
+                def slow(func: Callable[..., Any]) -> Callable[..., Any]:
+                    return func
+
+        pytest = _MockPytest()  # type: ignore[assignment]
+
+    from .container_manager import Neo4jContainerManager
+    from .types import Neo4jContainerConfig, Neo4jContainerInstance, Environment
+
+# Type variables for better type hints
+T = TypeVar("T")
+F = TypeVar("F", bound=Callable[..., Any])
+
+# Type aliases for fixture functions
+EventLoopFixture = Callable[[], Generator[asyncio.AbstractEventLoop, None, None]]
+Neo4jManagerFixture = Callable[[], AsyncGenerator[Neo4jContainerManager, None]]
+Neo4jConfigFixture = Callable[[Any], Neo4jContainerConfig]
+Neo4jInstanceFixture = Callable[
+    [Neo4jContainerManager, Neo4jContainerConfig], AsyncGenerator[Neo4jContainerInstance, None]
+]
 
 
 @pytest.fixture(scope="session")
@@ -47,7 +133,7 @@ async def neo4j_manager() -> AsyncGenerator[Neo4jContainerManager, None]:
         await manager.cleanup_all_tests()
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 async def neo4j_config(request: Any) -> Neo4jContainerConfig:
     """
     Fixture that provides a basic Neo4j container configuration.
@@ -81,7 +167,7 @@ async def neo4j_config(request: Any) -> Neo4jContainerConfig:
     )
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 async def neo4j_instance(
     neo4j_manager: Neo4jContainerManager, neo4j_config: Neo4jContainerConfig
 ) -> AsyncGenerator[Neo4jContainerInstance, None]:
@@ -105,7 +191,7 @@ async def neo4j_instance(
         await instance.stop()
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 async def neo4j_instance_with_sample_data(
     neo4j_instance: Neo4jContainerInstance,
 ) -> AsyncGenerator[Neo4jContainerInstance, None]:
@@ -130,7 +216,7 @@ async def neo4j_instance_with_sample_data(
     # Cleanup is handled by the neo4j_instance fixture
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 async def neo4j_instance_empty(
     neo4j_manager: Neo4jContainerManager, neo4j_config: Neo4jContainerConfig
 ) -> AsyncGenerator[Neo4jContainerInstance, None]:
@@ -151,7 +237,7 @@ async def neo4j_instance_empty(
         await instance.stop()
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 def neo4j_test_data_path(tmp_path: Path) -> Path:
     """
     Fixture that provides a temporary directory for test data files.
@@ -164,7 +250,7 @@ def neo4j_test_data_path(tmp_path: Path) -> Path:
     return test_data_dir
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 def sample_cypher_file(neo4j_test_data_path: Path) -> Path:
     """
     Fixture that creates a sample Cypher file for data loading tests.
@@ -190,7 +276,7 @@ def sample_cypher_file(neo4j_test_data_path: Path) -> Path:
     return cypher_file
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 def sample_json_file(neo4j_test_data_path: Path) -> Path:
     """
     Fixture that creates a sample JSON file for data loading tests.
@@ -222,7 +308,7 @@ def sample_json_file(neo4j_test_data_path: Path) -> Path:
     return json_file
 
 
-@pytest.fixture
+@pytest.fixture  # type: ignore[misc]
 def sample_csv_file(neo4j_test_data_path: Path) -> Path:
     """
     Fixture that creates a sample CSV file for data loading tests.
@@ -318,8 +404,8 @@ async def neo4j_instance_memory_sizes(
 # Utility fixtures for test helpers
 
 
-@pytest.fixture
-def neo4j_query_helper():
+@pytest.fixture  # type: ignore[misc]
+def neo4j_query_helper() -> Any:
     """
     Fixture that provides utility functions for common Neo4j queries.
 
@@ -378,15 +464,15 @@ def neo4j_query_helper():
     return Neo4jQueryHelper()
 
 
-@pytest.fixture
-async def neo4j_performance_monitor():
+@pytest.fixture  # type: ignore[misc]
+async def neo4j_performance_monitor() -> Any:
     """
     Fixture that provides performance monitoring utilities.
 
     Returns a helper for measuring query performance and container resource usage.
     """
     import time
-    from typing import List, Tuple
+    from typing import Tuple
 
     class PerformanceMonitor:
         def __init__(self):

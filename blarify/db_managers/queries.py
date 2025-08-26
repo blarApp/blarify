@@ -2582,3 +2582,109 @@ def update_documentation_embeddings_query() -> str:
     SET n.content_embedding = update.embedding
     RETURN n.node_id as node_id
     """
+
+
+def initialize_processing_query() -> str:
+    """
+    Initialize processing by marking all nodes as pending.
+    
+    Sets the processing status of all nodes in the graph to 'pending'.
+    
+    Parameters expected:
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+    
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    SET n.processing_status = 'pending'
+    RETURN count(n) as initialized_count
+    """
+
+
+def mark_processing_status_query() -> str:
+    """
+    Update the processing status of a specific node.
+    
+    Marks a node with a specific processing status (pending, in_progress, completed).
+    
+    Parameters expected:
+        - node_path: Path to the node to update
+        - status: New status ('pending', 'in_progress', or 'completed')
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+    
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {path: $node_path, entityId: $entity_id, repoId: $repo_id})
+    SET n.processing_status = $status
+    RETURN n.path as path, $status as new_status
+    """
+
+
+def get_processable_nodes_query() -> str:
+    """
+    Get nodes that are ready for processing in bottom-up order.
+    
+    Returns nodes that:
+    1. Have 'pending' status
+    2. Either have no children OR all children are 'completed'
+    
+    This ensures bottom-up processing order where leaf nodes are processed
+    before their parents.
+    
+    Parameters expected:
+        - batch_size: Maximum number of nodes to return
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+    
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    // Find all nodes with pending status
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    WHERE n.processing_status = 'pending'
+    
+    // Check if node is processable (no children or all children completed)
+    OPTIONAL MATCH (n)-[:CONTAINS]->(child:NODE)
+    WHERE child.entityId = $entity_id 
+      AND child.repoId = $repo_id
+    WITH n, collect(child) as children
+    
+    // Filter to only nodes where all children are completed (or no children)
+    WHERE size(children) = 0 OR 
+          all(child IN children WHERE child.processing_status = 'completed')
+    
+    RETURN n.path as path, 
+           n.name as name,
+           n.node_id as node_id,
+           labels(n) as labels
+    LIMIT $batch_size
+    """
+
+
+def cleanup_processing_query() -> str:
+    """
+    Remove all processing status data from nodes.
+    
+    Cleans up the processing status fields. This should be called when 
+    processing completes or is abandoned.
+    
+    Parameters expected:
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+    
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    WHERE n.processing_status IS NOT NULL
+    REMOVE n.processing_status
+    RETURN count(n) as cleaned_count
+    """

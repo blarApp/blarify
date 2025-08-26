@@ -2493,3 +2493,54 @@ def find_entry_points_for_node_path(
     except Exception as e:
         logger.exception(f"Error finding entry points for node path '{node_path}': {e}")
         return []
+
+
+def get_documentation_nodes_for_embedding_query() -> str:
+    """Query to retrieve documentation nodes for embedding processing.
+
+    Returns:
+        Cypher query string for fetching documentation nodes
+    """
+    return """
+    MATCH (n:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id})
+    WHERE n.content_embedding IS NULL OR size(n.content_embedding) = 0
+    RETURN n.node_id as node_id,
+           n.content as content,
+           n.info_type as info_type,
+           n.source_type as source_type,
+           n.source_path as source_path,
+           n.source_node_id as source_id,
+           n.source_labels as source_labels,
+           n.content_embedding as content_embedding
+    LIMIT $batch_size
+    """
+
+def update_documentation_embeddings_query() -> str:
+    """Query to update embeddings for documentation nodes.
+    
+    Returns:
+        Cypher query string for updating embeddings
+    """
+    return """
+    UNWIND $updates as update
+    MATCH (n:DOCUMENTATION {node_id: update.node_id, entityId: $entity_id, repoId: $repo_id})
+    SET n.content_embedding = update.embedding
+    RETURN n.node_id as node_id
+    """
+
+
+def create_vector_index_query() -> str:
+    """Create Neo4j vector index for documentation embeddings.
+    
+    Returns:
+        Cypher query string for creating the vector index
+    """
+    return """
+    CREATE VECTOR INDEX documentation_embeddings IF NOT EXISTS
+    FOR (n:DOCUMENTATION) 
+    ON n.content_embedding
+    OPTIONS {indexConfig: {
+        `vector.dimensions`: 1536,
+        `vector.similarity_function`: 'cosine'
+    }}
+    """

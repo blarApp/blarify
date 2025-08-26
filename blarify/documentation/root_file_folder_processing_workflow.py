@@ -25,12 +25,12 @@ class RootFileFolderProcessingState(TypedDict):
     # Sequential root processing
     current_root_index: int
     root_paths: List[str]
-    
+
     # Results aggregation
     all_information_nodes: List[Dict[str, Any]]
     all_documentation_nodes: List[Any]  # Will store actual DocumentationNode objects
     all_source_nodes: List[Any]  # Will store actual Node objects
-    
+
     # Control flow
     error: Optional[str]
     complete: bool
@@ -39,7 +39,7 @@ class RootFileFolderProcessingState(TypedDict):
 class RooFileFolderProcessingWorkflow:
     """
     Simplified workflow for processing multiple root folders using RecursiveDFSProcessor.
-    
+
     This workflow processes each root path using the existing RecursiveDFSProcessor,
     providing better LangSmith tracking and avoiding workflow recursion limits.
     """
@@ -52,6 +52,7 @@ class RooFileFolderProcessingWorkflow:
         repo_id: str,
         root_paths: List[str],
         graph_environment: GraphEnvironment,
+        max_workers: int,
     ):
         """
         Initialize folder processing workflow for multiple root paths.
@@ -71,6 +72,7 @@ class RooFileFolderProcessingWorkflow:
         self.root_paths = root_paths
         self.graph_environment = graph_environment
         self._compiled_graph = None
+        self.max_workers = max_workers
 
     def compile_graph(self):
         """Compile simple workflow for sequential root processing."""
@@ -106,32 +108,30 @@ class RooFileFolderProcessingWorkflow:
                 company_id=self.company_id,
                 repo_id=self.repo_id,
                 graph_environment=self.graph_environment,
+                max_workers=self.max_workers,
             )
-            
+
             # Process the root path
             result = processor.process_node(root_path)
-            
+
             if result.error:
                 logger.error(f"Error processing root {root_path}: {result.error}")
                 # Continue to next root despite error
-                return Command(
-                    update={"current_root_index": current_index + 1},
-                    goto="process_next_root"
-                )
-            
+                return Command(update={"current_root_index": current_index + 1}, goto="process_next_root")
+
             # Results will be saved by DocumentationCreator, no need to save here
-                
+
             # Aggregate results
             current_info_nodes = state.get("all_information_nodes", [])
             current_doc_nodes = state.get("all_documentation_nodes", [])
             current_source_nodes = state.get("all_source_nodes", [])
-            
+
             updated_info_nodes = current_info_nodes + result.information_nodes
             updated_doc_nodes = current_doc_nodes + result.documentation_nodes
             updated_source_nodes = current_source_nodes + result.source_nodes
-            
+
             logger.info(f"Completed processing for root: {root_path} ({len(result.information_nodes)} nodes)")
-            
+
             return Command(
                 update={
                     "current_root_index": current_index + 1,
@@ -139,26 +139,19 @@ class RooFileFolderProcessingWorkflow:
                     "all_documentation_nodes": updated_doc_nodes,
                     "all_source_nodes": updated_source_nodes,
                 },
-                goto="process_next_root"
+                goto="process_next_root",
             )
-            
+
         except Exception as e:
             logger.exception(f"Error processing root {root_path}: {e}")
-            return Command(
-                update={
-                    "current_root_index": current_index + 1,
-                    "error": str(e)
-                },
-                goto="process_next_root"
-            )
+            return Command(update={"current_root_index": current_index + 1, "error": str(e)}, goto="process_next_root")
 
     def save_final_results(self, state: RootFileFolderProcessingState) -> Command[None]:
         """Complete the workflow - all roots have been processed and saved."""
         all_nodes = state.get("all_information_nodes", [])
         logger.info(f"All root paths processed. Total nodes: {len(all_nodes)}")
-        
-        return Command(update={"complete": True}, goto=END)
 
+        return Command(update={"complete": True}, goto=END)
 
     def run(self) -> ProcessingResult:
         """
@@ -168,9 +161,7 @@ class RooFileFolderProcessingWorkflow:
             ProcessingResult with combined analysis results from all root paths
         """
         try:
-            logger.info(
-                f"Starting root processing workflow for {len(self.root_paths)} root paths: {self.root_paths}"
-            )
+            logger.info(f"Starting root processing workflow for {len(self.root_paths)} root paths: {self.root_paths}")
 
             if not self.root_paths:
                 logger.warning("No root paths provided for processing")

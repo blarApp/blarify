@@ -17,6 +17,7 @@ delete.py
 static/
 easy/
 gadugi/
+.worktree/
 
 
 !blarify/vendor/**/*.json

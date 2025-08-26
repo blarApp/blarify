@@ -25,6 +25,7 @@ from neo4j_container_manager import (
     Neo4jContainerConfig,
     Environment,
 )
+from neo4j_container_manager.types import DockerResourceConfig
 
 
 pytestmark = pytest.mark.skipif(not docker_available, reason="Docker not available")
@@ -90,6 +91,68 @@ class TestNeo4jContainerIntegration:
             raise e
         finally:
             # Final cleanup
+            await manager.cleanup_all_tests()
+    
+    @pytest.mark.asyncio
+    async def test_container_with_docker_resources(self, docker_check: docker.DockerClient):
+        """Test container creation with Docker resource constraints."""
+        manager = Neo4jContainerManager()
+        
+        # Create configuration with resource constraints
+        docker_resources = DockerResourceConfig(
+            cpu_count=2,
+            cpu_shares=2048,
+            mem_limit="2g",
+            shm_size="256m",
+            ulimits=[
+                {"Name": "nofile", "Soft": 32768, "Hard": 32768},
+                {"Name": "nproc", "Soft": 4096, "Hard": 4096},
+            ]
+        )
+        
+        config = Neo4jContainerConfig(
+            environment=Environment.TEST,
+            password="resource-test-password",
+            test_id="resource-constraints-test",
+            docker_resources=docker_resources,
+            startup_timeout=90,
+        )
+        
+        try:
+            # Start container with resource constraints
+            instance = await manager.start_for_test(config)
+            
+            # Verify container is running
+            assert await instance.is_running()
+            
+            # Get container stats to verify resources were applied
+            stats = manager.get_container_stats(instance.container_id)
+            
+            # Verify container is operational
+            assert "status" in stats
+            assert stats.get("status") == "running"
+            
+            # Test that Neo4j works with the resource constraints
+            result = await instance.execute_cypher("RETURN 'Resource test' as message")
+            assert result[0]["message"] == "Resource test"
+            
+            # Create some nodes to test memory limits
+            for i in range(10):
+                await instance.execute_cypher(
+                    "CREATE (n:TestNode {id: $id, data: $data})",
+                    {"id": i, "data": f"Test data for node {i}"}
+                )
+            
+            # Query the nodes
+            count_result = await instance.execute_cypher("MATCH (n:TestNode) RETURN count(n) as count")
+            assert count_result[0]["count"] == 10
+            
+            # Health check should still work with constraints
+            health = await instance.health_check()
+            assert health["status"] == "healthy"
+            
+        finally:
+            # Cleanup
             await manager.cleanup_all_tests()
 
     @pytest.mark.asyncio

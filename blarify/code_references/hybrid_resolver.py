@@ -6,7 +6,7 @@ from enum import Enum
 
 from blarify.graph.node import DefinitionNode
 from .types.Reference import Reference
-from .lsp_helper import LspQueryHelper, ProgressTracker
+from .lsp_helper import LspQueryHelper
 from .scip_helper import ScipReferenceResolver
 
 logger = logging.getLogger(__name__)

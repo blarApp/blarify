@@ -40,6 +40,139 @@ from ...graph.graph_environment import GraphEnvironment
 logger = logging.getLogger(__name__)
 
 
+class ThreadDependencyTracker:
+    """
+    Tracks which threads are waiting for which nodes to detect potential deadlocks.
+
+    This class maintains the dependency graph between threads and nodes to detect
+    circular wait conditions that would lead to deadlocks in multi-threaded processing.
+    """
+
+    def __init__(self):
+        """Initialize the thread dependency tracker."""
+        self._waiting_threads: Dict[str, Set[str]] = {}  # thread_id -> set of node_ids
+        self._processing_threads: Dict[str, str] = {}  # node_id -> thread_id
+        self._lock = threading.Lock()
+
+    def register_processor(self, node_id: str, thread_id: str) -> None:
+        """
+        Register a thread as the processor for a node.
+
+        Args:
+            node_id: The ID of the node being processed
+            thread_id: The ID of the thread processing the node
+        """
+        with self._lock:
+            self._processing_threads[node_id] = thread_id
+
+    def register_waiter(self, node_id: str, thread_id: str) -> bool:
+        """
+        Register a thread as waiting for a node.
+
+        Args:
+            node_id: The ID of the node the thread wants to wait for
+            thread_id: The ID of the thread that wants to wait
+
+        Returns:
+            False if this would create a deadlock, True otherwise
+        """
+        with self._lock:
+            if thread_id not in self._waiting_threads:
+                self._waiting_threads[thread_id] = set()
+
+            # Check for potential deadlock before adding the wait dependency
+            if self._would_create_deadlock(node_id, thread_id):
+                return False
+
+            self._waiting_threads[thread_id].add(node_id)
+            return True
+
+    def unregister_waiter(self, node_id: str, thread_id: str) -> None:
+        """
+        Unregister a thread from waiting for a node.
+
+        Args:
+            node_id: The ID of the node the thread was waiting for
+            thread_id: The ID of the thread that was waiting
+        """
+        with self._lock:
+            if thread_id in self._waiting_threads:
+                self._waiting_threads[thread_id].discard(node_id)
+                if not self._waiting_threads[thread_id]:
+                    del self._waiting_threads[thread_id]
+
+    def unregister_processor(self, node_id: str) -> None:
+        """
+        Unregister the processor for a node.
+
+        Args:
+            node_id: The ID of the node to unregister
+        """
+        with self._lock:
+            self._processing_threads.pop(node_id, None)
+
+    def _would_create_deadlock(self, target_node_id: str, requester_thread_id: str) -> bool:
+        """
+        Check if waiting for target_node_id would create a circular dependency.
+
+        A deadlock occurs if:
+        1. Thread A wants to wait for node X
+        2. Thread B is processing node X
+        3. Thread B is already waiting (directly or transitively) for a node processed by Thread A
+
+        Args:
+            target_node_id: The node the requester wants to wait for
+            requester_thread_id: The thread that wants to wait
+
+        Returns:
+            True if this would create a deadlock, False otherwise
+        """
+        processor_thread = self._processing_threads.get(target_node_id)
+        if not processor_thread:
+            return False  # No processor yet, safe to wait
+
+        if processor_thread == requester_thread_id:
+            return True  # Thread trying to wait for itself
+
+        # Check for transitive dependencies
+        return self._has_transitive_dependency(processor_thread, requester_thread_id)
+
+    def _has_transitive_dependency(self, start_thread: str, target_thread: str) -> bool:
+        """
+        Check if start_thread transitively depends on target_thread.
+
+        This performs a depth-first search through the dependency graph to detect
+        if there's a path from start_thread to target_thread through wait dependencies.
+
+        Args:
+            start_thread: The thread to start the search from
+            target_thread: The thread we're looking for in the dependency chain
+
+        Returns:
+            True if start_thread transitively depends on target_thread
+        """
+        visited = set()
+        stack = [start_thread]
+
+        while stack:
+            current_thread = stack.pop()
+            if current_thread in visited:
+                continue
+            visited.add(current_thread)
+
+            if current_thread == target_thread:
+                return True
+
+            # Find nodes this thread is waiting for
+            waiting_for_nodes = self._waiting_threads.get(current_thread, set())
+            for node_id in waiting_for_nodes:
+                processor = self._processing_threads.get(node_id)
+                if processor and processor not in visited:
+                    stack.append(processor)
+
+        return False
+
+
 class ProcessingResult(BaseModel):
     """Result of processing a node (folder or file) with recursive DFS."""
 
@@ -127,6 +260,12 @@ class RecursiveDFSProcessor:
         self.cycle_participants: Dict[str, Set[str]] = {}  # Track cycle relationships
         self._global_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None  # Shared thread pool
         self._thread_local = threading.local()  # Thread-local storage for processing paths
+
+        # Deadlock prevention and fallback mechanisms
+        self.dependency_tracker = ThreadDependencyTracker()
+        self.deadlock_fallback_cache: Dict[str, DocumentationNode] = {}
+        self.processing_timeouts: Dict[str, float] = {}  # node_id -> timeout timestamp
+        self.fallback_timeout_seconds: float = 30.0  # Maximum wait time before fallback
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
@@ -218,6 +357,9 @@ class RecursiveDFSProcessor:
             logger.info(f"DEBUG: Database cache hit for node: {node.name} ({node_id})")
             return existing_doc
 
+        # Get current thread ID for tracking
+        thread_id = str(threading.get_ident())
+
         # Try to become the processor for this node using Future for broadcast
         with self.futures_lock:
             fut = self.processing_futures.get(node_id)
@@ -225,10 +367,19 @@ class RecursiveDFSProcessor:
                 # We're the first thread for this node - we'll process it
                 fut = Future()
                 self.processing_futures[node_id] = fut
+                self.dependency_tracker.register_processor(node_id, thread_id)
                 should_process = True
             else:
-                # Another thread is already processing this node - we'll wait
+                # Another thread is already processing this node - check if we can safely wait
+                can_wait = self.dependency_tracker.register_waiter(node_id, thread_id)
                 should_process = False
+
+                if not can_wait:
+                    # Would create deadlock - use fallback strategy
+                    logger.warning(
+                        f"Potential deadlock detected for node {node.name} ({node_id}), using fallback strategy"
+                    )
+                    return self._handle_deadlock_fallback(node)
 
         if should_process:
             # We're the processor thread - do the actual work
@@ -246,8 +397,6 @@ class RecursiveDFSProcessor:
                     logger.info(f"DEBUG: Processing leaf node: {node.name}")
                     description = self._process_leaf_node(node)
                 else:  # PARENT NODE
-                    if node.name == "blarify":
-                        logger.info(f"DEBUG: root node: {node.name} ({node_id})")
                     logger.info(f"DEBUG: Processing parent node: {node.name} with {len(children)} children")
 
                     # Process ALL children using navigation-based strategy
@@ -276,13 +425,27 @@ class RecursiveDFSProcessor:
                 # Clean up the future from processing_futures to avoid memory leak
                 with self.futures_lock:
                     self.processing_futures.pop(node_id, None)
+                # Clean up dependency tracker
+                self.dependency_tracker.unregister_processor(node_id)
+                self.processing_timeouts.pop(node_id, None)
         else:
-            # We're a waiter thread - wait for the processor to complete
+            # We're a waiter thread - wait for the processor to complete with timeout
             logger.info(f"DEBUG: Waiting for another thread to complete {node.name} ({node_id})")
-            # Future.result() will either return the value or raise the exception
-            result = fut.result()  # Block until processor completes (broadcast to all waiters)
-            logger.info(f"DEBUG: Received result from processor thread for {node.name} ({node_id})")
-            return result
+
+            try:
+                # Wait with timeout to avoid infinite blocking
+                result = fut.result(timeout=self.fallback_timeout_seconds)
+                logger.info(f"DEBUG: Received result from processor thread for {node.name} ({node_id})")
+                return result
+            except concurrent.futures.TimeoutError:
+                logger.warning(
+                    f"Timeout waiting for node {node.name} ({node_id}) after {self.fallback_timeout_seconds}s, "
+                    f"using fallback strategy"
+                )
+                return self._handle_timeout_fallback(node)
+            finally:
+                # Always unregister as waiter
+                self.dependency_tracker.unregister_waiter(node_id, thread_id)
 
     def _get_available_threads(self) -> int:
         """Get number of available threads in the thread pool."""
@@ -324,77 +487,65 @@ class RecursiveDFSProcessor:
 
         child_descriptions: List[DocumentationNode] = []
 
-        # Determine if parent uses call stack navigation (function calling other functions)
-        uses_call_stack = self._should_use_call_stack(parent_node)
+        # Hierarchy navigation - safe to parallelize with capacity checking
+        available_threads = self._get_available_threads()
+        needs_parallel = len(children) > 1 and self.max_workers > 1 and self._global_executor is not None
+        # Since _get_available_threads() already returns a conservative estimate (max_workers // 3),
+        # we just need to check if we have enough threads for the children
+        has_capacity = available_threads >= len(children)
 
-        if uses_call_stack:
-            # Call stack navigation - always process sequentially to avoid recursion deadlocks
-            logger.info(
-                f"Call stack navigation detected for {parent_node.name}, processing {len(children)} children sequentially to avoid recursion deadlocks"
-            )
+        if not needs_parallel or not has_capacity:
+            # Process sequentially if:
+            # - Single child or single worker mode
+            # - No thread pool available
+            # - Not enough thread capacity
+            if not has_capacity and needs_parallel:
+                logger.info(
+                    f"Thread pool near capacity ({available_threads} available), processing {len(children)} children sequentially"
+                )
+
             for child in children:
                 child_desc = self._process_node_recursive(child)
                 child_descriptions.append(child_desc)
         else:
-            # Hierarchy navigation - safe to parallelize with capacity checking
-            available_threads = self._get_available_threads()
-            needs_parallel = len(children) > 1 and self.max_workers > 1 and self._global_executor is not None
-            # Since _get_available_threads() already returns a conservative estimate (max_workers // 3),
-            # we just need to check if we have enough threads for the children
-            has_capacity = available_threads >= len(children)
-
-            if not needs_parallel or not has_capacity:
-                # Process sequentially if:
-                # - Single child or single worker mode
-                # - No thread pool available
-                # - Not enough thread capacity
-                if not has_capacity and needs_parallel:
-                    logger.info(
-                        f"Thread pool near capacity ({available_threads} available), processing {len(children)} children sequentially"
-                    )
-
-                for child in children:
-                    child_desc = self._process_node_recursive(child)
-                    child_descriptions.append(child_desc)
-            else:
-                # Process in parallel - we have enough thread capacity and it's safe (hierarchy navigation)
-                logger.debug(
-                    f"Hierarchy navigation: processing {len(children)} children in parallel ({available_threads} threads available)"
-                )
-                futures = []
-                for child in children:
-                    ctx = contextvars.copy_context()
-                    try:
-                        if self._global_executor is None:
-                            child_desc = self._process_node_recursive(child)
-                            child_descriptions.append(child_desc)
-                            continue
-
-                        future = self._global_executor.submit(
-                            ctx.run, functools.partial(self._process_node_recursive, child)
-                        )
-                        futures.append((future, child))
-                    except RuntimeError as e:
-                        if "can't start new thread" in str(e):
-                            logger.warning(
-                                f"Thread pool exhausted during submission, processing {child.name} ({child.id}) sequentially"
-                            )
-                            # Fall back to sequential processing for this child
-                            child_desc = self._process_node_recursive(child)
-                            child_descriptions.append(child_desc)
-                        else:
-                            raise
-
-                # Collect results from submitted futures
-                for future, child in futures:
-                    try:
-                        child_desc = future.result()
+            # Process in parallel - we have enough thread capacity and it's safe (hierarchy navigation)
+            logger.debug(
+                f"Hierarchy navigation: processing {len(children)} children in parallel ({available_threads} threads available)"
+            )
+            futures = []
+            for child in children:
+                ctx = contextvars.copy_context()
+                try:
+                    if self._global_executor is None:
+                        child_desc = self._process_node_recursive(child)
                         child_descriptions.append(child_desc)
-                    except Exception as e:
-                        logger.exception(f"Error processing child node {child.name} ({child.id}): {e}")
-                        # Create fallback description for failed child
-                        fallback_desc = self._create_fallback_description(child, str(e))
-                        child_descriptions.append(fallback_desc)
+                        continue
+
+                    future = self._global_executor.submit(
+                        ctx.run, functools.partial(self._process_node_recursive, child)
+                    )
+                    futures.append((future, child))
+                except RuntimeError as e:
+                    if "can't start new thread" in str(e):
+                        logger.warning(
+                            f"Thread pool exhausted during submission, processing {child.name} ({child.id}) sequentially"
+                        )
+                        # Fall back to sequential processing for this child
+                        child_desc = self._process_node_recursive(child)
+                        child_descriptions.append(child_desc)
+                    else:
+                        raise
+
+            # Collect results from submitted futures
+            for future, child in futures:
+                try:
+                    child_desc = future.result()
+                    child_descriptions.append(child_desc)
+                except Exception as e:
+                    logger.exception(f"Error processing child node {child.name} ({child.id}): {e}")
+                    # Create fallback description for failed child
+                    fallback_desc = self._create_fallback_description(child, str(e))
+                    child_descriptions.append(fallback_desc)
 
         return child_descriptions
 
@@ -410,7 +561,6 @@ class RecursiveDFSProcessor:
             Fallback DocumentationNode
         """
         info_node = DocumentationNode(
-            title=f"Description of {node.name}",
             content=f"Error processing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}",
             info_type="error_fallback",
             source_path=node.path,
@@ -462,7 +612,6 @@ class RecursiveDFSProcessor:
 
             # Create DocumentationNode
             info_node = DocumentationNode(
-                title=f"Description of {node.name}",
                 content=response_content,
                 info_type="leaf_description",
                 source_path=node.path,
@@ -486,7 +635,6 @@ class RecursiveDFSProcessor:
             logger.exception(f"Error analyzing leaf node {node.name} ({node.id}): {e}")
             # Return fallback description
             info_node = DocumentationNode(
-                title=f"Description of {node.name}",
                 content=f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}",
                 info_type="leaf_description",
                 source_path=node.path,
@@ -675,7 +823,6 @@ class RecursiveDFSProcessor:
     ) -> DocumentationNode:
         """Create and cache the documentation node for a parent."""
         info_node = DocumentationNode(
-            title=f"Description of {node.name}",
             content=response_content,
             info_type="parent_description",
             source_path=node.path,
@@ -701,7 +848,6 @@ class RecursiveDFSProcessor:
     ) -> DocumentationNode:
         """Create fallback documentation node for failed parent processing."""
         info_node = DocumentationNode(
-            title=f"Description of {node.name}",
             content=f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}",
             info_type="parent_description",
             source_path=node.path,
@@ -949,7 +1095,6 @@ class RecursiveDFSProcessor:
 
             # Create DocumentationNode from database data
             info_node = DocumentationNode(
-                title=doc_data.get("title", f"Description of {node.name}"),
                 content=doc_data.get("content", ""),
                 info_type=doc_data.get("info_type", "database_cached"),
                 source_path=doc_data.get("source_path", node.path),
@@ -969,3 +1114,203 @@ class RecursiveDFSProcessor:
                 f"Error checking database for existing documentation for node {node.name} ({node.id}): {e}"
             )
             return None
+
+    def _handle_deadlock_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
+        """
+        Handle deadlock scenario by using available context or processing as leaf.
+
+        Args:
+            node: The node to process with fallback strategy
+
+        Returns:
+            DocumentationNode with fallback processing
+        """
+        node_id = node.id
+
+        # Check if we already have a fallback result for this node
+        if node_id in self.deadlock_fallback_cache:
+            return self.deadlock_fallback_cache[node_id]
+
+        logger.info(f"Processing node {node.name} ({node_id}) with deadlock fallback strategy")
+
+        # Strategy 1: Try to get partial context from already-processed children
+        children = self._get_navigation_children(node)
+        available_children: List[DocumentationNode] = []
+
+        for child in children:
+            if child.id in self.node_descriptions:
+                # Child is already processed - we can use it
+                available_children.append(self.node_descriptions[child.id])
+
+        if available_children:
+            # We have some child context - process as parent with partial information
+            description = self._process_parent_node_with_partial_context(node, available_children, is_fallback=True)
+        else:
+            # No child context available - process as enhanced leaf
+            description = self._process_node_as_enhanced_leaf(node, is_fallback=True)
+
+        # Cache the fallback result
+        self.deadlock_fallback_cache[node_id] = description
+        self.node_descriptions[node_id] = description
+
+        return description
+
+    def _handle_timeout_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
+        """Handle timeout by using available context or creating fallback description."""
+        return self._handle_deadlock_fallback(node)  # Same strategy for now
+
+    def _process_parent_node_with_partial_context(
+        self, node: NodeWithContentDto, available_children: List[DocumentationNode], is_fallback: bool = False
+    ) -> DocumentationNode:
+        """
+        Process parent node with only partially available child context.
+
+        Args:
+            node: The parent node to process
+            available_children: List of available child DocumentationNodes
+            is_fallback: Whether this is fallback processing
+
+        Returns:
+            DocumentationNode with partial context processing
+        """
+        try:
+            # Prepare child descriptions
+            child_descriptions = "\n\n".join(
+                [f"- **{child.source_name}**: {child.content}" for child in available_children]
+            )
+
+            # Prepare fallback note
+            fallback_note = ""
+            if is_fallback:
+                fallback_note = (
+                    "**Note**: This analysis uses partial information due to circular "
+                    "dependencies in the codebase. Some child function details may be incomplete."
+                )
+
+            # Use the existing parent node template with partial context
+            system_prompt, input_prompt = PARENT_NODE_ANALYSIS_TEMPLATE.get_prompts()
+
+            # Prepare input dictionary
+            input_dict = {
+                "node_name": node.name,
+                "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
+                "node_path": node.path,
+                "node_content": node.content,
+                "child_descriptions": child_descriptions,
+                "fallback_note": fallback_note,
+            }
+
+            # Generate response
+            runnable_config = {"run_name": f"{node.name}_partial_parent"}
+            response = self.agent_caller.call_dumb_agent(
+                system_prompt=system_prompt,
+                input_dict=input_dict,
+                output_schema=None,
+                input_prompt=input_prompt,
+                config=runnable_config,
+                timeout=10,
+            )
+
+            response_content = response.content if hasattr(response, "content") else str(response)
+
+            # Create documentation node with fallback metadata
+            info_node = DocumentationNode(
+                content=response_content,
+                info_type="parent_description_fallback" if is_fallback else "parent_description",
+                source_path=node.path,
+                source_name=node.name,
+                source_labels=node.labels,
+                source_id=node.id,
+                source_type="recursive_parent_analysis_fallback" if is_fallback else "recursive_parent_analysis",
+                enhanced_content=node.content,
+                children_count=len(available_children),
+                graph_environment=self.graph_environment,
+                metadata={
+                    "is_fallback": is_fallback,
+                    "partial_children_count": len(available_children),
+                    "fallback_reason": "circular_dependency_deadlock" if is_fallback else None,
+                },
+            )
+
+            # Update mappings
+            self.node_source_mapping[info_node.hashed_id] = node.id
+            self.source_nodes_cache[node.id] = node
+            self.source_to_description[node.id] = response_content
+
+            return info_node
+
+        except Exception as e:
+            logger.exception(f"Error in fallback parent processing for {node.name}: {e}")
+            return self._create_fallback_description(node, f"Fallback processing error: {e}")
+
+    def _process_node_as_enhanced_leaf(self, node: NodeWithContentDto, is_fallback: bool = False) -> DocumentationNode:
+        """
+        Process node as an enhanced leaf when child context is not available.
+
+        Args:
+            node: The node to process as enhanced leaf
+            is_fallback: Whether this is fallback processing
+
+        Returns:
+            DocumentationNode with enhanced leaf processing
+        """
+        try:
+            # Prepare fallback note
+            fallback_note = ""
+            if is_fallback:
+                fallback_note = (
+                    "**Note**: This analysis is limited due to circular dependencies "
+                    "in the codebase that prevented full context analysis."
+                )
+
+            # Use the existing leaf node template
+            system_prompt, input_prompt = LEAF_NODE_ANALYSIS_TEMPLATE.get_prompts()
+
+            # Prepare input dictionary
+            input_dict = {
+                "node_name": node.name,
+                "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
+                "node_path": node.path,
+                "node_content": node.content,
+                "fallback_note": fallback_note,
+            }
+
+            # Generate description
+            runnable_config = {"run_name": f"{node.name}_enhanced_leaf"}
+            response = self.agent_caller.call_dumb_agent(
+                system_prompt=system_prompt,
+                input_dict=input_dict,
+                output_schema=None,
+                input_prompt=input_prompt,
+                config=runnable_config,
+                timeout=5,
+            )
+
+            response_content = response.content if hasattr(response, "content") else str(response)
+
+            # Create documentation node
+            info_node = DocumentationNode(
+                content=response_content,
+                info_type="enhanced_leaf_fallback" if is_fallback else "enhanced_leaf_description",
+                source_path=node.path,
+                source_name=node.name,
+                source_labels=node.labels,
+                source_id=node.id,
+                source_type="enhanced_leaf_analysis_fallback" if is_fallback else "enhanced_leaf_analysis",
+                graph_environment=self.graph_environment,
+                metadata={
+                    "is_fallback": is_fallback,
+                    "fallback_reason": "circular_dependency_deadlock" if is_fallback else None,
+                },
+            )
+
+            # Update mappings
+            self.node_source_mapping[info_node.hashed_id] = node.id
+            self.source_nodes_cache[node.id] = node
+            self.source_to_description[node.id] = response_content
+
+            return info_node
+
+        except Exception as e:
+            logger.exception(f"Error in enhanced leaf processing for {node.name}: {e}")
+            return self._create_fallback_description(node, f"Enhanced leaf processing error: {e}")

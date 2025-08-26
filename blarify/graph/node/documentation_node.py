@@ -23,7 +23,6 @@ class DocumentationNode(Node):
 
     def __init__(
         self,
-        title: str,
         content: str,
         info_type: str,
         source_type: str,
@@ -34,10 +33,11 @@ class DocumentationNode(Node):
         source_labels: Optional[List[str]] = None,
         enhanced_content: Optional[str] = None,
         children_count: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        content_embedding: Optional[List[float]] = None,
         **kwargs: Unpack[DocumentationNodeKwargs],
     ):
         # Core semantic content
-        self.title = title
         self.content = content
 
         # Metadata
@@ -52,13 +52,15 @@ class DocumentationNode(Node):
         self.examples = examples or []
         self.enhanced_content = enhanced_content  # For parent nodes
         self.children_count = children_count  # For parent nodes
+        self.metadata = metadata  # Additional metadata for tracking fallback scenarios
+        self.content_embedding = content_embedding  # Vector embedding of content field
 
-        # Use source_path as path for Node, and source_name@info as name
+        # Use source_path as path for Node, and source_id@info as name for uniqueness
         # Set layer to documentation for documentation nodes
         super().__init__(
             label=NodeLabels.DOCUMENTATION,
             path=source_path,
-            name=f"{source_name}@info",
+            name=f"{source_id}@info",
             level=kwargs.get("level", 0),
             parent=kwargs.get("parent"),
             graph_environment=kwargs.get("graph_environment"),
@@ -68,7 +70,7 @@ class DocumentationNode(Node):
     @property
     def node_repr_for_identifier(self) -> str:
         """Create a unique identifier representation for this information node."""
-        return f"{self.source_name}@info"
+        return f"{self.source_id}@info"
 
     def as_object(self) -> dict[str, Union[str, List[str]]]:
         """Convert to dictionary for database storage."""
@@ -77,7 +79,6 @@ class DocumentationNode(Node):
         # Add information-specific attributes
         obj["attributes"].update(
             {
-                "title": self.title,
                 "content": self.content,
                 "info_type": self.info_type,
                 "source_type": self.source_type,
@@ -92,6 +93,16 @@ class DocumentationNode(Node):
             obj["attributes"]["enhanced_content"] = self.enhanced_content
         if self.children_count is not None:
             obj["attributes"]["children_count"] = self.children_count
+        if self.metadata:
+            # Ensure metadata is compatible with Neo4j (primitive types only)
+            # Convert all values to strings to ensure Neo4j compatibility
+            neo4j_metadata = {}
+            for key, value in self.metadata.items():
+                if value is not None:
+                    neo4j_metadata[key] = str(value)
+            obj["attributes"]["metadata"] = neo4j_metadata
+        if self.content_embedding:
+            obj["attributes"]["content_embedding"] = self.content_embedding
 
         # Add structured data as JSON strings if present
         if self.examples:

@@ -123,8 +123,8 @@ def test_documentation_only(root_path: str = None):
     """Test only the documentation workflow, assuming the graph already exists in the database."""
     print("📚 Testing documentation generation workflow only...")
 
-    repoId = "test"
-    entity_id = "test"
+    repoId = "pydata__xarray-6938"
+    entity_id = "swe_agent"
     graph_manager = Neo4jManager(repoId, entity_id)
 
     try:
@@ -137,12 +137,15 @@ def test_documentation_only(root_path: str = None):
             graph_environment=graph_environment,
             company_id=entity_id,
             repo_id=repoId,
+            max_workers=75,
         )
 
         print("📝 Starting documentation creation...")
 
         # Run the documentation creation
-        result = documentation_creator.create_documentation()
+        result = documentation_creator.create_documentation(
+            target_paths=["/blarify/0/pydata__xarray-6938/xarray/core/dataset.py#Dataset.swap_dims"]
+        )
 
         print("✅ Documentation generation completed successfully!")
 
@@ -391,65 +394,62 @@ def test_workflow_discovery_only(root_path: str = None):
 
 def test_github_integration_only(root_path: str = None):
     """Test only the GitHub integration with the existing Blarify repository graph.
-    
+
     This assumes the code graph already exists in Neo4j and fetches just 1 PR
     to demonstrate the GitHub integration functionality.
     """
     print("🐙 Testing GitHub Integration Layer...")
     print("=" * 60)
-    
+
     # Setup
     repoId = "test"
     entity_id = "test"
     graph_manager = Neo4jManager(repoId, entity_id)
-    
+
     try:
         # Initialize GitHub integration
         print("🔧 Setting up GitHub integration...")
         graph_environment = GraphEnvironment("dev", "main", root_path)
-        
+
         # Get GitHub token from environment
         github_token = os.getenv("GITHUB_TOKEN")
         if not github_token:
             print("⚠️  No GITHUB_TOKEN found in environment, using unauthenticated access")
             print("   This may hit rate limits quickly!")
-        
+
         # Create GitHubCreator for the Blarify repository
         github_creator = GitHubCreator(
             db_manager=graph_manager,
             graph_environment=graph_environment,
             github_token=github_token,
             repo_owner="blarApp",
-            repo_name="blarify"
+            repo_name="blarify",
         )
-        
-        print(f"📍 Repository: blarApp/blarify")
+
+        print("📍 Repository: blarApp/blarify")
         print(f"📍 Root path: {root_path}")
         print()
-        
+
         print("🚀 Fetching GitHub data (1 merged PR only)...")
         print("-" * 40)
-        
+
         # Fetch just 1 PR to demonstrate the integration
-        result = github_creator.create_github_integration(
-            pr_limit=1,
-            save_to_database=True
-        )
-        
+        result = github_creator.create_github_integration(pr_limit=1, save_to_database=True)
+
         if result.error:
             print(f"❌ GitHub integration failed: {result.error}")
             return None
-        
+
         print()
         print("✅ GitHub Integration Complete!")
         print("=" * 60)
-        
+
         # Display results
         print("\n📊 Integration Summary:")
         print(f"   - PRs processed: {result.total_prs}")
         print(f"   - Commits created: {result.total_commits}")
         print(f"   - Relationships created: {len(result.relationships)}")
-        
+
         # Show PR details
         if result.pr_nodes:
             print("\n📋 Pull Request Details:")
@@ -458,29 +458,29 @@ def test_github_integration_only(root_path: str = None):
                 print(f"   - Author: {pr.author}")
                 print(f"   - Created: {pr.timestamp}")
                 print(f"   - State: {pr.metadata.get('state', 'unknown')}")
-                if pr.metadata.get('merged_at'):
+                if pr.metadata.get("merged_at"):
                     print(f"   - Merged: {pr.metadata['merged_at']}")
-        
+
         # Show commit details
         if result.commit_nodes:
             print(f"\n💾 Commits ({len(result.commit_nodes)} total):")
             for i, commit in enumerate(result.commit_nodes[:3]):  # Show first 3
-                print(f"   {i+1}. {commit.external_id[:7]}: {commit.title[:60]}")
-                if commit.metadata.get('pr_number'):
+                print(f"   {i + 1}. {commit.external_id[:7]}: {commit.title[:60]}")
+                if commit.metadata.get("pr_number"):
                     print(f"      (Part of PR #{commit.metadata['pr_number']})")
-        
+
         # Show relationship breakdown
         if result.relationships:
             print("\n🔗 Relationships Created:")
             rel_types = {}
             for rel in result.relationships:
-                if hasattr(rel, 'rel_type'):
+                if hasattr(rel, "rel_type"):
                     rel_type_name = rel.rel_type.name
                     rel_types[rel_type_name] = rel_types.get(rel_type_name, 0) + 1
-            
+
             for rel_type, count in rel_types.items():
                 print(f"   - {rel_type}: {count}")
-                
+
         # Query database to show MODIFIED_BY relationships
         print("\n🔍 Analyzing Code Modifications:")
         query = """
@@ -492,10 +492,10 @@ def test_github_integration_only(root_path: str = None):
                r.lines_deleted as lines_deleted
         LIMIT 5
         """
-        
+
         with graph_manager.driver.session() as session:
             records = session.run(query).data()
-            
+
             if records:
                 print(f"   Found {len(records)} code modifications:")
                 for record in records:
@@ -504,16 +504,17 @@ def test_github_integration_only(root_path: str = None):
                     print(f"     Changes: +{record['lines_added']}/-{record['lines_deleted']} lines")
             else:
                 print("   No MODIFIED_BY relationships found (files may not be in code graph)")
-        
+
         print("\n✨ GitHub integration test completed successfully!")
         return result
-        
+
     except Exception as e:
         print(f"❌ GitHub integration test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return None
-        
+
     finally:
         print("\n🧹 Cleaning up resources...")
         graph_manager.close()
@@ -596,12 +597,19 @@ if __name__ == "__main__":
     root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blarify"
     # root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blar-django-server"
     blarignore_path = os.getenv("BLARIGNORE_PATH")
-    
+
     # Test the GitHub integration
-    test_github_integration_only(root_path=root_path)
-    
+    # test_github_integration_only(root_path=root_path)
+
     # Other test options (commented out):
     # main(root_path=root_path, blarignore_path=blarignore_path)  # Build graph
     # test_targeted_workflow_discovery(root_path=root_path)  # Test workflow discovery
-    # test_documentation_only(root_path=root_path)  # Test full documentation workflow
+    # Comment out regular main() and use documentation integration
+    # main(root_path=root_path, blarignore_path=blarignore_path)
+
+    # Test the targeted workflow discovery with node_path
+    # test_targeted_workflow_discovery(root_path=root_path)
+
+    # Other test options (commented out):
+    test_documentation_only(root_path=root_path)  # Test full documentation workflow
     # main_with_documentation(root_path=root_path, blarignore_path=blarignore_path)  # Full pipeline

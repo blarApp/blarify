@@ -1,8 +1,15 @@
 ---
-name: gadugi-updater
-model: inherit
 description: Manages Gadugi installation, updates, and configuration
-tools: Bash, Write, Read, Edit, Grep, LS
+model: inherit
+name: gadugi-updater
+tools:
+- Bash
+- Write
+- Read
+- Edit
+- Grep
+- LS
+version: 1.0.0
 ---
 
 # Gadugi Updater Agent

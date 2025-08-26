@@ -8,7 +8,7 @@ from blarify.project_graph_diff_creator import (
     PreviousNodeState,
     ProjectGraphDiffCreator,
 )
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.code_references import LspQueryHelper
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.utils.file_remover import FileRemover

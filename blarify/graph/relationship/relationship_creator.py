@@ -3,7 +3,7 @@ from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.relationship import Relationship, WorkflowStepRelationship, RelationshipType
 from blarify.graph.node import NodeLabels
 from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
-from blarify.repositories.graph_db_manager.dtos.blame_line_range_dto import BlameLineRangeDto
+from blarify.repositories.version_control.dtos.blame_line_range_dto import BlameLineRangeDto
 
 if TYPE_CHECKING:
     from blarify.graph.graph import Graph
@@ -210,54 +210,50 @@ class RelationshipCreator:
             relationships.append(relationship_dict)
 
         return relationships
-    
+
     @staticmethod
-    def create_integration_sequence_relationships(
-        pr_node: "Node",
-        commit_nodes: List["Node"]
-    ) -> List[Relationship]:
+    def create_integration_sequence_relationships(pr_node: "Node", commit_nodes: List["Node"]) -> List[Relationship]:
         """Create PR → INTEGRATION_SEQUENCE → Commit relationships.
-        
+
         Args:
             pr_node: Pull request IntegrationNode
             commit_nodes: List of commit IntegrationNodes
-            
+
         Returns:
             List of Relationship objects
         """
         relationships = []
-        
+
         for idx, commit_node in enumerate(commit_nodes):
             rel = Relationship(
                 start_node=pr_node,
                 end_node=commit_node,
                 rel_type=RelationshipType.INTEGRATION_SEQUENCE,
-                scope_text=f"pr_{pr_node.external_id}" if hasattr(pr_node, 'external_id') else "",
-                attributes={"order": idx}
+                scope_text=f"pr_{pr_node.external_id}" if hasattr(pr_node, "external_id") else "",
+                attributes={"order": idx},
             )
             relationships.append(rel)
-        
+
         return relationships
-    
+
     @staticmethod
     def create_modified_by_relationships(
-        commit_node: "Node",
-        code_nodes: List["Node"],
-        file_changes: List[Dict[str, Any]]
+        commit_node: "Node", code_nodes: List["Node"], file_changes: List[Dict[str, Any]]
     ) -> List[Relationship]:
         """Create Code ← MODIFIED_BY ← Commit relationships.
-        
+
         Args:
             commit_node: Commit IntegrationNode
             code_nodes: List of code nodes affected
             file_changes: List of file change data from GitHub
-            
+
         Returns:
             List of Relationship objects
         """
         import json
+
         relationships = []
-        
+
         for code_node in code_nodes:
             # Find the corresponding file change
             file_change = None
@@ -265,12 +261,12 @@ class RelationshipCreator:
                 if change.get("filename") in code_node.path:
                     file_change = change
                     break
-            
+
             if not file_change:
                 continue
-            
+
             # Determine node specificity level
-            node_type = getattr(code_node, 'label', 'UNKNOWN')
+            node_type = getattr(code_node, "label", "UNKNOWN")
             if node_type == "FUNCTION":
                 specificity_level = 1
             elif node_type == "CLASS":
@@ -279,7 +275,7 @@ class RelationshipCreator:
                 specificity_level = 3
             else:
                 specificity_level = 4
-            
+
             # Build relationship attributes
             attributes = {
                 "lines_added": file_change.get("additions", 0),
@@ -288,110 +284,101 @@ class RelationshipCreator:
                 "file_path": file_change.get("filename", ""),
                 "node_type": node_type,
                 "node_specificity_level": specificity_level,
-                "commit_sha": commit_node.external_id if hasattr(commit_node, 'external_id') else "",
-                "commit_timestamp": commit_node.timestamp if hasattr(commit_node, 'timestamp') else "",
-                "pr_number": commit_node.metadata.get("pr_number") if hasattr(commit_node, 'metadata') else None
+                "commit_sha": commit_node.external_id if hasattr(commit_node, "external_id") else "",
+                "commit_timestamp": commit_node.timestamp if hasattr(commit_node, "timestamp") else "",
+                "pr_number": commit_node.metadata.get("pr_number") if hasattr(commit_node, "metadata") else None,
             }
-            
+
             # Add line ranges if available
             if "line_ranges" in file_change:
                 attributes["line_ranges"] = json.dumps(file_change["line_ranges"])
-            
+
             # Add patch summary if available
             if "patch" in file_change:
                 attributes["patch_summary"] = file_change["patch"][:500]
-            
+
             rel = Relationship(
                 start_node=code_node,
                 end_node=commit_node,
                 rel_type=RelationshipType.MODIFIED_BY,
                 scope_text="",
-                attributes=attributes
+                attributes=attributes,
             )
             relationships.append(rel)
-        
+
         # Return only the most specific relationship if multiple nodes
         if len(relationships) > 1:
             # Sort by specificity level and return the most specific (lowest level)
             relationships.sort(key=lambda r: r.attributes.get("node_specificity_level", 999))
             return [relationships[0]]
-        
+
         return relationships
-    
+
     @staticmethod
     def create_modified_by_with_blame(
-        commit_node: "Node",
-        code_node: CodeNodeDto,
-        line_ranges: List[BlameLineRangeDto]
+        commit_node: "Node", code_node: CodeNodeDto, line_ranges: List[BlameLineRangeDto]
     ) -> Dict[str, Any]:
         """Create MODIFIED_BY relationship with exact blame attribution.
-        
+
         Args:
             commit_node: The commit that modified the code
             code_node: The code node that was modified (as DTO)
             line_ranges: Exact line ranges from blame (as DTOs)
-            
+
         Returns:
             Relationship dictionary with blame attribution
         """
         import json
-        
+
         # Convert DTOs to dictionaries for JSON serialization
         line_ranges_dict = [{"start": lr.start, "end": lr.end} for lr in line_ranges]
-        
+
         # Calculate total lines affected
         total_lines = sum(lr.end - lr.start + 1 for lr in line_ranges)
-        
+
         # Build relationship attributes with exact blame information
         attributes = {
             # Exact line attribution from blame
             "blamed_lines": json.dumps(line_ranges_dict),
             "total_lines_affected": total_lines,
-            
             # Node context
             "node_type": code_node.label,
             "node_path": code_node.path,
             "node_name": code_node.name,
-            
             # Commit context
-            "commit_sha": commit_node.external_id if hasattr(commit_node, 'external_id') else "",
-            "commit_timestamp": commit_node.timestamp if hasattr(commit_node, 'timestamp') else "",
-            "commit_message": commit_node.title if hasattr(commit_node, 'title') else "",
-            "commit_author": commit_node.author if hasattr(commit_node, 'author') else "",
-            
+            "commit_sha": commit_node.external_id if hasattr(commit_node, "external_id") else "",
+            "commit_timestamp": commit_node.timestamp if hasattr(commit_node, "timestamp") else "",
+            "commit_message": commit_node.title if hasattr(commit_node, "title") else "",
+            "commit_author": commit_node.author if hasattr(commit_node, "author") else "",
             # Attribution metadata
             "attribution_method": "blame",
             "attribution_accuracy": "exact",
-            
             # PR information if available
-            "pr_number": commit_node.metadata.get("pr_number") if hasattr(commit_node, 'metadata') else None
+            "pr_number": commit_node.metadata.get("pr_number") if hasattr(commit_node, "metadata") else None,
         }
-        
+
         # Return as dictionary format for database
         # Use sourceId/targetId to match Neo4j manager expectations
         return {
             "sourceId": code_node.id,
-            "targetId": commit_node.hashed_id if hasattr(commit_node, 'hashed_id') else commit_node.id,
+            "targetId": commit_node.hashed_id if hasattr(commit_node, "hashed_id") else commit_node.id,
             "type": "MODIFIED_BY",
-            **attributes  # Spread attributes directly into the edge object
+            **attributes,  # Spread attributes directly into the edge object
         }
-    
+
     @staticmethod
-    def create_affects_relationships(
-        commit_nodes: List["Node"],
-        workflow_nodes: List["Node"]
-    ) -> List[Relationship]:
+    def create_affects_relationships(commit_nodes: List["Node"], workflow_nodes: List["Node"]) -> List[Relationship]:
         """Create Commit → AFFECTS → Workflow relationships.
-        
+
         Args:
             commit_nodes: List of commit IntegrationNodes
             workflow_nodes: List of workflow nodes
-            
+
         Returns:
             List of Relationship objects
         """
         relationships = []
-        
+
         for commit_node in commit_nodes:
             for workflow_node in workflow_nodes:
                 rel = Relationship(
@@ -399,8 +386,8 @@ class RelationshipCreator:
                     end_node=workflow_node,
                     rel_type=RelationshipType.AFFECTS,
                     scope_text="",
-                    attributes={}
+                    attributes={},
                 )
                 relationships.append(rel)
-        
+
         return relationships

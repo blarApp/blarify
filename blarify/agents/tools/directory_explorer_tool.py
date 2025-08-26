@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
 logger = logging.getLogger(__name__)
 

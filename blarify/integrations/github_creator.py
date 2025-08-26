@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from blarify.repositories.graph_db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.queries import get_code_nodes_by_ids_query
 from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
-from blarify.repositories.graph_db_manager.dtos.blame_commit_dto import BlameCommitDto
+from blarify.repositories.version_control.dtos.blame_commit_dto import BlameCommitDto
 from blarify.repositories.version_control.github import GitHub
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.graph.node.integration_node import IntegrationNode
@@ -402,7 +402,7 @@ class GitHubCreator:
         MATCH (n:NODE)
         WHERE n.layer = 'code'
           AND n.label IN ['FUNCTION', 'CLASS']
-        RETURN n.node_id as id,
+        RETURN n.node_id as node_id,
                n.path as path,
                n.start_line as start_line,
                n.end_line as end_line,
@@ -418,7 +418,7 @@ class GitHubCreator:
         for row in results:
             nodes.append(
                 CodeNodeDto(
-                    id=row["id"],
+                    id=row["node_id"],
                     name=row["name"],
                     label=row["label"],
                     path=row["path"],
@@ -441,7 +441,11 @@ class GitHubCreator:
             return []
 
         query = get_code_nodes_by_ids_query()
-        params = {"node_ids": node_ids}
+        params = {
+            "node_ids": node_ids,
+            "entity_id": self.graph_environment.diff_identifier,
+            "repo_id": self.graph_environment.root_path,
+        }
 
         results = self.db_manager.query(query, params)
         logger.info(f"Found {len(results)} code nodes for {len(node_ids)} IDs")

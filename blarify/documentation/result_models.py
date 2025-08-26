@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 # Import concrete Node types for type annotations
 from blarify.graph.node.documentation_node import DocumentationNode
-from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
+from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
 
 class DocumentationResult(BaseModel):

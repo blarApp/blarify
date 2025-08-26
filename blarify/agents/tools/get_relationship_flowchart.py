@@ -4,8 +4,8 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
-from blarify.db_managers.neo4j_manager import Neo4jManager
-from blarify.db_managers.queries import get_mermaid_graph
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.queries import get_mermaid_graph
 
 
 class Input(BaseModel):

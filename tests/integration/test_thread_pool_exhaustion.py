@@ -12,14 +12,9 @@ import pytest
 from blarify.db_managers.neo4j_manager import Neo4jManager
 from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
 from blarify.graph.graph_environment import GraphEnvironment
+from neo4j_container_manager.types import Neo4jContainerInstance
 
 
-# Neo4jContainerInstance type for testing
-class Neo4jContainerInstance:
-    def __init__(self) -> None:
-        self.uri: str = "bolt://localhost:7687"
-        self.user: str = "neo4j"
-        self.password: str = "test-password"
 
 
 class ThreadTracker:
@@ -92,8 +87,8 @@ async def test_iterative_processing_handles_deep_hierarchy(
     """Test that new iterative implementation handles deep hierarchies efficiently."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,
-        user="neo4j",
-        password="test-password"
+        entity_id="test-company",
+        repo_id="test-repo"
     )
     
     # Create deep hierarchy (100+ nodes)
@@ -108,7 +103,7 @@ async def test_iterative_processing_handles_deep_hierarchy(
     CREATE (grandchild:FILE {path: '/gc' + id(child) + '_' + j + '.py', id: 'gc' + id(child) + '_' + j, name: 'gc' + id(child) + '_' + j + '.py', content: 'gc content'})
     CREATE (child)-[:CONTAINS]->(grandchild)
     """
-    db_manager.run_query(setup_query, {})
+    db_manager.query(setup_query, {})
     
     # Track thread usage
     thread_tracker = ThreadTracker()
@@ -118,7 +113,7 @@ async def test_iterative_processing_handles_deep_hierarchy(
     mock_llm.call_dumb_agent.return_value = Mock(content="Mock description")
     
     # Create graph environment
-    graph_env = GraphEnvironment("test-company", "test-repo")
+    graph_env = GraphEnvironment(company_id="test-company", repo_id="test-repo")
     
     processor = RecursiveDFSProcessor(
         db_manager=db_manager,
@@ -152,8 +147,8 @@ async def test_hierarchy_vs_call_stack_processing(
     """Test that hierarchy (CONTAINS) and call stack (CALL) are processed correctly."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,
-        user="neo4j",
-        password="test-password"
+        entity_id="test-company",
+        repo_id="test-repo"
     )
     
     # Setup: Create nodes with both CONTAINS and CALL relationships
@@ -173,14 +168,14 @@ async def test_hierarchy_vs_call_stack_processing(
     CREATE (func1)-[:CALLS]->(func2)
     CREATE (func2)-[:CALLS]->(func3)
     """
-    db_manager.run_query(setup_query, {})
+    db_manager.query(setup_query, {})
     
     # Mock LLM provider
     mock_llm = Mock()
     mock_llm.call_dumb_agent.return_value = Mock(content="Mock description")
     
     # Create graph environment
-    graph_env = GraphEnvironment("test-company", "test-repo")
+    graph_env = GraphEnvironment(company_id="test-company", repo_id="test-repo")
     
     processor = RecursiveDFSProcessor(
         db_manager=db_manager,
@@ -217,8 +212,8 @@ async def test_batch_processing_maintains_bottom_up_order(
     """Test that batch processing maintains bottom-up order (leaves first)."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,
-        user="neo4j",
-        password="test-password"
+        entity_id="test-company",
+        repo_id="test-repo"
     )
     
     # Create hierarchy
@@ -235,7 +230,7 @@ async def test_batch_processing_maintains_bottom_up_order(
     CREATE (c1)-[:CONTAINS]->(gc2)
     CREATE (gc1)-[:CONTAINS]->(ggc)
     """
-    db_manager.run_query(setup_query, {})
+    db_manager.query(setup_query, {})
     
     processing_order: List[str] = []
     
@@ -247,7 +242,7 @@ async def test_batch_processing_maintains_bottom_up_order(
     mock_llm = Mock()
     
     # Create graph environment
-    graph_env = GraphEnvironment("test-company", "test-repo")
+    graph_env = GraphEnvironment(company_id="test-company", repo_id="test-repo")
     
     processor = RecursiveDFSProcessor(
         db_manager=db_manager,
@@ -289,8 +284,8 @@ async def test_thread_harvesting_with_as_completed(
     """Test that threads are harvested immediately using as_completed()."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,
-        user="neo4j",
-        password="test-password"
+        entity_id="test-company",
+        repo_id="test-repo"
     )
     
     # Create many independent nodes
@@ -301,7 +296,7 @@ async def test_thread_harvesting_with_as_completed(
     CREATE (n:FILE {path: '/file' + i + '.py', id: 'file' + i, name: 'file' + i + '.py', content: 'file content'})
     CREATE (root)-[:CONTAINS]->(n)
     """
-    db_manager.run_query(setup_query, {})
+    db_manager.query(setup_query, {})
     
     # Track when threads are released
     thread_release_times: Dict[str, float] = {}
@@ -327,7 +322,7 @@ async def test_thread_harvesting_with_as_completed(
     mock_llm.call_dumb_agent.side_effect = mock_process_with_timing
     
     # Create graph environment
-    graph_env = GraphEnvironment("test-company", "test-repo")
+    graph_env = GraphEnvironment(company_id="test-company", repo_id="test-repo")
     
     processor = RecursiveDFSProcessor(
         db_manager=db_manager,
@@ -365,8 +360,8 @@ async def test_cycle_detection_in_iterative_processing(
     """Test that cycle detection works with new iterative approach."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,
-        user="neo4j",
-        password="test-password"
+        entity_id="test-company",
+        repo_id="test-repo"
     )
     
     # Create cycle in call graph
@@ -378,14 +373,14 @@ async def test_cycle_detection_in_iterative_processing(
     CREATE (f2)-[:CALLS]->(f3)
     CREATE (f3)-[:CALLS]->(f1)  // Cycle!
     """
-    db_manager.run_query(setup_query, {})
+    db_manager.query(setup_query, {})
     
     # Mock LLM provider
     mock_llm = Mock()
     mock_llm.call_dumb_agent.return_value = Mock(content="Mock description with cycle handling")
     
     # Create graph environment
-    graph_env = GraphEnvironment("test-company", "test-repo")
+    graph_env = GraphEnvironment(company_id="test-company", repo_id="test-repo")
     
     processor = RecursiveDFSProcessor(
         db_manager=db_manager,
@@ -415,8 +410,8 @@ async def test_error_recovery_in_batch_processing(
     """Test that errors in individual nodes are handled gracefully."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,
-        user="neo4j",
-        password="test-password"
+        entity_id="test-company",
+        repo_id="test-repo"
     )
     
     # Create nodes
@@ -429,7 +424,7 @@ async def test_error_recovery_in_batch_processing(
     CREATE (parent)-[:CONTAINS]->(bad)
     CREATE (parent)-[:CONTAINS]->(good2)
     """
-    db_manager.run_query(setup_query, {})
+    db_manager.query(setup_query, {})
     
     # Mock LLM that fails for specific node
     mock_llm = Mock()
@@ -440,7 +435,7 @@ async def test_error_recovery_in_batch_processing(
     mock_llm.call_dumb_agent.side_effect = llm_side_effect
     
     # Create graph environment
-    graph_env = GraphEnvironment("test-company", "test-repo")
+    graph_env = GraphEnvironment(company_id="test-company", repo_id="test-repo")
     
     processor = RecursiveDFSProcessor(
         db_manager=db_manager,
@@ -473,8 +468,8 @@ async def test_large_scale_processing_performance(
     """Test processing 1000+ nodes with good thread utilization."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,
-        user="neo4j",
-        password="test-password"
+        entity_id="test-company",
+        repo_id="test-repo"
     )
     
     # Create 1000+ node graph
@@ -489,14 +484,14 @@ async def test_large_scale_processing_performance(
     CREATE (grandchild:FILE {path: '/level2/gc' + id(child) + '_' + j + '.py', id: 'l2_' + id(child) + '_' + j, name: 'gc' + id(child) + '_' + j + '.py', content: 'gc content'})
     CREATE (child)-[:CONTAINS]->(grandchild)
     """
-    db_manager.run_query(setup_query, {})
+    db_manager.query(setup_query, {})
     
     # Mock LLM provider with fast responses
     mock_llm = Mock()
     mock_llm.call_dumb_agent.return_value = Mock(content="Mock description")
     
     # Create graph environment
-    graph_env = GraphEnvironment("test-company", "test-repo")
+    graph_env = GraphEnvironment(company_id="test-company", repo_id="test-repo")
     
     processor = RecursiveDFSProcessor(
         db_manager=db_manager,

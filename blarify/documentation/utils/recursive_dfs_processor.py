@@ -308,13 +308,13 @@ class RecursiveDFSProcessor:
     def _process_node_iterative(self, root_node: NodeWithContentDto) -> DocumentationNode:
         """
         Process a node and all its children using an iterative, batch-based approach.
-        
+
         This method replaces the recursive implementation to prevent thread pool exhaustion.
         It uses a work queue and processes nodes in batches, enabling thread reuse.
-        
+
         Args:
             root_node: The root node to process
-            
+
         Returns:
             DocumentationNode for the root node
         """
@@ -323,18 +323,18 @@ class RecursiveDFSProcessor:
         node_children: Dict[str, List[str]] = defaultdict(list)
         node_parents: Dict[str, List[str]] = defaultdict(list)
         processing_results: Dict[str, DocumentationNode] = {}
-        
+
         # Build the complete node graph using BFS
         queue = deque([root_node])
         visited = set()
-        
+
         while queue:
             node = queue.popleft()
             if node.id in visited:
                 continue
             visited.add(node.id)
             nodes_to_process[node.id] = node
-            
+
             # Get children based on navigation strategy
             children = self._get_navigation_children(node)
             for child in children:
@@ -349,48 +349,39 @@ class RecursiveDFSProcessor:
                     if child.id != node.id:  # Not self-reference
                         node_children[node.id].append(child.id)
                         # Don't add to parents to avoid circular dependency
-        
+
         # Process nodes in bottom-up order using batch processing
         return self._process_batch_iterative(
-            nodes_to_process,
-            node_children,
-            node_parents,
-            processing_results,
-            root_node.id
+            nodes_to_process, node_children, node_parents, processing_results, root_node.id
         )
-    
+
     def _process_batch_iterative(
         self,
         nodes_to_process: Dict[str, NodeWithContentDto],
         node_children: Dict[str, List[str]],
         node_parents: Dict[str, List[str]],
         processing_results: Dict[str, DocumentationNode],
-        root_id: str
+        root_id: str,
     ) -> DocumentationNode:
         """
         Process nodes in batches with bottom-up order and immediate thread harvesting.
-        
+
         Args:
             nodes_to_process: All nodes that need processing
             node_children: Mapping of node_id -> list of child_ids
             node_parents: Mapping of node_id -> list of parent_ids
             processing_results: Results accumulator
             root_id: ID of the root node
-            
+
         Returns:
             DocumentationNode for the root node
         """
         processed_nodes: Set[str] = set()
-        
+
         while len(processed_nodes) < len(nodes_to_process):
             # Get next batch of processable nodes (leaves or nodes with all children processed)
-            batch = self._get_processable_batch(
-                nodes_to_process,
-                node_children,
-                processed_nodes,
-                processing_results
-            )
-            
+            batch = self._get_processable_batch(nodes_to_process, node_children, processed_nodes, processing_results)
+
             if not batch:
                 # Handle remaining nodes with cycles or errors
                 remaining = set(nodes_to_process.keys()) - processed_nodes
@@ -405,48 +396,47 @@ class RecursiveDFSProcessor:
                             self.node_descriptions[node_id] = result
                             processed_nodes.add(node_id)
                 break
-            
+
             # Process batch with immediate thread harvesting using as_completed
             self._process_batch_with_harvesting(batch, nodes_to_process, node_children, processing_results)
             processed_nodes.update(batch)
-        
+
         # Return the root node's result
-        return processing_results.get(root_id, self._create_fallback_description(
-            nodes_to_process[root_id],
-            "Failed to process root node"
-        ))
-    
+        return processing_results.get(
+            root_id, self._create_fallback_description(nodes_to_process[root_id], "Failed to process root node")
+        )
+
     def _get_processable_batch(
         self,
         nodes_to_process: Dict[str, NodeWithContentDto],
         node_children: Dict[str, List[str]],
         processed_nodes: Set[str],
-        processing_results: Dict[str, DocumentationNode]
+        processing_results: Dict[str, DocumentationNode],
     ) -> List[str]:
         """
         Get the next batch of nodes that can be processed (bottom-up order).
-        
+
         A node is processable if:
         1. It's a leaf node (no children), OR
         2. All its children have been processed
-        
+
         Args:
             nodes_to_process: All nodes to process
             node_children: Child relationships
             processed_nodes: Already processed node IDs
             processing_results: Results so far
-            
+
         Returns:
             List of node IDs ready for processing
         """
         batch = []
-        
+
         for node_id in nodes_to_process.keys():
             if node_id in processed_nodes:
                 continue
-                
+
             children = node_children.get(node_id, [])
-            
+
             # Check if all children are processed (or it's a leaf)
             if not children:
                 # Leaf node
@@ -454,30 +444,27 @@ class RecursiveDFSProcessor:
             else:
                 # Check if all children are processed
                 all_children_ready = all(
-                    child_id in processing_results or child_id in processed_nodes
-                    for child_id in children
+                    child_id in processing_results or child_id in processed_nodes for child_id in children
                 )
                 if all_children_ready:
                     batch.append(node_id)
-        
-        # Limit batch size to available threads
-        if self._global_executor:
-            available_threads = min(self.max_workers, len(batch))
-            return batch[:available_threads]
+
+        # Return all processable nodes - thread pool executor will handle queuing
+        # and processing them with available workers
         return batch
-    
+
     def _process_batch_with_harvesting(
         self,
         batch: List[str],
         nodes_to_process: Dict[str, NodeWithContentDto],
         node_children: Dict[str, List[str]],
-        processing_results: Dict[str, DocumentationNode]
+        processing_results: Dict[str, DocumentationNode],
     ) -> None:
         """
         Process a batch of nodes using thread pool with immediate harvesting.
-        
+
         Uses concurrent.futures.as_completed() for immediate thread reuse.
-        
+
         Args:
             batch: Node IDs to process in this batch
             nodes_to_process: All nodes
@@ -492,19 +479,16 @@ class RecursiveDFSProcessor:
                 processing_results[node_id] = result
                 self.node_descriptions[node_id] = result
             return
-        
+
         # Submit all tasks to thread pool
         futures_to_node = {}
         for node_id in batch:
             node = nodes_to_process[node_id]
             future = self._global_executor.submit(
-                self._process_single_node_iterative,
-                node,
-                node_children,
-                processing_results
+                self._process_single_node_iterative, node, node_children, processing_results
             )
             futures_to_node[future] = (node_id, node)
-        
+
         # Process results as they complete (immediate thread harvesting)
         for future in as_completed(futures_to_node):
             node_id, node = futures_to_node[future]
@@ -519,30 +503,30 @@ class RecursiveDFSProcessor:
                 fallback = self._create_fallback_description(node, str(e))
                 processing_results[node_id] = fallback
                 self.node_descriptions[node_id] = fallback
-    
+
     def _process_single_node_iterative(
         self,
         node: NodeWithContentDto,
         node_children: Dict[str, List[str]],
-        processing_results: Dict[str, DocumentationNode]
+        processing_results: Dict[str, DocumentationNode],
     ) -> DocumentationNode:
         """
         Process a single node (leaf or parent) in the iterative approach.
-        
+
         Args:
             node: Node to process
             node_children: Child relationships
             processing_results: Already processed results
-            
+
         Returns:
             DocumentationNode for this node
         """
         node_id = node.id
-        
+
         # Check if already in cache (from database or previous processing)
         if node_id in self.node_descriptions:
             return self.node_descriptions[node_id]
-        
+
         # Check database for existing documentation
         existing_doc = self._check_database_for_existing_documentation(node)
         if existing_doc:
@@ -551,10 +535,10 @@ class RecursiveDFSProcessor:
             self.source_nodes_cache[node_id] = node
             self.source_to_description[node_id] = existing_doc.content
             return existing_doc
-        
+
         # Get children IDs for this node
         child_ids = node_children.get(node_id, [])
-        
+
         if not child_ids:
             # Leaf node - process directly
             return self._process_leaf_node(node)
@@ -567,36 +551,34 @@ class RecursiveDFSProcessor:
                 elif child_id in self.node_descriptions:
                     child_descriptions.append(self.node_descriptions[child_id])
                 # Skip children that aren't ready (cycles)
-            
+
             # Process parent with available children
             return self._process_parent_node(node, child_descriptions)
-    
+
     def _process_node_with_cycle_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
         """
         Process a node that's part of a cycle using fallback strategy.
-        
+
         Args:
             node: Node that's part of a cycle
-            
+
         Returns:
             DocumentationNode with cycle indication
         """
         try:
             # Process as leaf but with cycle indication in content
             info_node = self._process_leaf_node(node)
-            
+
             # Add cycle indication to content
             original_content = info_node.content
             info_node.content = f"{original_content}\n\n**Note: This node is part of a circular dependency.**"
             info_node.metadata = {"has_cycle": True}
-            
+
             return info_node
-            
+
         except Exception as e:
             logger.error(f"Error in cycle fallback for {node.name}: {e}")
             return self._create_fallback_description(node, f"Cycle processing error: {e}")
-
-
 
     def _create_fallback_description(self, node: NodeWithContentDto, error_msg: str) -> DocumentationNode:
         """
@@ -836,7 +818,7 @@ class RecursiveDFSProcessor:
             enhanced_content = self._create_child_descriptions_summary(child_descriptions)
         else:
             # For files and code nodes with actual content, replace skeleton comments
-            enhanced_content = self._replace_skeleton_comments_with_descriptions(node.content, child_descriptions)
+            enhanced_content = self._replace_skeleton_comments_with_descriptions(node.content)
 
         input_dict = {
             "node_name": node.name,
@@ -930,9 +912,7 @@ class RecursiveDFSProcessor:
 
         return "; ".join(cycle_info)
 
-    def _replace_skeleton_comments_with_descriptions(
-        self, parent_content: str, child_descriptions: List[DocumentationNode]
-    ) -> str:
+    def _replace_skeleton_comments_with_descriptions(self, parent_content: str) -> str:
         """
         Replace skeleton comments with LLM-generated descriptions.
 

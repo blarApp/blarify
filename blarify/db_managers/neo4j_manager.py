@@ -11,6 +11,10 @@ from blarify.db_managers.dtos.node_found_by_name_type import NodeFoundByNameType
 
 logger = logging.getLogger(__name__)
 
+# Disable Neo4j warning logs
+neo4j_logger = logging.getLogger("neo4j")
+neo4j_logger.setLevel(logging.ERROR)
+
 load_dotenv()
 
 

@@ -4,8 +4,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
 from blarify.agents.api_key_manager import APIKeyManager
-from blarify.agents.rotating_anthropic import RotatingKeyChatAnthropic
-from blarify.agents.rotating_providers import ErrorType
+from blarify.agents.rotating_provider import RotatingKeyChatAnthropic, ErrorType
 
 
 def test_anthropic_rate_limit_with_retry_after() -> None:
@@ -187,9 +186,7 @@ def test_model_kwargs_pass_through() -> None:
     manager = APIKeyManager("anthropic", auto_discover=False)
     manager.add_key("sk-ant-test123")
 
-    wrapper = RotatingKeyChatAnthropic(
-        manager, model="claude-3-opus-20240229", temperature=0.7, max_tokens=1000
-    )
+    wrapper = RotatingKeyChatAnthropic(manager, model="claude-3-opus-20240229", temperature=0.7, max_tokens=1000)
 
     assert wrapper.model_kwargs["model"] == "claude-3-opus-20240229"
     assert wrapper.model_kwargs["temperature"] == 0.7

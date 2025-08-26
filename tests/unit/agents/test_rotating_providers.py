@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from blarify.agents.api_key_manager import APIKeyManager
-from blarify.agents.rotating_providers import ErrorType, RotatingProviderBase
+from blarify.agents.rotating_provider import ErrorType, RotatingProviderBase
 
 
 def test_error_type_enum_values():

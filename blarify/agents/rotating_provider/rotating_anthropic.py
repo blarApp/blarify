@@ -8,7 +8,7 @@ from langchain_anthropic import ChatAnthropic
 from pydantic import SecretStr
 
 from blarify.agents.api_key_manager import APIKeyManager
-from blarify.agents.rotating_providers import ErrorType, RotatingProviderBase
+from .rotating_providers import ErrorType, RotatingProviderBase
 
 logger = logging.getLogger(__name__)
 

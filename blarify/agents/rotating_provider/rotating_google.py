@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from blarify.agents.api_key_manager import APIKeyManager
-from blarify.agents.rotating_providers import ErrorType, RotatingProviderBase
+from .rotating_providers import ErrorType, RotatingProviderBase
 
 logger = logging.getLogger(__name__)
 

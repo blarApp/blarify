@@ -6,8 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from blarify.agents.api_key_manager import APIKeyManager
-from blarify.agents.rotating_google import RotatingKeyChatGoogle
-from blarify.agents.rotating_providers import ErrorType
+from blarify.agents.rotating_provider import RotatingKeyChatGoogle, ErrorType
 
 
 def test_google_resource_exhausted_detection() -> None:
@@ -183,9 +182,7 @@ def test_google_create_client() -> None:
     # Mock the ChatGoogleGenerativeAI to avoid actual instantiation
     with patch("blarify.agents.rotating_google.ChatGoogleGenerativeAI") as mock_chat:
         _ = wrapper._create_client("test-key-123")  # noqa: SLF001
-        mock_chat.assert_called_once_with(
-            google_api_key="test-key-123", model="gemini-pro", temperature=0.7
-        )
+        mock_chat.assert_called_once_with(google_api_key="test-key-123", model="gemini-pro", temperature=0.7)
 
 
 def test_google_backoff_no_current_key() -> None:
@@ -226,9 +223,7 @@ def test_google_execute_with_rotation_success() -> None:
         return "success"
 
     # Mock the parent class execute_with_rotation
-    with patch.object(
-        RotatingKeyChatGoogle.__bases__[0], "execute_with_rotation", return_value="success"
-    ):
+    with patch.object(RotatingKeyChatGoogle.__bases__[0], "execute_with_rotation", return_value="success"):
         result = wrapper.execute_with_rotation(success_func)
         assert result == "success"
         # Backoff should be reset

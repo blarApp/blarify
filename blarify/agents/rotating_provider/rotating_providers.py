@@ -109,6 +109,7 @@ class RotatingProviderBase(Runnable[Any, Any], ABC):
         """Execute function with automatic key rotation on errors.
 
         Thread-safe execution with key rotation support.
+        Only rotates keys when errors occur, not on every call.
 
         Args:
             func: The function to execute
@@ -126,33 +127,59 @@ class RotatingProviderBase(Runnable[Any, Any], ABC):
         for _ in range(max_retries):
             # Thread-safe key selection
             with self._lock:
-                key = self.key_manager.get_next_available_key()
-
-                if not key:
-                    logger.error(f"No available keys for {self.get_provider_name()}")
-                    if last_error:
-                        raise last_error
-                    raise RuntimeError(f"No available API keys for {self.get_provider_name()}")
-
-                if key in keys_tried and len(keys_tried) == self.key_manager.get_available_count():
+                # Decision logic for key selection:
+                # 1. If no current key -> get a new one
+                # 2. If current key is not available -> get a new one  
+                # 3. Otherwise -> reuse the current key
+                
+                need_new_key = (
+                    not self._current_key or 
+                    not self.key_manager.is_key_available(self._current_key)
+                )
+                
+                if need_new_key:
+                    # Get a new key
+                    key = self.key_manager.get_next_available_key()
+                    
+                    if not key:
+                        logger.error(f"No available keys for {self.get_provider_name()}")
+                        if last_error:
+                            raise last_error
+                        raise RuntimeError(f"No available API keys for {self.get_provider_name()}")
+                    
+                    # Track key rotation if key actually changed
+                    if self._current_key and self._current_key != key:
+                        # This is an actual rotation
+                        self.metrics.key_rotations += 1
+                        self.metrics.last_rotation = datetime.now()
+                        logger.debug(f"Rotated from key {self._current_key[:10]}... to {key[:10]}...")
+                    
+                    self._current_key = key
+                else:
+                    # Reuse existing key
+                    key = self._current_key
+                    if key:
+                        logger.debug(f"Reusing existing key {key[:10]}... for {self.get_provider_name()}")
+                
+                # Check if we've exhausted all available keys
+                if key and key in keys_tried and len(keys_tried) >= self.key_manager.get_available_count():
                     # We've tried all available keys
+                    logger.error(f"All available keys exhausted for {self.get_provider_name()}")
                     if last_error:
                         raise last_error
                     raise RuntimeError(f"All available keys exhausted for {self.get_provider_name()}")
-
-                keys_tried.add(key)
-                if self._current_key and self._current_key != key:
-                    # Key rotation occurred
-                    self.metrics.key_rotations += 1
-                    self.metrics.last_rotation = datetime.now()
-                self._current_key = key
+                
+                if key:
+                    keys_tried.add(key)
 
             try:
                 # Create client with current key and execute
                 result = func()
 
                 # Success - update metadata and metrics
-                self._record_success(key)
+                if key:
+                    self._record_success(key)
+                    logger.debug(f"Request successful with key {key[:10]}... for {self.get_provider_name()}")
                 self._update_metrics()
                 return result
 
@@ -161,28 +188,45 @@ class RotatingProviderBase(Runnable[Any, Any], ABC):
                 error_type, retry_after = self.analyze_error(e)
 
                 # Record the failure and update metrics
-                self._record_failure(key, error_type)
+                if key:
+                    self._record_failure(key, error_type)
                 self._update_metrics(error_type)
 
+                # Handle different error types
                 if error_type == ErrorType.RATE_LIMIT:
-                    self.key_manager.mark_rate_limited(key, retry_after)
-                    logger.warning(f"Rate limit hit for {self.get_provider_name()} key {key[:10]}...")
+                    if key:
+                        self.key_manager.mark_rate_limited(key, retry_after)
+                        logger.warning(f"Rate limit hit for {self.get_provider_name()} key {key[:10]}...")
+                    # Clear current key to force rotation on next attempt
+                    with self._lock:
+                        self._current_key = None
 
                 elif error_type == ErrorType.AUTH_ERROR:
-                    self.key_manager.mark_invalid(key)
-                    logger.error(f"Auth failed for {self.get_provider_name()} key {key[:10]}...")
+                    if key:
+                        self.key_manager.mark_invalid(key)
+                        logger.error(f"Auth failed for {self.get_provider_name()} key {key[:10]}...")
+                    # Clear current key to force rotation on next attempt
+                    with self._lock:
+                        self._current_key = None
 
                 elif error_type == ErrorType.QUOTA_EXCEEDED:
-                    self.key_manager.mark_quota_exceeded(key)
-                    logger.error(f"Quota exceeded for {self.get_provider_name()} key {key[:10]}...")
+                    if key:
+                        self.key_manager.mark_quota_exceeded(key)
+                        logger.error(f"Quota exceeded for {self.get_provider_name()} key {key[:10]}...")
+                    # Clear current key to force rotation on next attempt
+                    with self._lock:
+                        self._current_key = None
 
                 elif error_type == ErrorType.NON_RETRYABLE:
                     # Don't retry non-retryable errors
+                    logger.error(f"Non-retryable error for {self.get_provider_name()}: {str(e)}")
                     raise
-
-                # Continue to next iteration for retryable errors
+                
+                # For RETRYABLE errors, continue to next iteration without clearing current key
+                # This allows retrying with the same key for transient errors
 
         # All retries exhausted
+        logger.error(f"Max retries ({max_retries}) exceeded for {self.get_provider_name()}")
         raise last_error or RuntimeError(f"Max retries exceeded for {self.get_provider_name()}")
 
     def _record_success(self, key: str) -> None:

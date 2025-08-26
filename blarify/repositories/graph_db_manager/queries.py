@@ -374,7 +374,7 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
 
 def get_code_nodes_by_ids_query() -> str:
     """Returns Cypher query to get code nodes by their IDs.
-    
+
     Returns:
         str: The Cypher query string
     """
@@ -1269,8 +1269,8 @@ def _create_bridge_edges(
 
             # Check consecutive nodes at this depth
             for j in range(len(nodes_at_depth) - 1):
-                current_idx, current_node = nodes_at_depth[j]
-                next_idx, next_node = nodes_at_depth[j + 1]
+                _, current_node = nodes_at_depth[j]
+                _, next_node = nodes_at_depth[j + 1]
 
                 current_id = current_node.get("id")
                 next_id = next_node.get("id")

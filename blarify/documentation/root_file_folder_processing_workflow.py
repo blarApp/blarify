@@ -12,7 +12,7 @@ from langgraph.graph import START, END, StateGraph
 from langgraph.types import Command
 
 from ..agents.llm_provider import LLMProvider
-from ..db_managers.db_manager import AbstractDbManager
+from ..repositories.graph_db_manager.db_manager import AbstractDbManager
 from ..graph.graph_environment import GraphEnvironment
 from .utils.recursive_dfs_processor import RecursiveDFSProcessor, ProcessingResult
 

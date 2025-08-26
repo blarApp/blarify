@@ -9,8 +9,8 @@ import time
 import logging
 from typing import List, Dict, Any, Optional
 
-from ..db_managers.db_manager import AbstractDbManager
-from ..db_managers.queries import find_all_entry_points, find_code_workflows, find_entry_points_for_node_path
+from ..repositories.graph_db_manager.db_manager import AbstractDbManager
+from ..repositories.graph_db_manager.queries import find_all_entry_points, find_code_workflows, find_entry_points_for_node_path
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.node.workflow_node import WorkflowNode
 from ..graph.relationship.relationship_creator import RelationshipCreator

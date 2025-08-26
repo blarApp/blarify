@@ -23,9 +23,9 @@ from ...agents.prompt_templates import (
     FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE,
 )
-from ...db_managers.db_manager import AbstractDbManager
-from ...db_managers.dtos.node_with_content_dto import NodeWithContentDto
-from ...db_managers.queries import (
+from ...repositories.graph_db_manager.db_manager import AbstractDbManager
+from ...repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
+from ...repositories.graph_db_manager.queries import (
     get_node_by_path,
     get_direct_children,
     get_call_stack_children,

@@ -28,7 +28,7 @@ PASSWORD = os.getenv("NEO4J_PASSWORD")
 logger = logging.getLogger(__name__)
 
 
-def main_with_documentation(root_path: str = None, blarignore_path: str = None):
+def main_with_documentation(root_path: str = None, blarignore_path: Optional[str] = None):
     """Main function that builds the graph and then runs the documentation generation workflow."""
     print("🚀 Starting integrated graph building and documentation generation...")
 
@@ -71,6 +71,7 @@ def main_with_documentation(root_path: str = None, blarignore_path: str = None):
             graph_environment=graph_environment,
             company_id=entity_id,
             repo_id=repoId,
+            max_workers=100,
         )
 
         print("📝 Starting documentation generation...")
@@ -122,8 +123,8 @@ def test_documentation_only(root_path: str = None):
     """Test only the documentation workflow, assuming the graph already exists in the database."""
     print("📚 Testing documentation generation workflow only...")
 
-    repoId = "pydata__xarray-6938"
-    entity_id = "swe_agent"
+    repoId = "test"
+    entity_id = "test"
     graph_manager = Neo4jManager(repoId, entity_id)
 
     try:
@@ -142,9 +143,7 @@ def test_documentation_only(root_path: str = None):
         print("📝 Starting documentation creation...")
 
         # Run the documentation creation
-        result = documentation_creator.create_documentation(
-            target_paths=["/blarify/0/pydata__xarray-6938/xarray/core/dataset.py#Dataset.swap_dims"]
-        )
+        result = documentation_creator.create_documentation()
 
         print("✅ Documentation generation completed successfully!")
 

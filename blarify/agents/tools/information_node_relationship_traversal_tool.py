@@ -11,7 +11,7 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from blarify.db_managers.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 
 
 class InformationNodeRelationshipTraversalInput(BaseModel):

@@ -6,8 +6,8 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from blarify.agents.utils import mark_deleted_or_added_lines
-from blarify.db_managers.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
+from blarify.repositories.graph_db_manager import Neo4jManager
 
 
 class Input(BaseModel):

@@ -4,8 +4,8 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
-from blarify.db_managers.neo4j_manager import Neo4jManager
-from blarify.db_managers.queries import get_code_by_id
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.queries import get_code_by_id
 
 
 class NodeIdInput(BaseModel):
@@ -55,7 +55,7 @@ class GetCodeByIdTool(BaseTool):
     ) -> Dict[str, str]:
         """Returns a function code given a node_id. returns the node text and the neighbors of the node."""
         node_result = get_code_by_id(self.db_manager, node_id=node_id, entity_id=self.company_id)
-        
+
         if not node_result:
             return f"No code found for the given query: {node_id}"
 

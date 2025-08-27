@@ -5,9 +5,9 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from blarify.agents.utils import normalize_node_path, mark_deleted_or_added_lines
-from blarify.db_managers.dtos.node_found_by_text import NodeFoundByTextDto
-from blarify.db_managers.neo4j_manager import Neo4jManager
-from blarify.db_managers.queries import find_nodes_by_text_content
+from blarify.repositories.graph_db_manager.dtos.node_found_by_text import NodeFoundByTextDto
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.queries import find_nodes_by_text_content
 
 
 class Input(BaseModel):

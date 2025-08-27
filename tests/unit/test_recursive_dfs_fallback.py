@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
 from blarify.graph.node.documentation_node import DocumentationNode
-from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
+from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
 
 class TestRecursiveDFSFallbackStrategies:

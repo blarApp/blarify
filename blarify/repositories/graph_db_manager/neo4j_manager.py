@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 from neo4j import Driver, GraphDatabase, exceptions
 import logging
 
-from blarify.db_managers.db_manager import AbstractDbManager
-from blarify.db_managers.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,11 @@ class Neo4jManager(AbstractDbManager):
         """
         if parameters is None:
             parameters = {}
+
+        if "repo_id" not in parameters:
+            parameters["repo_id"] = self.repo_id
+        if "entity_id" not in parameters:
+            parameters["entity_id"] = self.entity_id
 
         try:
             with self.driver.session() as session:

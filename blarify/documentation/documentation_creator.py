@@ -12,11 +12,11 @@ from typing import List, Optional, TYPE_CHECKING, Dict, Any
 
 if TYPE_CHECKING:
     from blarify.graph.node.documentation_node import DocumentationNode
-    from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
+    from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
 from ..agents.llm_provider import LLMProvider
-from ..db_managers.db_manager import AbstractDbManager
-from ..db_managers.queries import (
+from ..repositories.graph_db_manager.db_manager import AbstractDbManager
+from ..repositories.graph_db_manager.queries import (
     find_all_entry_points,
     find_entry_points_for_node_path,
     get_root_folders_and_files,

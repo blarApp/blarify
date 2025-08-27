@@ -5,16 +5,18 @@ of GitHub integration nodes and relationships in the graph database.
 """
 
 import logging
-from typing import Dict, List, Any, Optional, Tuple, cast
+from typing import Dict, List, Any, Optional, Tuple, cast, Sequence
 from dataclasses import dataclass, field
 
+from blarify.graph.node.commit_node import CommitNode
+from blarify.graph.node.pr_node import PullRequestNode
 from blarify.repositories.graph_db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.queries import get_code_nodes_by_ids_query
 from blarify.repositories.graph_db_manager.dtos.code_node_dto import CodeNodeDto
 from blarify.repositories.version_control.dtos.blame_commit_dto import BlameCommitDto
 from blarify.repositories.version_control.github import GitHub
 from blarify.graph.graph_environment import GraphEnvironment
-from blarify.graph.node.integration_node import IntegrationNode
+from blarify.graph.node.types.integration_node import IntegrationNode
 from blarify.graph.relationship.relationship_creator import RelationshipCreator
 
 logger = logging.getLogger(__name__)
@@ -26,8 +28,8 @@ class GitHubIntegrationResult:
 
     total_prs: int = 0
     total_commits: int = 0
-    pr_nodes: List[IntegrationNode] = field(default_factory=list)
-    commit_nodes: List[IntegrationNode] = field(default_factory=list)
+    pr_nodes: List[PullRequestNode] = field(default_factory=list)
+    commit_nodes: List[CommitNode] = field(default_factory=list)
     relationships: List[Any] = field(default_factory=list)
     error: Optional[str] = None
 
@@ -164,12 +166,10 @@ class GitHubCreator:
             Tuple of (pr_node, list of commit_nodes)
         """
         # Create PR node
-        pr_node = IntegrationNode(
-            source="github",
-            source_type="pull_request",
+        pr_node = PullRequestNode(
             external_id=str(pr_data["number"]),
             title=pr_data["title"],
-            content=pr_data.get("description") or "",
+            description=pr_data.get("description") or "",
             timestamp=pr_data["created_at"],
             author=pr_data["author"],
             url=pr_data["url"],
@@ -180,7 +180,6 @@ class GitHubCreator:
                 **pr_data.get("metadata", {}),
             },
             graph_environment=self.graph_environment,
-            level=0,
         )
 
         # Fetch commits for this PR
@@ -188,23 +187,24 @@ class GitHubCreator:
         commit_nodes = []
 
         for commit_data in commits_data:
-            commit_node = IntegrationNode(
-                source="github",
-                source_type="commit",
+            # Fetch the full patch for this commit
+            patch_text = self.github_repo.fetch_commit_patch(commit_data["sha"])
+
+            commit_node = CommitNode(
                 external_id=commit_data["sha"],
                 title=commit_data["message"].split("\n")[0],  # First line of message
-                content=commit_data["message"],
+                diff_text=patch_text if patch_text else "",  # Use patch as diff_text
                 timestamp=commit_data["timestamp"],
                 author=commit_data["author"],
                 url=commit_data["url"],
                 metadata={
                     "pr_number": pr_data["number"],
                     "author_email": commit_data.get("author_email"),
+                    "commit_message": commit_data["message"],  # Store full message in metadata
+                    "has_patch": bool(patch_text),
                     **commit_data.get("metadata", {}),
                 },
                 graph_environment=self.graph_environment,
-                level=1,
-                parent=pr_node,
             )
             commit_nodes.append(commit_node)
 
@@ -368,11 +368,11 @@ class GitHubCreator:
 
         return affected_nodes
 
-    def _save_to_database(self, nodes: List[IntegrationNode], relationships: List[Any]):
+    def _save_to_database(self, nodes: Sequence[IntegrationNode], relationships: List[Any]):
         """Save integration nodes and relationships to the database.
 
         Args:
-            nodes: List of IntegrationNodes to save
+            nodes: Sequence of IntegrationNodes to save
             relationships: List of relationships to save
         """
         # Convert nodes to objects for database
@@ -514,9 +514,22 @@ class GitHubCreator:
                     commit_node = next((c for c in commit_nodes if c.external_id == commit_data.sha), None)
                     if not commit_node:
                         continue
+                    
+                    # Extract relevant patch for this specific node
+                    relevant_patch = ""
+                    if commit_node.content:  # diff_text is stored as content
+                        relevant_patch = self.github_repo.extract_relevant_patch(
+                            commit_node.content,
+                            node.path,
+                            node.start_line,
+                            node.end_line
+                        )
 
                     rel = RelationshipCreator.create_modified_by_with_blame(
-                        commit_node=commit_node, code_node=node, line_ranges=commit_data.line_ranges
+                        commit_node=commit_node, 
+                        code_node=node, 
+                        line_ranges=commit_data.line_ranges,
+                        relevant_patch=relevant_patch
                     )
                     relationships.append(rel)
 
@@ -550,7 +563,7 @@ class GitHubCreator:
 
     def _create_integration_nodes_from_blame(
         self, blame_results: Dict[str, List[BlameCommitDto]]
-    ) -> Tuple[List[IntegrationNode], List[IntegrationNode]]:
+    ) -> Tuple[List[PullRequestNode], List[CommitNode]]:
         """Create PR and commit nodes from blame results.
 
         Args:
@@ -559,8 +572,8 @@ class GitHubCreator:
         Returns:
             Tuple of (pr_nodes, commit_nodes)
         """
-        pr_nodes = []
-        commit_nodes = []
+        pr_nodes: List[PullRequestNode] = []
+        commit_nodes: List[CommitNode] = []
         seen_prs = set()
         seen_commits = set()
 
@@ -571,28 +584,30 @@ class GitHubCreator:
                 if sha not in seen_commits:
                     seen_commits.add(sha)
 
+                    # Fetch the patch for this commit
+                    patch_text = self.github_repo.fetch_commit_patch(sha)
+
                     # Store PR number in metadata if available
                     metadata = {
                         "author_email": commit_data.author_email,
                         "author_login": commit_data.author_login,
                         "additions": commit_data.additions,
                         "deletions": commit_data.deletions,
+                        "commit_message": commit_data.message,  # Store full message
+                        "has_patch": bool(patch_text),
                     }
                     if commit_data.pr_info:
                         metadata["pr_number"] = commit_data.pr_info.number
 
-                    commit_node = IntegrationNode(
-                        source="github",
-                        source_type="commit",
+                    commit_node = CommitNode(
                         external_id=sha,
-                        title=commit_data.message.split("\n")[0],
-                        content=commit_data.message,
+                        title=commit_data.message.split("\n")[0] if commit_data.message else "No message",
+                        diff_text=patch_text if patch_text else "",  # Use actual patch
                         timestamp=commit_data.timestamp or "",
                         author=commit_data.author or "Unknown",
                         url=commit_data.url or "",
                         metadata=metadata,
                         graph_environment=self.graph_environment,
-                        level=1,
                     )
                     commit_nodes.append(commit_node)
 
@@ -601,18 +616,15 @@ class GitHubCreator:
                 if pr_info and pr_info.number not in seen_prs:
                     seen_prs.add(pr_info.number)
 
-                    pr_node = IntegrationNode(
-                        source="github",
-                        source_type="pull_request",
+                    pr_node = PullRequestNode(
                         external_id=str(pr_info.number),
                         title=pr_info.title,
-                        content="",  # Would need separate query for PR body
+                        description=pr_info.body_text or "",  # Use bodyText from GraphQL
                         timestamp=pr_info.merged_at or "",
                         author=pr_info.author or "",
                         url=pr_info.url,
                         metadata={"state": pr_info.state or "MERGED"},
                         graph_environment=self.graph_environment,
-                        level=0,
                     )
                     pr_nodes.append(pr_node)
 

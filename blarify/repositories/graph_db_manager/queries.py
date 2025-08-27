@@ -2503,7 +2503,6 @@ def get_documentation_nodes_for_embedding_query() -> str:
     """
     return """
     MATCH (n:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.content_embedding IS NULL OR size(n.content_embedding) = 0
     RETURN n.node_id as node_id,
            n.content as content,
            n.info_type as info_type,
@@ -2515,9 +2514,10 @@ def get_documentation_nodes_for_embedding_query() -> str:
     LIMIT $batch_size
     """
 
+
 def update_documentation_embeddings_query() -> str:
     """Query to update embeddings for documentation nodes.
-    
+
     Returns:
         Cypher query string for updating embeddings
     """
@@ -2529,9 +2529,115 @@ def update_documentation_embeddings_query() -> str:
     """
 
 
+def initialize_processing_query() -> str:
+    """
+    Initialize processing by marking all nodes as pending.
+
+    Sets the processing status of all nodes in the graph to 'pending'.
+
+    Parameters expected:
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    SET n.processing_status = 'pending'
+    RETURN count(n) as initialized_count
+    """
+
+
+def mark_processing_status_query() -> str:
+    """
+    Update the processing status of a specific node.
+
+    Marks a node with a specific processing status (pending, in_progress, completed).
+
+    Parameters expected:
+        - node_path: Path to the node to update
+        - status: New status ('pending', 'in_progress', or 'completed')
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {path: $node_path, entityId: $entity_id, repoId: $repo_id})
+    SET n.processing_status = $status
+    RETURN n.path as path, $status as new_status
+    """
+
+
+def get_processable_nodes_query() -> str:
+    """
+    Get nodes that are ready for processing in bottom-up order.
+
+    Returns nodes that:
+    1. Have 'pending' status
+    2. Either have no children OR all children are 'completed'
+
+    This ensures bottom-up processing order where leaf nodes are processed
+    before their parents.
+
+    Parameters expected:
+        - batch_size: Maximum number of nodes to return
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    // Find all nodes with pending status
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    WHERE n.processing_status = 'pending'
+    
+    // Check if node is processable (no children or all children completed)
+    OPTIONAL MATCH (n)-[:CONTAINS]->(child:NODE)
+    WHERE child.entityId = $entity_id 
+      AND child.repoId = $repo_id
+    WITH n, collect(child) as children
+    
+    // Filter to only nodes where all children are completed (or no children)
+    WHERE size(children) = 0 OR 
+          all(child IN children WHERE child.processing_status = 'completed')
+    
+    RETURN n.path as path, 
+           n.name as name,
+           n.node_id as node_id,
+           labels(n) as labels
+    LIMIT $batch_size
+    """
+
+
+def cleanup_processing_query() -> str:
+    """
+    Remove all processing status data from nodes.
+
+    Cleans up the processing status fields. This should be called when
+    processing completes or is abandoned.
+
+    Parameters expected:
+        - entity_id: Entity identifier for the nodes
+        - repo_id: Repository identifier for the nodes
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    WHERE n.processing_status IS NOT NULL
+    REMOVE n.processing_status
+    RETURN count(n) as cleaned_count
+"""
+
+
 def create_vector_index_query() -> str:
     """Create Neo4j vector index for documentation embeddings.
-    
+
     Returns:
         Cypher query string for creating the vector index
     """
@@ -2543,4 +2649,63 @@ def create_vector_index_query() -> str:
         `vector.dimensions`: 1536,
         `vector.similarity_function`: 'cosine'
     }}
+    """
+
+
+def vector_similarity_search_query() -> str:
+    """Cypher query for vector similarity search using Neo4j vector index.
+
+    Returns:
+        Cypher query string for vector similarity search
+    """
+    return """
+    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
+    YIELD node, score
+    WHERE score >= $min_similarity
+    RETURN node.node_id as node_id,
+           node.title as title,
+           node.content as content,
+           score as similarity_score,
+           node.source_path as source_path,
+           node.source_labels as source_labels,
+           node.info_type as info_type,
+           node.enhanced_content as enhanced_content
+    ORDER BY score DESC
+    """
+
+
+def hybrid_search_query() -> str:
+    """Cypher query for hybrid search combining vector and keyword similarity.
+
+    Returns:
+        Cypher query string for hybrid search
+    """
+    return """
+    // Vector similarity search
+    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
+    YIELD node, score as vector_score
+    
+    // Keyword matching
+    WITH node, vector_score,
+         CASE 
+           WHEN toLower(node.content) CONTAINS toLower($keyword) THEN 1.0
+           WHEN toLower(node.title) CONTAINS toLower($keyword) THEN 0.8
+           ELSE 0.0
+         END as keyword_score
+    
+    // Combine scores with weights
+    WITH node, 
+         ($vector_weight * vector_score + $keyword_weight * keyword_score) as combined_score
+    WHERE combined_score >= $min_score
+    
+    RETURN node.node_id as node_id,
+           node.title as title,
+           node.content as content,
+           combined_score as similarity_score,
+           node.source_path as source_path,
+           node.source_labels as source_labels,
+           node.info_type as info_type,
+           node.enhanced_content as enhanced_content
+    ORDER BY combined_score DESC
+    LIMIT $limit
     """

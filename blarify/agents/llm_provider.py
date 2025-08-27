@@ -1,17 +1,25 @@
 import json
 import logging
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import json_repair
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-from langchain.agents import create_react_agent, AgentExecutor
-from langchain_core.prompts import PromptTemplate
 
-from .chat_fallback import ChatFallback
+from .api_key_manager import APIKeyManager
+from .rotating_provider import (
+    RotatingKeyChatAnthropic,
+    RotatingKeyChatGoogle,
+    RotatingKeyChatOpenAI,
+)
+from .utils import discover_keys_for_provider
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +37,32 @@ class ReasoningEffort(Enum):
     HIGH = "high"
 
 
+MODEL_PROVIDER_DICT = {
+    "gpt-4.1": ChatOpenAI,
+    "gpt-4.1-nano": ChatOpenAI,
+    "gpt-4.1-mini": ChatOpenAI,
+    "o4-mini": ChatOpenAI,
+    "o3": ChatOpenAI,
+    "gemini-2.5-flash-preview-05-20": ChatGoogleGenerativeAI,
+    "gemini-2.5-pro-preview-06-05": ChatGoogleGenerativeAI,
+    "claude-3-5-haiku-latest": ChatAnthropic,
+    "claude-sonnet-4-20250514": ChatAnthropic,
+}
+
+
 class LLMProvider:
     dumb_agent_order = ["gpt-4.1-nano", "claude-3-5-haiku-latest", "gemini-2.5-flash-preview-05-20"]
     average_agent_order = ["gpt-4.1-nano", "claude-3-5-haiku-latest", "gemini-2.5-flash-preview-05-20"]
     reasoning_agent_order = ["o4-mini", "claude-sonnet-4-20250514", "gemini-2.5-pro-preview-06-05"]
     TIMEOUT = 80
     MAX_RETRIES = 3
+    
+    # Mapping of providers to their rotating classes
+    ROTATING_PROVIDER_MAP: Dict[str, Type[Any]] = {
+        "openai": RotatingKeyChatOpenAI,
+        "anthropic": RotatingKeyChatAnthropic,
+        "google": RotatingKeyChatGoogle,
+    }
 
     def __init__(self, reasoning_agent_order: Optional[List[str]] = None, reasoning_agent: Optional[str] = None):
         if reasoning_agent_order:
@@ -45,6 +73,128 @@ class LLMProvider:
             self.reasoning_agent = "o4-mini"
         self.dumb_agent = "gpt-4.1-nano"
         self.average_agent = "gpt-4.1-nano"
+        # Cache for model instances to maintain metrics
+        self._model_cache: Dict[Tuple[str, Optional[int], Optional[Type[BaseModel]]], Runnable[Any, Any]] = {}
+        # Cache for API key managers
+        self._api_key_managers: Dict[str, APIKeyManager] = {}
+    
+    def _get_provider_from_model(self, model: str) -> Optional[str]:
+        """Get provider name from MODEL_PROVIDER_DICT."""
+        provider_class = MODEL_PROVIDER_DICT.get(model)
+        if not provider_class:
+            return None
+        
+        # Extract provider from class name
+        class_name = provider_class.__name__
+        if "OpenAI" in class_name:
+            return "openai"
+        elif "Anthropic" in class_name:
+            return "anthropic"
+        elif "Google" in class_name or "Gemini" in class_name:
+            return "google"
+        
+        return None
+    
+    def _get_or_create_api_key_manager(self, provider: str) -> APIKeyManager:
+        """Get or create an APIKeyManager for the provider."""
+        if provider not in self._api_key_managers:
+            self._api_key_managers[provider] = APIKeyManager(provider, auto_discover=True)
+        return self._api_key_managers[provider]
+    
+    def _create_rotating_model(
+        self, model: str, provider: str, timeout: Optional[int] = None, output_schema: Optional[Type[BaseModel]] = None
+    ) -> Runnable[Any, Any]:
+        """Create a rotating model instance."""
+        rotating_class = self.ROTATING_PROVIDER_MAP.get(provider)
+        if not rotating_class:
+            raise ValueError(f"No rotating provider available for {provider}")
+        
+        # Get or create APIKeyManager
+        key_manager = self._get_or_create_api_key_manager(provider)
+        
+        # Get model kwargs based on provider
+        model_kwargs: Dict[str, Any] = {
+            "timeout": timeout or self.TIMEOUT,
+        }
+        
+        # Different providers use different parameter names
+        if provider == "anthropic":
+            model_kwargs["model_name"] = model
+        else:  # OpenAI and Google use 'model'
+            model_kwargs["model"] = model
+        
+        # Create rotating provider instance
+        chat_model = rotating_class(key_manager, **model_kwargs)
+        
+        if output_schema:
+            chat_model = chat_model.with_structured_output(output_schema)
+        
+        return chat_model
+    
+    def _create_standard_model(
+        self, model: str, timeout: Optional[int] = None, output_schema: Optional[Type[BaseModel]] = None
+    ) -> Runnable[Any, Any]:
+        """Create a standard (non-rotating) model instance."""
+        if model not in MODEL_PROVIDER_DICT:
+            raise ValueError(f"Model {model} not found in MODEL_PROVIDER_DICT")
+        
+        chat_model_class: Type[Union[ChatGoogleGenerativeAI, ChatAnthropic, ChatOpenAI]] = MODEL_PROVIDER_DICT[model]
+        
+        # Use provided timeout or instance timeout
+        model_timeout = timeout or self.TIMEOUT
+        
+        chat_model: Any  # Will be one of the chat model types
+        if issubclass(chat_model_class, ChatGoogleGenerativeAI):
+            chat_model = (
+                ChatGoogleGenerativeAI(model=model, timeout=model_timeout)
+                if model_timeout
+                else ChatGoogleGenerativeAI(model=model)
+            )
+        elif issubclass(chat_model_class, ChatAnthropic):
+            if model_timeout:
+                chat_model = ChatAnthropic(model_name=model, timeout=model_timeout, stop=None)
+            else:
+                chat_model = ChatAnthropic(model_name=model, timeout=None, stop=None)
+        elif issubclass(chat_model_class, ChatOpenAI):
+            chat_model = ChatOpenAI(model=model, timeout=model_timeout) if model_timeout else ChatOpenAI(model=model)
+        else:
+            raise ValueError(f"Unsupported chat model class for model {model}")
+        
+        if output_schema:
+            chat_model = chat_model.with_structured_output(output_schema)
+        
+        return chat_model
+    
+    def _get_or_create_model(
+        self, model: str, timeout: Optional[int] = None, output_schema: Optional[Type[BaseModel]] = None
+    ) -> Runnable[Any, Any]:
+        """Get cached model or create new one with rotation if multiple keys exist."""
+        # Create cache key
+        cache_key = (model, timeout, output_schema)
+        
+        # Return cached model if available
+        if cache_key in self._model_cache:
+            return self._model_cache[cache_key]
+        
+        # Check if model exists
+        if model not in MODEL_PROVIDER_DICT:
+            raise ValueError(f"Model {model} not found in MODEL_PROVIDER_DICT")
+        
+        # Determine provider and check for multiple keys
+        provider = self._get_provider_from_model(model)
+        if provider:
+            keys = discover_keys_for_provider(provider)
+            if len(keys) > 1:
+                logger.info(f"Found {len(keys)} keys for {provider}, using rotation for {model}")
+                model_instance = self._create_rotating_model(model, provider, timeout, output_schema)
+            else:
+                model_instance = self._create_standard_model(model, timeout, output_schema)
+        else:
+            model_instance = self._create_standard_model(model, timeout, output_schema)
+        
+        # Cache the model instance
+        self._model_cache[cache_key] = model_instance
+        return model_instance
 
     def _invoke_agent(
         self,
@@ -52,33 +202,43 @@ class LLMProvider:
         input_prompt: str,
         input_dict: Dict[str, Any],
         ai_model: str,
-        fallback_list: Optional[List[str]] = None,
-        output_schema: Optional[BaseModel] = None,
+        output_schema: Optional[Type[BaseModel]] = None,
         messages: Optional[List[BaseMessage]] = None,
         tools: Optional[List[BaseTool]] = None,
         config: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
     ) -> Any:
-        if not fallback_list:
-            fallback_list = self.reasoning_agent_order
-
-        model = ChatFallback(
-            model=ai_model, fallback_list=fallback_list, output_schema=output_schema, timeout=timeout
-        ).get_fallback_chat_model()
+        # Get or create the model with rotation support if multiple keys exist
+        model = self._get_or_create_model(ai_model, timeout, output_schema)
 
         # Bind tools to model if provided
         if tools:
-            model = model.bind_tools(tools)
+            model = model.bind_tools(tools)  # type: ignore
 
-        prompt_list = [("system", system_prompt)]
+        prompt_list: List[Tuple[str, str]] = [("system", system_prompt)]
         if messages:
-            prompt_list.extend(messages)
+            # Convert BaseMessage objects to tuples
+            for msg in messages:
+                # Use type to determine role
+                if hasattr(msg, '__class__'):
+                    role = msg.__class__.__name__.lower().replace('message', '')
+                    if role == 'human':
+                        prompt_list.append(("human", str(msg.content)))
+                    elif role == 'ai' or role == 'assistant':
+                        prompt_list.append(("assistant", str(msg.content)))
+                    elif role == 'system':
+                        prompt_list.append(("system", str(msg.content)))
+                    else:
+                        prompt_list.append(("human", str(msg.content)))
+                elif hasattr(msg, 'content'):
+                    # Default to 'human' role if not specified
+                    prompt_list.append(("human", str(msg.content)))
         else:
             prompt_list.append(("human", input_prompt))
 
         chat_prompt = ChatPromptTemplate.from_messages(prompt_list)
         chain = chat_prompt | model
-        response = chain.invoke(input_dict, config=config)
+        response = chain.invoke(input_dict, config=config)  # type: ignore
 
         return response
 
@@ -86,30 +246,19 @@ class LLMProvider:
         self,
         system_prompt: str,
         input_dict: Dict[str, Any],
-        output_schema: Optional[BaseModel] = None,
+        output_schema: Optional[Type[BaseModel]] = None,
         ai_model: Optional[str] = None,
-        input_prompt: Optional[str] = "Start",
+        input_prompt: str = "Start",
         config: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
     ) -> Any:
-        if ai_model:
-            return self._invoke_agent(
-                input_prompt=input_prompt,
-                input_dict=input_dict,
-                ai_model=ai_model,
-                output_schema=output_schema,
-                system_prompt=system_prompt,
-                fallback_list=self.dumb_agent_order,
-                config=config,
-                timeout=timeout,
-            )
+        model_to_use = ai_model if ai_model else self.dumb_agent
         return self._invoke_agent(
             input_prompt=input_prompt,
             input_dict=input_dict,
-            ai_model=self.dumb_agent,
+            ai_model=model_to_use,
             output_schema=output_schema,
             system_prompt=system_prompt,
-            fallback_list=self.dumb_agent_order,
             config=config,
             timeout=timeout,
         )
@@ -117,9 +266,9 @@ class LLMProvider:
     def call_average_agent(
         self,
         input_dict: Dict[str, Any],
-        output_schema: BaseModel,
+        output_schema: Optional[Type[BaseModel]],
         system_prompt: str,
-        input_prompt: Optional[str] = "Start",
+        input_prompt: str = "Start",
         tools: Optional[List[BaseTool]] = None,
         config: Optional[Dict[str, Any]] = None,
         timeout: Optional[int] = None,
@@ -142,8 +291,7 @@ class LLMProvider:
             ai_model=self.average_agent,
             output_schema=output_schema,
             system_prompt=system_prompt,
-            fallback_list=self.average_agent_order,
-            messages=None,  # Explicitly pass None or rely on default
+            messages=None,
             config=config,
             timeout=timeout,
         )
@@ -152,8 +300,8 @@ class LLMProvider:
         self,
         system_prompt: str,
         input_dict: Dict[str, Any],
-        output_schema: Optional[BaseModel] = None,
-        input_prompt: Optional[str] = "Start",
+        output_schema: Optional[Type[BaseModel]] = None,
+        input_prompt: str = "Start",
         ai_model: Optional[str] = None,
         messages: Optional[List[BaseMessage]] = None,
         tools: Optional[List[BaseTool]] = None,
@@ -162,16 +310,14 @@ class LLMProvider:
     ) -> Any:
         model = ai_model if ai_model else self.reasoning_agent
 
-        # Use _invoke_agent with tools instead of call_react_agent
         response = self._invoke_agent(
             input_prompt=input_prompt,
             input_dict=input_dict,
             ai_model=model,
-            output_schema=None,
+            output_schema=None,  # Handle structured output separately
             system_prompt=system_prompt,
             messages=messages,
-            fallback_list=self.reasoning_agent_order,
-            tools=tools,  # Pass tools to _invoke_agent
+            tools=tools,
             config=config,
             timeout=timeout,
         )
@@ -180,84 +326,8 @@ class LLMProvider:
             return self.parse_structured_output(response.content, output_schema)
         return response
 
-    def call_react_agent(
-        self,
-        system_prompt: str,
-        tools: List[BaseTool],
-        input_dict: Dict[str, Any],
-        input_prompt: Optional[str],
-        output_schema: Optional[BaseModel] = None,
-        main_model: Optional[str] = "gpt-4.1",
-    ) -> Any:
-        # Get the model with fallback
-        model = ChatFallback(
-            model=main_model or self.reasoning_agent, fallback_list=self.reasoning_agent_order, timeout=None
-        ).get_fallback_chat_model()
 
-        # Create React agent prompt template
-        # Use PromptTemplate since ChatPromptTemplate has issues with agent_scratchpad
-        react_prompt = PromptTemplate(
-            template="""You are an assistant that can use tools to accomplish tasks.
-
-{system_prompt}
-
-You have access to the following tools:
-{tools}
-
-Use the following format:
-
-Question: the input question you must answer
-Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
-
-Begin!
-
-Question: {input}
-{agent_scratchpad}""",
-            input_variables=["input", "agent_scratchpad", "system_prompt", "tools", "tool_names"],
-        )
-
-        # Create LangChain React agent
-        react_agent = create_react_agent(model, tools, react_prompt)
-
-        # Create agent executor
-        agent_executor = AgentExecutor(
-            agent=react_agent, tools=tools, verbose=True, handle_parsing_errors=True, max_iterations=30
-        )
-
-        # Format the input text with input_dict
-        formatted_input = input_prompt.format(**input_dict) if input_dict else input_prompt
-
-        logger.info("Invoking LangChain React agent with separated system and human messages")
-        response = agent_executor.invoke({"input": formatted_input, "system_prompt": system_prompt})
-
-        # Extract final response
-        if response and "output" in response:
-            output_content = response["output"]
-
-            # Extract content after "Final Answer:" for structured parsing
-            if output_schema and "Final Answer:" in output_content:
-                # Find the "Final Answer:" marker and extract everything after it
-                final_answer_index = output_content.find("Final Answer:")
-                if final_answer_index != -1:
-                    # Extract content after "Final Answer:" and strip whitespace
-                    final_answer_content = output_content[final_answer_index + len("Final Answer:") :].strip()
-                    return self.parse_structured_output(final_answer_content, output_schema)
-            elif output_schema:
-                # If no "Final Answer:" marker found, use the full content
-                return self.parse_structured_output(output_content, output_schema)
-
-            # Return in the expected format
-            return {"messages": [type("Message", (), {"content": output_content})()]}
-
-        return {"messages": []}
-
-    def _parse_structured_output(self, content: str, output_schema: BaseModel) -> Any:
+    def _parse_structured_output(self, content: str, output_schema: Type[BaseModel]) -> Any:
         try:
             # Try to handle content that might contain markdown code blocks with JSON
             if content.startswith("```json"):
@@ -273,7 +343,7 @@ Question: {input}
                 parsed_content = json_repair.loads(content)
 
             if isinstance(parsed_content, dict):
-                return output_schema(**parsed_content)
+                return output_schema.model_validate(parsed_content)
             else:
                 logger.warning(f"Parsed content is not a dictionary: {type(parsed_content)}")
                 logger.warning(f"Expected output schema: {output_schema}")
@@ -285,7 +355,7 @@ Question: {input}
             logger.warning(f"Error creating output schema from parsed content: {e}")
             raise
 
-    def parse_structured_output(self, content: str, output_schema: BaseModel) -> Any:
+    def parse_structured_output(self, content: str, output_schema: Type[BaseModel]) -> Any:
         """First try to parse the content using the output schema. If it fails use the dumb agent to parse it."""
         try:
             return self._parse_structured_output(content=content, output_schema=output_schema)

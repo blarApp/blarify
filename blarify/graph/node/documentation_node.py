@@ -1,4 +1,10 @@
-from typing import List, Optional, Dict, Any, Union, TypedDict, Unpack, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, Union, TypedDict, TYPE_CHECKING
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
 from blarify.graph.node import NodeLabels
 from .types.node import Node
 
@@ -100,7 +106,7 @@ class DocumentationNode(Node):
             for key, value in self.metadata.items():
                 if value is not None:
                     neo4j_metadata[key] = str(value)
-            obj["attributes"]["metadata"] = neo4j_metadata
+            obj["attributes"]["metadata"] = str(neo4j_metadata)
         if self.content_embedding:
             obj["attributes"]["content_embedding"] = self.content_embedding
 
@@ -110,16 +116,8 @@ class DocumentationNode(Node):
 
         return obj
 
-    def get_content_preview(self, max_length: int = 200) -> str:
-        """Get a preview of the content for display purposes."""
-        if len(self.content) <= max_length:
-            return self.content
-        return self.content[: max_length - 3] + "..."
-
-    def is_api_documentation(self) -> bool:
-        """Check if this is API documentation."""
-        return self.info_type in ["api", "function", "method", "class"]
-
-    def has_examples(self) -> bool:
-        """Check if this node contains code examples."""
-        return len(self.examples) > 0
+    def mark_cycle(self) -> None:
+        """Mark this node as part of a cycle."""
+        original_content = self.content
+        self.content = f"{original_content}\n\n**Note: This node is part of a circular dependency.**"
+        self.metadata = {"has_cycle": "true"}

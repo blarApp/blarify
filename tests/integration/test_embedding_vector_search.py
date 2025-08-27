@@ -11,16 +11,16 @@ from typing import List, Dict, Any, Optional
 import random
 
 from blarify.documentation.documentation_creator import DocumentationCreator
-from blarify.services.embedding_service import EmbeddingService
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.graph_environment import GraphEnvironment
+from blarify.repositories.graph_db_manager.dtos.documentation_search_result_dto import DocumentationSearchResultDto
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.repositories.graph_db_manager.queries import (
-    vector_similarity_search_query,
-    hybrid_search_query,
     create_vector_index_query,
+    hybrid_search_query,
+    vector_similarity_search_query,
 )
-from blarify.repositories.graph_db_manager.dtos.documentation_search_result_dto import DocumentationSearchResultDto
+from blarify.services.embedding_service import EmbeddingService
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 from blarify.agents.llm_provider import LLMProvider
@@ -343,7 +343,7 @@ class TestEmbeddingVectorSearch:
             user="neo4j",
             password="test-password",
             entity_id="test-entity",
-            repo_id="test-repo",
+            repo_id="test_skip_existing_embeddings",
         )
 
         # Create nodes with mixed embedding status
@@ -394,7 +394,7 @@ class TestEmbeddingVectorSearch:
             agent_caller=llm_provider,
             graph_environment=test_graph_environment,
             company_id="test-entity",
-            repo_id="test-repo",
+            repo_id="test_skip_existing_embeddings",
         )
 
         # Run retroactive embedding with skip_existing=True
@@ -509,6 +509,7 @@ class TestEmbeddingVectorSearch:
         search_results = []
         for r in results:
             dto = DocumentationSearchResultDto(
+                title=r["title"],
                 node_id=r["node_id"],
                 content=r["content"],
                 similarity_score=r["similarity_score"],

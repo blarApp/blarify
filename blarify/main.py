@@ -27,7 +27,7 @@ PASSWORD = os.getenv("NEO4J_PASSWORD")
 logger = logging.getLogger(__name__)
 
 
-def main_with_documentation(root_path: str = None, blarignore_path: str = None):
+def main_with_documentation(root_path: str = None, blarignore_path: Optional[str] = None):
     """Main function that builds the graph and then runs the documentation generation workflow."""
     print("🚀 Starting integrated graph building and documentation generation...")
 
@@ -59,12 +59,72 @@ def main_with_documentation(root_path: str = None, blarignore_path: str = None):
 
     print(f"\n✅ Graph built: {len(nodes)} nodes and {len(relationships)} relationships")
 
-    # Step 2: Initialize documentation components
-    print("\n📝 Phase 2: Setting up documentation generation...")
-    entity_id = "test_company"
-    repo_id = "test"
+    # Step 2: Run documentation generation workflow
+    print("\n📚 Phase 2: Generating documentation layer...")
+    try:
+        # Initialize the documentation creator (new architecture)
+        llm_provider = LLMProvider()
+        graph_environment = GraphEnvironment("dev", "main", root_path)
+        documentation_creator = DocumentationCreator(
+            db_manager=graph_manager,
+            agent_caller=llm_provider,
+            graph_environment=graph_environment,
+            company_id=entity_id,
+            repo_id=repoId,
+            max_workers=100,
+        )
 
-    # Initialize database manager
+        print("📝 Starting documentation generation...")
+
+        # Run the documentation creation
+        result = documentation_creator.create_documentation()
+
+        if result.error:
+            print(f"❌ Documentation generation failed: {result.error}")
+        else:
+            print("✅ Documentation generation completed successfully!")
+
+            # Print results summary
+            print("\n📋 Documentation Results:")
+            print(f"   - Generated nodes: {len(result.information_nodes)}")
+            print(f"   - Processing time: {result.processing_time_seconds:.2f} seconds")
+            print(f"   - Framework detected: {result.detected_framework.get('primary_framework', 'unknown')}")
+            print(f"   - Total nodes processed: {result.total_nodes_processed}")
+
+            if result.warnings:
+                print(f"   - Warnings: {len(result.warnings)}")
+                for warning in result.warnings[:3]:  # Show first 3 warnings
+                    print(f"     * {warning}")
+
+        # Print sample documentation
+        if result.information_nodes:
+            print("\n📄 Sample Documentation:")
+            for i, doc in enumerate(result.information_nodes[:2]):  # Show first 2 docs
+                doc_type = doc.get("type", "unknown")
+                content = doc.get("content", doc.get("documentation", ""))[:200]
+                print(f"   {i + 1}. [{doc_type}] {content}...")
+
+        return result
+
+    except Exception as e:
+        print(f"❌ Documentation generation failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+    finally:
+        # Clean up resources
+        graph_manager.close()
+        lsp_query_helper.shutdown_exit_close()
+
+
+def test_documentation_only(root_path: str = None):
+    """Test only the documentation workflow, assuming the graph already exists in the database."""
+    print("📚 Testing documentation generation workflow only...")
+
+    repoId = "test"
+    entity_id = "test"
     graph_manager = Neo4jManager(repoId, entity_id)
     graph_manager.save_graph(nodes, relationships)
     print("   Graph saved to database")
@@ -79,15 +139,8 @@ def main_with_documentation(root_path: str = None, blarignore_path: str = None):
         root_path,
     )
 
-    # Create documentation creator
-    documentation_creator = DocumentationCreator(
-        db_manager=graph_manager,
-        agent_caller=llm_provider,
-        graph_environment=graph_environment,
-        company_id=entity_id,
-        repo_id=repo_id,
-        max_workers=5,
-    )
+        # Run the documentation creation
+        result = documentation_creator.create_documentation()
 
     # Step 3: Run documentation generation
     print("\n🚀 Phase 3: Running documentation generation workflow...")

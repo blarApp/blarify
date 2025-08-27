@@ -318,6 +318,32 @@ class GitHub(AbstractVersionController):
             logger.error(f"Error fetching commit changes for {commit_sha}: {e}")
             return []
 
+    def fetch_commit_patch(self, commit_sha: str) -> str:
+        """Fetch the full patch for a commit.
+
+        Args:
+            commit_sha: The commit SHA to get patch for
+
+        Returns:
+            The complete patch text for the commit
+        """
+        endpoint = f"commits/{commit_sha}"
+
+        try:
+            # Use the patch media type to get the full diff
+            headers = {"Accept": "application/vnd.github.patch"}
+            url = f"{self._get_repo_url()}/{endpoint}"
+            response = self.session.get(url, headers={**self.session.headers, **headers}, timeout=30)
+            response.raise_for_status()
+
+            patch_text = response.text
+            logger.info(f"Fetched patch for commit {commit_sha} ({len(patch_text)} bytes)")
+            return patch_text
+
+        except Exception as e:
+            logger.error(f"Error fetching commit patch for {commit_sha}: {e}")
+            return ""
+
     def fetch_file_at_commit(self, file_path: str, commit_sha: str) -> Optional[str]:
         """Fetch the contents of a file at a specific commit.
 
@@ -475,6 +501,7 @@ class GitHub(AbstractVersionController):
                                             nodes {
                                                 number
                                                 title
+                                                bodyText
                                                 url
                                                 author { login }
                                                 mergedAt
@@ -565,6 +592,7 @@ class GitHub(AbstractVersionController):
                             author=pr.get("author", {}).get("login"),
                             merged_at=pr.get("mergedAt"),
                             state=pr.get("state", "MERGED"),
+                            body_text=pr.get("bodyText", ""),  # Include PR description
                         )
 
                     # Extract author information safely
@@ -742,3 +770,112 @@ class GitHub(AbstractVersionController):
                 return True
 
         return False
+    
+    def extract_relevant_patch(self, full_patch: str, file_path: str, start_line: int, end_line: int) -> str:
+        """Extract only the patch sections relevant to a specific line range.
+        
+        Args:
+            full_patch: The complete patch/diff text
+            file_path: Path to the file to extract changes for
+            start_line: Starting line number of the node
+            end_line: Ending line number of the node
+            
+        Returns:
+            A patch string containing only the relevant hunks for the specified line range
+        """
+        if not full_patch or not file_path:
+            return ""
+            
+        relevant_hunks = []
+        current_hunk = []
+        in_relevant_file = False
+        file_header = []
+        
+        # Clean the file path for comparison
+        clean_path = file_path.replace("file://", "")
+        if clean_path.startswith("/"):
+            # Make it relative for comparison with patch paths
+            import os
+            clean_path = os.path.relpath(clean_path, "/")
+        
+        lines = full_patch.split('\n')
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i]
+            
+            # Check for file header (diff --git a/path b/path)
+            if line.startswith('diff --git'):
+                # Save previous file's relevant hunks if any
+                if in_relevant_file and current_hunk:
+                    relevant_hunks.append('\n'.join(current_hunk))
+                    
+                # Parse file paths from the diff header
+                parts = line.split()
+                if len(parts) >= 4:
+                    # Extract the file path (remove a/ or b/ prefix)
+                    file_a = parts[2][2:] if parts[2].startswith('a/') else parts[2]
+                    file_b = parts[3][2:] if parts[3].startswith('b/') else parts[3]
+                    
+                    # Check if this is our target file
+                    if clean_path in file_a or clean_path in file_b or file_a in clean_path or file_b in clean_path:
+                        in_relevant_file = True
+                        file_header = [line]
+                        # Include the index and mode lines
+                        j = i + 1
+                        while j < len(lines) and not lines[j].startswith('@@'):
+                            if lines[j].startswith(('index ', '---', '+++', 'new file', 'deleted file')):
+                                file_header.append(lines[j])
+                            j += 1
+                        i = j - 1
+                    else:
+                        in_relevant_file = False
+                        
+                current_hunk = []
+                
+            # Check for hunk header (@@ -start,count +start,count @@)
+            elif line.startswith('@@') and in_relevant_file:
+                # Parse the line numbers from the hunk header
+                import re
+                match = re.match(r'@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@', line)
+                if match:
+                    # old_start = int(match.group(1))
+                    # old_count = int(match.group(2)) if match.group(2) else 1
+                    new_start = int(match.group(3))
+                    new_count = int(match.group(4)) if match.group(4) else 1
+                    new_end = new_start + new_count - 1
+                    
+                    # Check if this hunk affects our line range
+                    # A hunk is relevant if it overlaps with our node's line range
+                    if not (new_end < start_line or new_start > end_line):
+                        # This hunk is relevant - start collecting it
+                        if not current_hunk and file_header:
+                            # Add file header for the first relevant hunk
+                            current_hunk.extend(file_header)
+                            file_header = []  # Only add header once
+                        current_hunk.append(line)
+                        
+                        # Collect the hunk content
+                        j = i + 1
+                        while j < len(lines) and not lines[j].startswith(('@@', 'diff --git')):
+                            current_hunk.append(lines[j])
+                            j += 1
+                        i = j - 1
+                    else:
+                        # Skip this irrelevant hunk
+                        j = i + 1
+                        while j < len(lines) and not lines[j].startswith(('@@', 'diff --git')):
+                            j += 1
+                        i = j - 1
+                        
+            i += 1
+        
+        # Add the last hunk if relevant
+        if in_relevant_file and current_hunk:
+            relevant_hunks.append('\n'.join(current_hunk))
+        
+        # Combine all relevant hunks
+        if relevant_hunks:
+            return '\n'.join(relevant_hunks)
+        
+        return ""

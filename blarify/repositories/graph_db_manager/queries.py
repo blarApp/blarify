@@ -2503,7 +2503,6 @@ def get_documentation_nodes_for_embedding_query() -> str:
     """
     return """
     MATCH (n:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.content_embedding IS NULL OR size(n.content_embedding) = 0
     RETURN n.node_id as node_id,
            n.content as content,
            n.info_type as info_type,
@@ -2655,7 +2654,7 @@ def create_vector_index_query() -> str:
 
 def vector_similarity_search_query() -> str:
     """Cypher query for vector similarity search using Neo4j vector index.
-    
+
     Returns:
         Cypher query string for vector similarity search
     """
@@ -2677,7 +2676,7 @@ def vector_similarity_search_query() -> str:
 
 def hybrid_search_query() -> str:
     """Cypher query for hybrid search combining vector and keyword similarity.
-    
+
     Returns:
         Cypher query string for hybrid search
     """

@@ -594,9 +594,7 @@ class RecursiveDFSProcessor:
             info_node = self._process_leaf_node(node)
 
             # Add cycle indication to content
-            original_content = info_node.content
-            info_node.content = f"{original_content}\n\n**Note: This node is part of a circular dependency.**"
-            info_node.metadata = {"has_cycle": True}
+            info_node.mark_cycle()
 
             return info_node
 

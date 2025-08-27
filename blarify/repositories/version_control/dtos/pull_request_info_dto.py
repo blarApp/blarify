@@ -11,6 +11,7 @@ class PullRequestInfoDto(BaseModel):
     author: Optional[str] = None
     merged_at: Optional[str] = None
     state: str = "MERGED"
+    body_text: Optional[str] = None  # PR description from bodyText GraphQL field
     
     class Config:
         frozen = True

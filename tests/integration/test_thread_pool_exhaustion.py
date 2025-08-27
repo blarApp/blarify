@@ -16,7 +16,7 @@ import pytest
 
 from blarify.repositories.graph_db_manager import Neo4jManager
 from blarify.documentation.utils.recursive_dfs_processor import (
-    RecursiveDFSProcessor,
+    BottomUpBatchProcessor,
 )
 from blarify.graph.graph_environment import GraphEnvironment
 from neo4j_container_manager.types import Neo4jContainerInstance
@@ -135,7 +135,7 @@ async def test_thread_reuse_in_deep_hierarchy(neo4j_instance: Neo4jContainerInst
     # Create graph environment using same parameters as test_documentation_creation.py
     graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path="/")
 
-    processor = RecursiveDFSProcessor(
+    processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
         company_id="test-entity",  # Changed to match entityId
@@ -224,7 +224,7 @@ async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInst
     mock_llm = Mock()
     mock_llm.call_dumb_agent.side_effect = mock_llm_with_tracking
 
-    processor = RecursiveDFSProcessor(
+    processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
         company_id="test-entity",
@@ -360,7 +360,7 @@ async def test_batch_processing_maintains_bottom_up_order(neo4j_instance: Neo4jC
     mock_llm = Mock()
     mock_llm.call_dumb_agent.side_effect = mock_llm_track_order
 
-    processor = RecursiveDFSProcessor(
+    processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
         company_id="test-entity",
@@ -460,7 +460,7 @@ async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jCon
     mock_llm = Mock()
     mock_llm.call_dumb_agent.return_value = Mock(content="Cycle-aware description")
 
-    processor = RecursiveDFSProcessor(
+    processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
         company_id="test-entity",
@@ -557,7 +557,7 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
     mock_llm = Mock()
     mock_llm.call_dumb_agent.side_effect = llm_side_effect
 
-    processor = RecursiveDFSProcessor(
+    processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
         company_id="test-entity",
@@ -646,7 +646,7 @@ async def test_thread_pool_efficiency_at_scale(neo4j_instance: Neo4jContainerIns
     mock_llm = Mock()
     mock_llm.call_dumb_agent.return_value = Mock(content="Fast description")
 
-    processor = RecursiveDFSProcessor(
+    processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
         company_id="test-entity",

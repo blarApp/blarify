@@ -8,7 +8,7 @@ from the fallback mechanisms before implementation.
 import pytest
 from unittest.mock import Mock, patch
 
-from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
+from blarify.documentation.utils.recursive_dfs_processor import BottomUpBatchProcessor
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
@@ -41,7 +41,7 @@ class TestRecursiveDFSFallbackStrategies:
     @pytest.fixture
     def processor(self, mock_db_manager, mock_llm_provider, mock_graph_environment):
         """Create a RecursiveDFSProcessor instance for testing."""
-        return RecursiveDFSProcessor(
+        return BottomUpBatchProcessor(
             db_manager=mock_db_manager,
             agent_caller=mock_llm_provider,
             company_id="test_company",

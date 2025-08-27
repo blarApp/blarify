@@ -15,9 +15,6 @@ from pydantic import BaseModel
 
 from blarify.agents.llm_provider import LLMProvider
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
-from blarify.documentation.utils.recursive_dfs_processor import (
-    ThreadDependencyTracker,
-)
 from blarify.graph.graph import Graph
 from blarify.prebuilt.graph_builder import GraphBuilder
 from tests.utils.circular_dependency_loader import CircularDependencyLoader
@@ -226,15 +223,11 @@ class TestRecursiveDFSDeadlockHandling:
         self,
         docker_check: Any,
         neo4j_instance: Any,
-        temp_project_dir: Path,
+        test_code_examples_path: Path,
     ) -> None:
         """Test handling of complex circular dependencies with multiple branches."""
 
-        # Use pre-created complex circular dependency scenario
-        test_path = CircularDependencyLoader.get_complex_cycle_path()
-        # Copy test files to temp directory for isolation
-        shutil.copytree(test_path, temp_project_dir / "complex_cycle")
-        test_project_path = temp_project_dir / "complex_cycle"
+        test_project_path = test_code_examples_path / "circular_deps" / "complex_cycle"
 
         # Build graph with GraphBuilder
         builder = GraphBuilder(root_path=str(test_project_path))
@@ -275,41 +268,6 @@ class TestRecursiveDFSDeadlockHandling:
 
         db_manager.close()
 
-    async def test_deadlock_detection_mechanism(
-        self,
-        docker_check: Any,
-        neo4j_instance: Any,
-        temp_project_dir: Path,
-    ) -> None:
-        """Test the deadlock detection mechanism directly."""
-
-        tracker = ThreadDependencyTracker()
-
-        # Simulate thread dependency scenario
-        thread1 = "thread_1"
-        thread2 = "thread_2"
-        node_a = "node_a"
-        node_b = "node_b"
-
-        # Thread 1 processes node A
-        tracker.register_processor(node_a, thread1)
-
-        # Thread 2 processes node B
-        tracker.register_processor(node_b, thread2)
-
-        # Thread 1 wants to wait for node B (should be OK)
-        can_wait = tracker.register_waiter(node_b, thread1)
-        assert can_wait, "Thread 1 should be able to wait for node B"
-
-        # Thread 2 wants to wait for node A (would create deadlock)
-        can_wait = tracker.register_waiter(node_a, thread2)
-        assert not can_wait, "Thread 2 waiting for node A should be detected as potential deadlock"
-
-        # Clean up
-        tracker.unregister_waiter(node_b, thread1)
-        tracker.unregister_processor(node_a)
-        tracker.unregister_processor(node_b)
-
     async def test_timeout_fallback_mechanism(
         self,
         docker_check: Any,
@@ -349,10 +307,6 @@ class TestRecursiveDFSDeadlockHandling:
             repo_id="test-repo",
             max_workers=20,
         )
-
-        # Access the processor to set timeout (if possible)
-        if hasattr(doc_creator, "processor") and hasattr(doc_creator.processor, "fallback_timeout_seconds"):
-            doc_creator.processor.fallback_timeout_seconds = 5.0  # Short timeout for testing
 
         start_time = time.time()
         result = doc_creator.create_documentation(save_to_database=False)

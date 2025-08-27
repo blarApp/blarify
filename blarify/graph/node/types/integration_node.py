@@ -10,12 +10,12 @@ from blarify.graph.graph_environment import GraphEnvironment
 
 class IntegrationNode(Node):
     """Node representing external tool integration data.
-    
+
     Supports various external tools like GitHub (PRs, commits),
     Sentry (errors), DataDog (metrics), etc. Uses a synthetic
     path format: integration://source/source_type/external_id
     """
-    
+
     def __init__(
         self,
         source: str,
@@ -32,7 +32,7 @@ class IntegrationNode(Node):
         parent: Optional[Node] = None,
     ):
         """Initialize IntegrationNode.
-        
+
         Args:
             source: Source system (github, sentry, datadog, etc.)
             source_type: Type within source (pull_request, commit, error, metric)
@@ -49,7 +49,7 @@ class IntegrationNode(Node):
         """
         # Create synthetic path
         synthetic_path = f"integration://{source}/{source_type}/{external_id}"
-        
+
         # Initialize base Node
         super().__init__(
             label=NodeLabels.INTEGRATION,
@@ -58,9 +58,9 @@ class IntegrationNode(Node):
             level=level,
             parent=parent,
             graph_environment=graph_environment,
-            layer="integrations"
+            layer="integrations",
         )
-        
+
         # Store integration-specific attributes
         self.source = source
         self.source_type = source_type
@@ -71,41 +71,40 @@ class IntegrationNode(Node):
         self.author = author
         self.url = url
         self.metadata = metadata
-    
+
     def as_object(self) -> Dict[str, Any]:
         """Serialize IntegrationNode to dictionary.
-        
+
         Returns:
             Dictionary representation for database storage
         """
         base_obj = super().as_object()
-        
+
         # Add integration-specific attributes
-        base_obj["attributes"].update({
-            "source": self.source,
-            "source_type": self.source_type,
-            "external_id": self.external_id,
-            "title": self.title,
-            "content": self.content if self.content is not None else "",
-            "timestamp": self.timestamp,
-            "author": self.author,
-            "url": self.url,
-            "metadata": json.dumps(self.metadata) if self.metadata else "{}",
-            "layer": "integrations"
-        })
-        
+        base_obj["attributes"].update(
+            {
+                "source": self.source,
+                "source_type": self.source_type,
+                "external_id": self.external_id,
+                "title": self.title,
+                "content": self.content,
+                "timestamp": self.timestamp,
+                "author": self.author,
+                "url": self.url,
+                "metadata": json.dumps(self.metadata) if self.metadata else "{}",
+                "layer": "integrations",
+            }
+        )
+
         return base_obj
-    
+
     @property
     def node_repr_for_identifier(self) -> str:
         """Return representation for identifier generation."""
         return f"{self.source}_{self.source_type}_{self.external_id}"
-    
+
     def __repr__(self) -> str:
         """String representation of IntegrationNode."""
         return (
-            f"IntegrationNode(source={self.source}, "
-            f"type={self.source_type}, "
-            f"id={self.external_id}, "
-            f"title={self.title})"
+            f"IntegrationNode(source={self.source}, type={self.source_type}, id={self.external_id}, title={self.title})"
         )

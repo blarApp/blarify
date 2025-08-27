@@ -14,7 +14,7 @@ from langgraph.types import Command
 from ..agents.llm_provider import LLMProvider
 from ..repositories.graph_db_manager.db_manager import AbstractDbManager
 from ..graph.graph_environment import GraphEnvironment
-from .utils.recursive_dfs_processor import RecursiveDFSProcessor, ProcessingResult
+from .utils.recursive_dfs_processor import BottomUpBatchProcessor, ProcessingResult
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ class RooFileFolderProcessingWorkflow:
 
         try:
             # Use RecursiveDFSProcessor for this root
-            processor = RecursiveDFSProcessor(
+            processor = BottomUpBatchProcessor(
                 db_manager=self.db_manager,
                 agent_caller=self.agent_caller,
                 company_id=self.company_id,

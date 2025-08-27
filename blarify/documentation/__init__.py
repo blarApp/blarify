@@ -13,7 +13,7 @@ from .documentation_creator import DocumentationCreator
 from .workflow_creator import WorkflowCreator
 from .result_models import DocumentationResult, WorkflowResult, WorkflowDiscoveryResult, FrameworkDetectionResult
 from .root_file_folder_processing_workflow import RooFileFolderProcessingWorkflow, RootFileFolderProcessingState
-from .utils.recursive_dfs_processor import RecursiveDFSProcessor, ProcessingResult
+from .utils.recursive_dfs_processor import BottomUpBatchProcessor, ProcessingResult
 from ..agents.llm_provider import LLMProvider
 from ..agents.prompt_templates import (
     PromptTemplate,
@@ -35,7 +35,7 @@ __all__ = [
     # Core processing components
     "RooFileFolderProcessingWorkflow",
     "RootFileFolderProcessingState",
-    "RecursiveDFSProcessor",
+    "BottomUpBatchProcessor",
     "ProcessingResult",
     # LLM providers
     "LLMProvider",

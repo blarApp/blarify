@@ -17,7 +17,7 @@ class TestFallbackMechanism:
 
     def test_fallback_triggered_on_deadlock_detection(self) -> None:
         """Test that fallback is triggered when deadlock would occur."""
-        from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
+        from blarify.documentation.utils.recursive_dfs_processor import BottomUpBatchProcessor
         from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
         # Create mock dependencies
@@ -26,7 +26,7 @@ class TestFallbackMechanism:
         mock_graph_environment = MagicMock()
 
         # Create processor with our dependencies
-        processor = RecursiveDFSProcessor(
+        processor = BottomUpBatchProcessor(
             db_manager=mock_db_manager,
             agent_caller=mock_llm_provider,
             company_id="test_company",
@@ -107,7 +107,7 @@ class TestFallbackMechanism:
 
     def test_fallback_with_partial_children_context(self) -> None:
         """Test fallback processing when some children are already processed."""
-        from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
+        from blarify.documentation.utils.recursive_dfs_processor import BottomUpBatchProcessor
         from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
         from blarify.graph.node.documentation_node import DocumentationNode
 
@@ -116,7 +116,7 @@ class TestFallbackMechanism:
         mock_llm_provider = MagicMock()
         mock_graph_environment = MagicMock()
 
-        processor = RecursiveDFSProcessor(
+        processor = BottomUpBatchProcessor(
             db_manager=mock_db_manager,
             agent_caller=mock_llm_provider,
             company_id="test_company",
@@ -194,7 +194,7 @@ class TestFallbackMechanism:
 
     def test_fallback_as_enhanced_leaf_when_no_children_available(self) -> None:
         """Test fallback processes node as enhanced leaf when no child context is available."""
-        from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
+        from blarify.documentation.utils.recursive_dfs_processor import BottomUpBatchProcessor
         from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
         # Create mock dependencies
@@ -202,7 +202,7 @@ class TestFallbackMechanism:
         mock_llm_provider = MagicMock()
         mock_graph_environment = MagicMock()
 
-        processor = RecursiveDFSProcessor(
+        processor = BottomUpBatchProcessor(
             db_manager=mock_db_manager,
             agent_caller=mock_llm_provider,
             company_id="test_company",

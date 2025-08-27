@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from blarify.graph.node import FileNode, ClassNode, FunctionNode
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.code_references.types import Reference, Range, Point
-from blarify.db_managers.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager import AbstractDbManager
 
 
 class MockTreeSitterNode:

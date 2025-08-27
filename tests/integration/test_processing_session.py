@@ -9,8 +9,8 @@ import pytest
 from pathlib import Path
 from typing import Any
 
-from blarify.db_managers.neo4j_manager import Neo4jManager
-from blarify.db_managers.queries import (
+from blarify.repositories.graph_db_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.queries import (
     cleanup_processing_query,
     get_processable_nodes_query,
     initialize_processing_query,
@@ -39,9 +39,7 @@ async def test_initialize_processing_marks_all_nodes_pending(
         entity_id="test-entity",
         repo_id="test-repo",
     )
-    db_manager.save_graph(
-        graph.get_nodes_as_objects(), graph.get_relationships_as_objects()
-    )
+    db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
     # Execute: Initialize processing
     query_str = initialize_processing_query()
@@ -261,9 +259,7 @@ async def test_get_processable_nodes_returns_leaves_first(
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_cleanup_removes_all_processing_data(
-    docker_check: Any, neo4j_instance: Neo4jContainerInstance
-) -> None:
+async def test_cleanup_removes_all_processing_data(docker_check: Any, neo4j_instance: Neo4jContainerInstance) -> None:
     """Test that cleanup removes all processing data."""
     db_manager = Neo4jManager(
         uri=neo4j_instance.uri,

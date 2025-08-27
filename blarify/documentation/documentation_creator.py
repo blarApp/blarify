@@ -340,6 +340,7 @@ class DocumentationCreator:
                 repo_id=self.repo_id,
                 root_paths=root_paths,
                 graph_environment=self.graph_environment,
+                max_workers=self.max_workers,
             )
 
             # Run the parallel workflow

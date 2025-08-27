@@ -9,3 +9,5 @@ Guardfile
 .venv
 .ruff_cache
 node_modules
+.claude
+.worktree

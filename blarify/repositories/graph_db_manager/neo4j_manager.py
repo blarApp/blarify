@@ -11,6 +11,10 @@ from blarify.repositories.graph_db_manager.dtos.node_found_by_name_type import N
 
 logger = logging.getLogger(__name__)
 
+# Disable Neo4j warning logs
+neo4j_logger = logging.getLogger("neo4j")
+neo4j_logger.setLevel(logging.ERROR)
+
 load_dotenv()
 
 
@@ -99,6 +103,8 @@ class Neo4jManager(AbstractDbManager):
         # Fetch the result
         for record in result:
             logger.info(f"Created {record['total']} nodes")
+            if record["errorMessages"]:
+                logger.error(f"Error creating nodes: {record['errorMessages']}")
             print(record)
 
     @staticmethod

@@ -10,6 +10,7 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
+from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager

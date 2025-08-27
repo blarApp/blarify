@@ -103,6 +103,8 @@ class Neo4jManager(AbstractDbManager):
         # Fetch the result
         for record in result:
             logger.info(f"Created {record['total']} nodes")
+            if record["errorMessages"]:
+                logger.error(f"Error creating nodes: {record['errorMessages']}")
             print(record)
 
     @staticmethod

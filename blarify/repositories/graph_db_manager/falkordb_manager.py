@@ -5,7 +5,7 @@ import logging
 from dotenv import load_dotenv
 from falkordb import FalkorDB
 
-from blarify.db_managers.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 
 logger = logging.getLogger(__name__)
 

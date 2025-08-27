@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, List
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.documentation.documentation_creator import DocumentationCreator
 from blarify.agents.llm_provider import LLMProvider
 from neo4j_container_manager.types import Neo4jContainerInstance

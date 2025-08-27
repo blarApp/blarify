@@ -9,9 +9,9 @@ from typing import Dict, List, Any, Optional, Tuple
 import logging
 import json
 
-from blarify.db_managers.db_manager import AbstractDbManager
-from blarify.db_managers.dtos.leaf_node_dto import LeafNodeDto
-from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.dtos.leaf_node_dto import LeafNodeDto
+from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
 logger = logging.getLogger(__name__)
 
@@ -370,6 +370,26 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
         output.extend(format_node(root_id, 0, is_last_root, ""))
 
     return output
+
+
+def get_code_nodes_by_ids_query() -> str:
+    """Returns Cypher query to get code nodes by their IDs.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE)
+    WHERE n.node_id IN $node_ids
+      AND n.entityId = $entity_id
+      AND n.repoId = $repo_id
+    RETURN n.node_id as id,
+           n.name as name,
+           n.label as label,
+           n.path as path,
+           n.start_line as start_line,
+           n.end_line as end_line
+    """
 
 
 def get_all_leaf_nodes_query() -> str:
@@ -1845,6 +1865,9 @@ def find_potential_entry_points_query() -> str:
 
     Entry points are defined as nodes with no incoming relationships from:
     - CALLS (not called by other functions)
+    - USES (not used by other code)
+    - ASSIGNS (not assigned to variables)
+    - IMPORTS (not imported by other modules)
 
     Uses correct node labels: FUNCTION, CLASS, FILE (METHOD label is never used in codebase)
 
@@ -1854,8 +1877,8 @@ def find_potential_entry_points_query() -> str:
     return """
     MATCH (entry:NODE {entityId: $entity_id, repoId: $repo_id, layer: 'code'})
     WHERE (entry:FUNCTION)
-      AND NOT ()-[:CALLS]->(entry) // No incoming relationships = true entry point
-      AND (entry)-[:CALLS]->()
+      AND NOT ()-[:CALLS|USES|ASSIGNS]->(entry) // No incoming relationships = true entry point
+      AND (entry)-[:CALLS|USES|ASSIGNS]->()
       AND NOT entry.name IN ['__init__', '__new__', 'constructor', 'initialize', 'init', 'new']
     RETURN entry.node_id as id, 
            entry.name as name, 
@@ -2231,14 +2254,14 @@ def get_call_stack_children_query() -> str:
     Returns a Cypher query for retrieving functions/modules called or used by a function.
 
     This query finds all nodes that are called or used by the given function through
-    CALLS relationships, including the precise call locations.
+    CALLS and USES relationships, including the precise call locations.
 
     Returns:
         str: The Cypher query string
     """
     return """
     MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[r:CALLS]->(child:NODE)
+    -[r:CALLS|USES]->(child:NODE)
     RETURN child.node_id as id,
            child.name as name,
            labels(child) as labels,
@@ -2290,7 +2313,7 @@ def get_function_cycle_detection_query() -> str:
     """
     return """
     MATCH path = (start:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[:CALLS*1..10]->
+    -[:CALLS|USES*1..10]->
     (start)
     WHERE "FUNCTION" IN labels(start)
     WITH path, [n IN nodes(path) | n.name] as function_names
@@ -2313,6 +2336,7 @@ def get_existing_documentation_for_node_query() -> str:
     MATCH (doc:DOCUMENTATION)-[:DESCRIBES]->(code:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
     WHERE doc.layer = 'documentation'
     RETURN doc.node_id as doc_node_id,
+           doc.title as title,
            doc.content as content,
            doc.info_type as info_type,
            doc.source_path as source_path,
@@ -2352,6 +2376,7 @@ def get_existing_documentation_for_node(
         record = query_result[0]
         return {
             "doc_node_id": record.get("doc_node_id", ""),
+            "title": record.get("title", ""),
             "content": record.get("content", ""),
             "info_type": record.get("info_type", ""),
             "source_path": record.get("source_path", ""),
@@ -2420,20 +2445,14 @@ def find_entry_points_for_node_path_query() -> str:
         relationshipFilter: "<CALLS",
         uniqueness: "NODE_GLOBAL"
     }) YIELD path
-
+    
     WITH last(nodes(path)) AS potential_entry
-
-    // Find all non-test callers
-    OPTIONAL MATCH (potential_entry)<-[:CALLS]-(caller)
-    WHERE NOT caller.node_path CONTAINS 'test'
-
-    // Keep nodes with no non-test callers
-    WITH potential_entry, collect(caller) AS non_test_callers
-    WHERE size(non_test_callers) = 0
-    AND NOT potential_entry.node_path CONTAINS 'test'
-
-    // Return node_id and path
-    RETURN DISTINCT potential_entry.node_id AS id, potential_entry.node_path AS path
+    
+    // Filter to only nodes that have no incoming CALLS relationships (true entry points)
+    WHERE NOT (potential_entry)<-[:CALLS]-()
+    
+    // Return only the node_id
+    RETURN DISTINCT potential_entry.node_id as id, potential_entry.node_path as path
     ORDER BY potential_entry.node_id
     """
 
@@ -2476,79 +2495,6 @@ def find_entry_points_for_node_path(
         return []
 
 
-def create_vector_index_query() -> str:
-    """Create Neo4j vector index for documentation embeddings.
-
-    Returns:
-        Cypher query string for creating the vector index
-    """
-    return """
-    CREATE VECTOR INDEX documentation_embeddings IF NOT EXISTS
-    FOR (n:DOCUMENTATION) 
-    ON n.content_embedding
-    OPTIONS {indexConfig: {
-        `vector.dimensions`: 1536,
-        `vector.similarity_function`: 'cosine'
-    }}
-    """
-
-
-def vector_similarity_search_query() -> str:
-    """Cypher query for vector similarity search using Neo4j vector index.
-
-    Returns:
-        Cypher query string for vector similarity search
-    """
-    return """
-    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
-    YIELD node, score
-    WHERE score >= $min_similarity
-    RETURN node.node_id as node_id,
-           node.content as content,
-           score as similarity_score,
-           node.source_path as source_path,
-           node.source_labels as source_labels,
-           node.info_type as info_type,
-           node.enhanced_content as enhanced_content
-    ORDER BY score DESC
-    """
-
-
-def hybrid_search_query() -> str:
-    """Cypher query for hybrid search combining vector and keyword similarity.
-
-    Returns:
-        Cypher query string for hybrid search
-    """
-    return """
-    // Vector similarity search
-    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
-    YIELD node, score as vector_score
-    
-    // Keyword matching
-    WITH node, vector_score,
-         CASE 
-           WHEN toLower(node.content) CONTAINS toLower($keyword) THEN 1.0
-           ELSE 0.0
-         END as keyword_score
-    
-    // Combine scores with weights
-    WITH node, 
-         ($vector_weight * vector_score + $keyword_weight * keyword_score) as combined_score
-    WHERE combined_score >= $min_score
-    
-    RETURN node.node_id as node_id,
-           node.content as content,
-           combined_score as similarity_score,
-           node.source_path as source_path,
-           node.source_labels as source_labels,
-           node.info_type as info_type,
-           node.enhanced_content as enhanced_content
-    ORDER BY combined_score DESC
-    LIMIT $limit
-    """
-
-
 def get_documentation_nodes_for_embedding_query() -> str:
     """Query to retrieve documentation nodes for embedding processing.
 
@@ -2587,13 +2533,13 @@ def update_documentation_embeddings_query() -> str:
 def initialize_processing_query() -> str:
     """
     Initialize processing by marking all nodes as pending.
-    
+
     Sets the processing status of all nodes in the graph to 'pending'.
-    
+
     Parameters expected:
         - entity_id: Entity identifier for the nodes
         - repo_id: Repository identifier for the nodes
-    
+
     Returns:
         str: The Cypher query string
     """
@@ -2607,15 +2553,15 @@ def initialize_processing_query() -> str:
 def mark_processing_status_query() -> str:
     """
     Update the processing status of a specific node.
-    
+
     Marks a node with a specific processing status (pending, in_progress, completed).
-    
+
     Parameters expected:
         - node_path: Path to the node to update
         - status: New status ('pending', 'in_progress', or 'completed')
         - entity_id: Entity identifier for the nodes
         - repo_id: Repository identifier for the nodes
-    
+
     Returns:
         str: The Cypher query string
     """
@@ -2629,19 +2575,19 @@ def mark_processing_status_query() -> str:
 def get_processable_nodes_query() -> str:
     """
     Get nodes that are ready for processing in bottom-up order.
-    
+
     Returns nodes that:
     1. Have 'pending' status
     2. Either have no children OR all children are 'completed'
-    
+
     This ensures bottom-up processing order where leaf nodes are processed
     before their parents.
-    
+
     Parameters expected:
         - batch_size: Maximum number of nodes to return
         - entity_id: Entity identifier for the nodes
         - repo_id: Repository identifier for the nodes
-    
+
     Returns:
         str: The Cypher query string
     """
@@ -2671,14 +2617,14 @@ def get_processable_nodes_query() -> str:
 def cleanup_processing_query() -> str:
     """
     Remove all processing status data from nodes.
-    
-    Cleans up the processing status fields. This should be called when 
+
+    Cleans up the processing status fields. This should be called when
     processing completes or is abandoned.
-    
+
     Parameters expected:
         - entity_id: Entity identifier for the nodes
         - repo_id: Repository identifier for the nodes
-    
+
     Returns:
         str: The Cypher query string
     """
@@ -2687,4 +2633,21 @@ def cleanup_processing_query() -> str:
     WHERE n.processing_status IS NOT NULL
     REMOVE n.processing_status
     RETURN count(n) as cleaned_count
+"""
+
+
+def create_vector_index_query() -> str:
+    """Create Neo4j vector index for documentation embeddings.
+
+    Returns:
+        Cypher query string for creating the vector index
+    """
+    return """
+    CREATE VECTOR INDEX documentation_embeddings IF NOT EXISTS
+    FOR (n:DOCUMENTATION) 
+    ON n.content_embedding
+    OPTIONS {indexConfig: {
+        `vector.dimensions`: 1536,
+        `vector.similarity_function`: 'cosine'
+    }}
     """

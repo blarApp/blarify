@@ -14,9 +14,8 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from blarify.agents.llm_provider import LLMProvider
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.documentation.utils.recursive_dfs_processor import (
-    RecursiveDFSProcessor,
     ThreadDependencyTracker,
 )
 from blarify.graph.graph import Graph
@@ -123,7 +122,7 @@ class TestRecursiveDFSDeadlockHandling:
 
         # Step 3: Create DocumentationCreator which uses RecursiveDFSProcessor internally
         from blarify.documentation.documentation_creator import DocumentationCreator
-        
+
         doc_creator = DocumentationCreator(
             db_manager=db_manager,
             agent_caller=MockLLMProvider(),
@@ -188,7 +187,7 @@ class TestRecursiveDFSDeadlockHandling:
 
         # Create DocumentationCreator which uses RecursiveDFSProcessor internally
         from blarify.documentation.documentation_creator import DocumentationCreator
-        
+
         doc_creator = DocumentationCreator(
             db_manager=db_manager,
             agent_caller=MockLLMProvider(),  # Use mock for testing
@@ -211,10 +210,12 @@ class TestRecursiveDFSDeadlockHandling:
         # The important test is that it doesn't deadlock - fallback may or may not be used
         # depending on how the threads are scheduled
         print(f"Processed {len(result.documentation_nodes)} nodes without deadlock")
-        
+
         # Check if any fallback was used (optional - depends on thread scheduling)
         fallback_nodes = [
-            node for node in result.documentation_nodes if hasattr(node, "metadata") and node.metadata and node.metadata.get("is_fallback", False)
+            node
+            for node in result.documentation_nodes
+            if hasattr(node, "metadata") and node.metadata and node.metadata.get("is_fallback", False)
         ]
         if len(fallback_nodes) > 0:
             print(f"Used fallback strategy for {len(fallback_nodes)} nodes")
@@ -251,7 +252,7 @@ class TestRecursiveDFSDeadlockHandling:
 
         # Create DocumentationCreator for high concurrency testing
         from blarify.documentation.documentation_creator import DocumentationCreator
-        
+
         doc_creator = DocumentationCreator(
             db_manager=db_manager,
             agent_caller=MockLLMProvider(),
@@ -339,7 +340,7 @@ class TestRecursiveDFSDeadlockHandling:
 
         # Create DocumentationCreator with slow provider for timeout testing
         from blarify.documentation.documentation_creator import DocumentationCreator
-        
+
         doc_creator = DocumentationCreator(
             db_manager=db_manager,
             agent_caller=SlowMockLLMProvider(),  # Intentionally slow for timeout testing
@@ -348,9 +349,9 @@ class TestRecursiveDFSDeadlockHandling:
             repo_id="test-repo",
             max_workers=20,
         )
-        
+
         # Access the processor to set timeout (if possible)
-        if hasattr(doc_creator, 'processor') and hasattr(doc_creator.processor, 'fallback_timeout_seconds'):
+        if hasattr(doc_creator, "processor") and hasattr(doc_creator.processor, "fallback_timeout_seconds"):
             doc_creator.processor.fallback_timeout_seconds = 5.0  # Short timeout for testing
 
         start_time = time.time()
@@ -363,13 +364,17 @@ class TestRecursiveDFSDeadlockHandling:
 
         # The main test is that even with slow processing, it completes without hanging
         print(f"Processed {len(result.documentation_nodes) if result.documentation_nodes else 0} nodes")
-        
+
         # Check if any timeout/fallback was used (optional)
         if result.documentation_nodes:
             timeout_fallbacks = [
                 node
                 for node in result.documentation_nodes
-                if (hasattr(node, "metadata") and node.metadata and node.metadata.get("fallback_reason") in ["circular_dependency_deadlock", "timeout"])
+                if (
+                    hasattr(node, "metadata")
+                    and node.metadata
+                    and node.metadata.get("fallback_reason") in ["circular_dependency_deadlock", "timeout"]
+                )
             ]
             if len(timeout_fallbacks) > 0:
                 print(f"Used timeout/fallback strategy for {len(timeout_fallbacks)} nodes")

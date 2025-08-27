@@ -18,7 +18,7 @@ class TestFallbackMechanism:
     def test_fallback_triggered_on_deadlock_detection(self) -> None:
         """Test that fallback is triggered when deadlock would occur."""
         from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
-        from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
+        from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
         # Create mock dependencies
         mock_db_manager = MagicMock()
@@ -108,7 +108,7 @@ class TestFallbackMechanism:
     def test_fallback_with_partial_children_context(self) -> None:
         """Test fallback processing when some children are already processed."""
         from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
-        from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
+        from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
         from blarify.graph.node.documentation_node import DocumentationNode
 
         # Create mock dependencies
@@ -195,7 +195,7 @@ class TestFallbackMechanism:
     def test_fallback_as_enhanced_leaf_when_no_children_available(self) -> None:
         """Test fallback processes node as enhanced leaf when no child context is available."""
         from blarify.documentation.utils.recursive_dfs_processor import RecursiveDFSProcessor
-        from blarify.db_managers.dtos.node_with_content_dto import NodeWithContentDto
+        from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 
         # Create mock dependencies
         mock_db_manager = MagicMock()

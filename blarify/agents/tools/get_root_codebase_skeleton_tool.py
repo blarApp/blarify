@@ -11,8 +11,8 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from blarify.db_managers.db_manager import AbstractDbManager
-from blarify.db_managers.queries import get_codebase_skeleton
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.queries import get_codebase_skeleton
 
 
 class CodebaseSkeletonInput(BaseModel):
@@ -72,9 +72,7 @@ class GetRootCodebaseSkeletonTool(BaseTool):
         """
         try:
             # Call the existing get_codebase_skeleton function
-            skeleton_result = get_codebase_skeleton(
-                db_manager=self.db_manager, entity_id=entity_id, repo_id=repo_id
-            )
+            skeleton_result = get_codebase_skeleton(db_manager=self.db_manager, entity_id=entity_id, repo_id=repo_id)
 
             return skeleton_result
 

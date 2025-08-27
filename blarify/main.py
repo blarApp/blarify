@@ -8,13 +8,14 @@ from blarify.project_graph_diff_creator import (
     PreviousNodeState,
     ProjectGraphDiffCreator,
 )
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.code_references import LspQueryHelper
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.utils.file_remover import FileRemover
 from blarify.agents.llm_provider import LLMProvider
 from blarify.documentation.documentation_creator import DocumentationCreator
 from blarify.documentation.workflow_creator import WorkflowCreator
+from blarify.integrations.github_creator import GitHubCreator
 
 import dotenv
 import os
@@ -390,6 +391,134 @@ def test_workflow_discovery_only(root_path: str = None):
         graph_manager.close()
 
 
+def test_github_integration_only(root_path: str = None):
+    """Test only the GitHub integration with the existing Blarify repository graph.
+
+    This assumes the code graph already exists in Neo4j and fetches just 1 PR
+    to demonstrate the GitHub integration functionality.
+    """
+    print("🐙 Testing GitHub Integration Layer...")
+    print("=" * 60)
+
+    # Setup
+    repoId = "test"
+    entity_id = "test"
+    graph_manager = Neo4jManager(repoId, entity_id)
+
+    try:
+        # Initialize GitHub integration
+        print("🔧 Setting up GitHub integration...")
+        graph_environment = GraphEnvironment("dev", "main", root_path)
+
+        # Get GitHub token from environment
+        github_token = os.getenv("GITHUB_TOKEN")
+        if not github_token:
+            print("⚠️  No GITHUB_TOKEN found in environment, using unauthenticated access")
+            print("   This may hit rate limits quickly!")
+
+        # Create GitHubCreator for the Blarify repository
+        github_creator = GitHubCreator(
+            db_manager=graph_manager,
+            graph_environment=graph_environment,
+            github_token=github_token,
+            repo_owner="blarApp",
+            repo_name="blarify",
+        )
+
+        print("📍 Repository: blarApp/blarify")
+        print(f"📍 Root path: {root_path}")
+        print()
+
+        print("🚀 Fetching GitHub data (1 merged PR only)...")
+        print("-" * 40)
+
+        # Fetch just 1 PR to demonstrate the integration
+        result = github_creator.create_github_integration(pr_limit=1, save_to_database=True)
+
+        if result.error:
+            print(f"❌ GitHub integration failed: {result.error}")
+            return None
+
+        print()
+        print("✅ GitHub Integration Complete!")
+        print("=" * 60)
+
+        # Display results
+        print("\n📊 Integration Summary:")
+        print(f"   - PRs processed: {result.total_prs}")
+        print(f"   - Commits created: {result.total_commits}")
+        print(f"   - Relationships created: {len(result.relationships)}")
+
+        # Show PR details
+        if result.pr_nodes:
+            print("\n📋 Pull Request Details:")
+            for pr in result.pr_nodes:
+                print(f"   PR #{pr.external_id}: {pr.title}")
+                print(f"   - Author: {pr.author}")
+                print(f"   - Created: {pr.timestamp}")
+                print(f"   - State: {pr.metadata.get('state', 'unknown')}")
+                if pr.metadata.get("merged_at"):
+                    print(f"   - Merged: {pr.metadata['merged_at']}")
+
+        # Show commit details
+        if result.commit_nodes:
+            print(f"\n💾 Commits ({len(result.commit_nodes)} total):")
+            for i, commit in enumerate(result.commit_nodes[:3]):  # Show first 3
+                print(f"   {i + 1}. {commit.external_id[:7]}: {commit.title[:60]}")
+                if commit.metadata.get("pr_number"):
+                    print(f"      (Part of PR #{commit.metadata['pr_number']})")
+
+        # Show relationship breakdown
+        if result.relationships:
+            print("\n🔗 Relationships Created:")
+            rel_types = {}
+            for rel in result.relationships:
+                if hasattr(rel, "rel_type"):
+                    rel_type_name = rel.rel_type.name
+                    rel_types[rel_type_name] = rel_types.get(rel_type_name, 0) + 1
+
+            for rel_type, count in rel_types.items():
+                print(f"   - {rel_type}: {count}")
+
+        # Query database to show MODIFIED_BY relationships
+        print("\n🔍 Analyzing Code Modifications:")
+        query = """
+        MATCH (code:NODE)-[r:MODIFIED_BY]->(commit:INTEGRATION)
+        RETURN code.name as code_name, 
+               code.label as code_type,
+               commit.title as commit_title,
+               r.lines_added as lines_added,
+               r.lines_deleted as lines_deleted
+        LIMIT 5
+        """
+
+        with graph_manager.driver.session() as session:
+            records = session.run(query).data()
+
+            if records:
+                print(f"   Found {len(records)} code modifications:")
+                for record in records:
+                    print(f"   - {record['code_type']} '{record['code_name']}'")
+                    print(f"     Modified by: {record['commit_title'][:50]}")
+                    print(f"     Changes: +{record['lines_added']}/-{record['lines_deleted']} lines")
+            else:
+                print("   No MODIFIED_BY relationships found (files may not be in code graph)")
+
+        print("\n✨ GitHub integration test completed successfully!")
+        return result
+
+    except Exception as e:
+        print(f"❌ GitHub integration test failed: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return None
+
+    finally:
+        print("\n🧹 Cleaning up resources...")
+        graph_manager.close()
+
+
 def test_targeted_workflow_discovery(root_path: str = None):
     """Test targeted workflow discovery with specific node_path."""
     print("🎯 Testing targeted workflow discovery...")
@@ -467,6 +596,13 @@ if __name__ == "__main__":
     root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blarify"
     # root_path = "/Users/berrazuriz/Desktop/Blar/repositories/blar-django-server"
     blarignore_path = os.getenv("BLARIGNORE_PATH")
+
+    # Test the GitHub integration
+    # test_github_integration_only(root_path=root_path)
+
+    # Other test options (commented out):
+    # main(root_path=root_path, blarignore_path=blarignore_path)  # Build graph
+    # test_targeted_workflow_discovery(root_path=root_path)  # Test workflow discovery
     # Comment out regular main() and use documentation integration
     # main(root_path=root_path, blarignore_path=blarignore_path)
 

@@ -4,8 +4,8 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from blarify.db_managers.dtos.node_found_by_path import NodeFoundByPathDto
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.dtos.node_found_by_path import NodeFoundByPathDto
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
 
 class Input(BaseModel):

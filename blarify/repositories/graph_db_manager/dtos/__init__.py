@@ -5,7 +5,6 @@ from .node_search_result_dto import NodeSearchResultDTO
 from .node_found_by_text import NodeFoundByTextDto
 from .node_found_by_name_type import NodeFoundByNameTypeDto
 from .node_found_by_path import NodeFoundByPathDto
-from .documentation_search_result_dto import DocumentationSearchResultDto
 
 __all__ = [
     "EdgeDTO",
@@ -13,5 +12,4 @@ __all__ = [
     "NodeFoundByTextDto",
     "NodeFoundByNameTypeDto",
     "NodeFoundByPathDto",
-    "DocumentationSearchResultDto",
 ]

@@ -14,6 +14,8 @@ from typing import Dict, List, Optional, Any, Set
 from concurrent.futures import Future, as_completed
 from collections import deque, defaultdict
 from pydantic import BaseModel, Field, ConfigDict
+from typing import Union
+from pydantic import field_validator
 
 from ...agents.llm_provider import LLMProvider
 from ...agents.prompt_templates import (
@@ -22,9 +24,9 @@ from ...agents.prompt_templates import (
     FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE,
 )
-from ...db_managers.db_manager import AbstractDbManager
-from ...db_managers.dtos.node_with_content_dto import NodeWithContentDto
-from ...db_managers.queries import (
+from ...repositories.graph_db_manager.db_manager import AbstractDbManager
+from ...repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
+from ...repositories.graph_db_manager.queries import (
     get_node_by_path,
     get_direct_children,
     get_call_stack_children,
@@ -189,6 +191,26 @@ class ProcessingResult(BaseModel):
     documentation_nodes: List[DocumentationNode] = Field(default_factory=list)  # Actual DocumentationNode objects
     source_nodes: List[NodeWithContentDto] = Field(default_factory=list)  # Source code DTOs
 
+    @field_validator("source_nodes", mode="before")
+    @classmethod
+    def validate_source_nodes(cls, v: Any) -> List[Union[NodeWithContentDto, Dict[str, Any]]]:
+        """Convert NodeWithContentDto instances or dicts to the expected format."""
+        if not v:
+            return []
+
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                # If it's a dict, create a NodeWithContentDto from it
+                result.append(NodeWithContentDto(**item))
+            elif isinstance(item, NodeWithContentDto):
+                # If it's already a NodeWithContentDto, keep it
+                result.append(item)
+            else:
+                # For any other type, try to convert it
+                result.append(item)
+        return result
+
 
 class RecursiveDFSProcessor:
     """
@@ -264,7 +286,7 @@ class RecursiveDFSProcessor:
             # Get the root node (folder or file)
             root_node: Optional[NodeWithContentDto] = self.root_node
             if not root_node:
-                root_node = get_node_by_path(self.db_manager, self.company_id, self.repo_id, node_path)
+                root_node = get_node_by_path(self.db_manager, self.company_id, self.repo_id, node_path)  # type: ignore[assignment]
                 if not root_node:
                     logger.exception(f"Node not found for path: {node_path}")
                     return ProcessingResult(node_path=node_path, error=f"Node not found: {node_path}")
@@ -282,7 +304,9 @@ class RecursiveDFSProcessor:
             # Collect all processed descriptions and convert to dicts
             all_descriptions_as_dicts = [node.as_object() for node in self.node_descriptions.values()]
             all_documentation_nodes = list(self.node_descriptions.values())
-            all_source_nodes = list(self.source_nodes_cache.values())
+            # Convert NodeWithContentDto instances to dicts for Pydantic validation
+            # (NodeWithContentDto is a Pydantic model, so we need to pass dicts)
+            all_source_nodes = [node.model_dump() for node in self.source_nodes_cache.values()]
 
             logger.info(f"Completed iterative DFS processing. Generated {len(all_descriptions_as_dicts)} descriptions")
 
@@ -292,7 +316,7 @@ class RecursiveDFSProcessor:
                 node_source_mapping=self.node_source_mapping,
                 information_nodes=all_descriptions_as_dicts,
                 documentation_nodes=all_documentation_nodes,
-                source_nodes=all_source_nodes,
+                source_nodes=all_source_nodes,  # type: ignore[arg-type] # Validator handles dict to NodeWithContentDto conversion
             )
 
         except Exception as e:
@@ -1023,7 +1047,7 @@ class RecursiveDFSProcessor:
         Returns:
             List of child nodes through hierarchical relationships
         """
-        return get_direct_children(self.db_manager, self.company_id, self.repo_id, node.id)
+        return get_direct_children(self.db_manager, self.company_id, self.repo_id, node.id)  # type: ignore[return-value]
 
     def _get_call_stack_children(self, node: NodeWithContentDto) -> List[NodeWithContentDto]:
         """

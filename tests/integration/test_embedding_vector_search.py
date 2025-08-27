@@ -14,13 +14,13 @@ from blarify.documentation.documentation_creator import DocumentationCreator
 from blarify.services.embedding_service import EmbeddingService
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.graph_environment import GraphEnvironment
-from blarify.db_managers.neo4j_manager import Neo4jManager
-from blarify.db_managers.queries import (
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.queries import (
     vector_similarity_search_query,
     hybrid_search_query,
     create_vector_index_query,
 )
-from blarify.db_managers.dtos.documentation_search_result_dto import DocumentationSearchResultDto
+from blarify.repositories.graph_db_manager.dtos.documentation_search_result_dto import DocumentationSearchResultDto
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 from blarify.agents.llm_provider import LLMProvider

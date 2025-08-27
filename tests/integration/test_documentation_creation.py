@@ -10,7 +10,6 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
-from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
@@ -122,9 +121,6 @@ class TestDocumentationCreation:
         doc_nodes = await graph_assertions.neo4j_instance.execute_cypher(
             "MATCH (d:DOCUMENTATION) RETURN d.content as content, d.name as name"
         )
-        print(f"Found {len(doc_nodes)} documentation nodes in database")
-        for node in doc_nodes:
-            print(f"Documentation node: {node['name'][:50]}... - Content: {node['content'][:100]}...")
 
         # Check if our mock description is in any of the nodes
         mock_description_found = any("Django URL configuration" in node.get("content", "") for node in doc_nodes)
@@ -588,7 +584,7 @@ class TestDocumentationCreation:
             """
             MATCH (d:DOCUMENTATION)
             WHERE d.content_embedding IS NOT NULL
-            RETURN count(d) as count, 
+            RETURN count(d) as count,
                    collect(DISTINCT size(d.content_embedding))[0] as embedding_size
             """
         )

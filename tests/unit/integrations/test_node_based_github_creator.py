@@ -6,7 +6,7 @@ import json
 
 from blarify.integrations.github_creator import GitHubCreator
 from blarify.graph.graph_environment import GraphEnvironment
-from blarify.graph.node.integration_node import IntegrationNode
+from blarify.graph.node.types.integration_node import IntegrationNode
 from blarify.repositories.version_control.dtos.blame_commit_dto import BlameCommitDto
 from blarify.repositories.version_control.dtos.blame_line_range_dto import BlameLineRangeDto
 from blarify.repositories.version_control.dtos.pull_request_info_dto import PullRequestInfoDto

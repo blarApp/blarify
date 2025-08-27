@@ -3,7 +3,7 @@
 from unittest.mock import Mock
 
 from blarify.graph.graph_environment import GraphEnvironment
-from blarify.graph.node.integration_node import IntegrationNode
+from blarify.graph.node.types.integration_node import IntegrationNode
 
 
 def test_github_creator_initialization():

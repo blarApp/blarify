@@ -1,21 +1,14 @@
 """Test IntegrationNode creation and serialization."""
 
-import pytest
-from typing import Dict, Any
-
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.graph.node.types.node_labels import NodeLabels
 
 
 def test_integration_node_creation():
     """Test creating IntegrationNode with required fields."""
-    from blarify.graph.node.integration_node import IntegrationNode
-    
-    graph_env = GraphEnvironment(
-        environment="test",
-        diff_identifier="0",
-        root_path="/test"
-    )
+    from blarify.graph.node.types.integration_node import IntegrationNode
+
+    graph_env = GraphEnvironment(environment="test", diff_identifier="0", root_path="/test")
     node = IntegrationNode(
         source="github",
         source_type="pull_request",
@@ -28,7 +21,7 @@ def test_integration_node_creation():
         metadata={},
         graph_environment=graph_env,
     )
-    
+
     assert node.path == "integration://github/pull_request/123"
     assert node.label == NodeLabels.INTEGRATION
     assert node.source == "github"
@@ -40,13 +33,9 @@ def test_integration_node_creation():
 
 def test_commit_node_creation():
     """Test creating commit-specific integration node."""
-    from blarify.graph.node.integration_node import IntegrationNode
-    
-    graph_env = GraphEnvironment(
-        environment="test",
-        diff_identifier="0",
-        root_path="/test"
-    )
+    from blarify.graph.node.types.integration_node import IntegrationNode
+
+    graph_env = GraphEnvironment(environment="test", diff_identifier="0", root_path="/test")
     node = IntegrationNode(
         source="github",
         source_type="commit",
@@ -59,7 +48,7 @@ def test_commit_node_creation():
         metadata={"pr_number": 123},
         graph_environment=graph_env,
     )
-    
+
     assert node.path == "integration://github/commit/abc123"
     assert node.source_type == "commit"
     assert node.metadata["pr_number"] == 123
@@ -67,13 +56,9 @@ def test_commit_node_creation():
 
 def test_integration_node_serialization():
     """Test IntegrationNode serialization to object."""
-    from blarify.graph.node.integration_node import IntegrationNode
-    
-    graph_env = GraphEnvironment(
-        environment="test",
-        diff_identifier="0",
-        root_path="/test"
-    )
+    from blarify.graph.node.types.integration_node import IntegrationNode
+
+    graph_env = GraphEnvironment(environment="test", diff_identifier="0", root_path="/test")
     node = IntegrationNode(
         source="github",
         source_type="pull_request",
@@ -86,9 +71,9 @@ def test_integration_node_serialization():
         metadata={"labels": ["feature", "enhancement"]},
         graph_environment=graph_env,
     )
-    
+
     obj = node.as_object()
-    
+
     assert obj["attributes"]["source"] == "github"
     assert obj["attributes"]["source_type"] == "pull_request"
     assert obj["attributes"]["external_id"] == "456"
@@ -102,14 +87,10 @@ def test_integration_node_serialization():
 
 def test_integration_node_with_different_sources():
     """Test IntegrationNode supports different source systems."""
-    from blarify.graph.node.integration_node import IntegrationNode
-    
-    graph_env = GraphEnvironment(
-        environment="test",
-        diff_identifier="0",
-        root_path="/test"
-    )
-    
+    from blarify.graph.node.types.integration_node import IntegrationNode
+
+    graph_env = GraphEnvironment(environment="test", diff_identifier="0", root_path="/test")
+
     # Sentry integration node
     sentry_node = IntegrationNode(
         source="sentry",
@@ -123,10 +104,10 @@ def test_integration_node_with_different_sources():
         metadata={"severity": "error", "count": 10},
         graph_environment=graph_env,
     )
-    
+
     assert sentry_node.path == "integration://sentry/error/12345"
     assert sentry_node.source == "sentry"
-    
+
     # DataDog integration node
     datadog_node = IntegrationNode(
         source="datadog",
@@ -140,21 +121,17 @@ def test_integration_node_with_different_sources():
         metadata={"threshold": 90, "duration": 300},
         graph_environment=graph_env,
     )
-    
+
     assert datadog_node.path == "integration://datadog/metric/cpu_spike_001"
     assert datadog_node.source == "datadog"
 
 
 def test_integration_node_hierarchy():
     """Test IntegrationNode with parent-child relationships."""
-    from blarify.graph.node.integration_node import IntegrationNode
-    
-    graph_env = GraphEnvironment(
-        environment="test",
-        diff_identifier="0",
-        root_path="/test"
-    )
-    
+    from blarify.graph.node.types.integration_node import IntegrationNode
+
+    graph_env = GraphEnvironment(environment="test", diff_identifier="0", root_path="/test")
+
     # PR as parent
     pr_node = IntegrationNode(
         source="github",
@@ -169,7 +146,7 @@ def test_integration_node_hierarchy():
         graph_environment=graph_env,
         level=0,
     )
-    
+
     # Commit as child of PR
     commit_node = IntegrationNode(
         source="github",
@@ -185,6 +162,6 @@ def test_integration_node_hierarchy():
         level=1,
         parent=pr_node,
     )
-    
+
     assert commit_node.level == 1
     assert commit_node.parent == pr_node

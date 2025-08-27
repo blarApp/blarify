@@ -2651,3 +2651,62 @@ def create_vector_index_query() -> str:
         `vector.similarity_function`: 'cosine'
     }}
     """
+
+
+def vector_similarity_search_query() -> str:
+    """Cypher query for vector similarity search using Neo4j vector index.
+    
+    Returns:
+        Cypher query string for vector similarity search
+    """
+    return """
+    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
+    YIELD node, score
+    WHERE score >= $min_similarity
+    RETURN node.node_id as node_id,
+           node.title as title,
+           node.content as content,
+           score as similarity_score,
+           node.source_path as source_path,
+           node.source_labels as source_labels,
+           node.info_type as info_type,
+           node.enhanced_content as enhanced_content
+    ORDER BY score DESC
+    """
+
+
+def hybrid_search_query() -> str:
+    """Cypher query for hybrid search combining vector and keyword similarity.
+    
+    Returns:
+        Cypher query string for hybrid search
+    """
+    return """
+    // Vector similarity search
+    CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
+    YIELD node, score as vector_score
+    
+    // Keyword matching
+    WITH node, vector_score,
+         CASE 
+           WHEN toLower(node.content) CONTAINS toLower($keyword) THEN 1.0
+           WHEN toLower(node.title) CONTAINS toLower($keyword) THEN 0.8
+           ELSE 0.0
+         END as keyword_score
+    
+    // Combine scores with weights
+    WITH node, 
+         ($vector_weight * vector_score + $keyword_weight * keyword_score) as combined_score
+    WHERE combined_score >= $min_score
+    
+    RETURN node.node_id as node_id,
+           node.title as title,
+           node.content as content,
+           combined_score as similarity_score,
+           node.source_path as source_path,
+           node.source_labels as source_labels,
+           node.info_type as info_type,
+           node.enhanced_content as enhanced_content
+    ORDER BY combined_score DESC
+    LIMIT $limit
+    """

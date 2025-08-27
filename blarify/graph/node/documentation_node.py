@@ -1,4 +1,10 @@
-from typing import List, Optional, Dict, Any, Union, TypedDict, Unpack, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, Union, TypedDict, TYPE_CHECKING
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
 from blarify.graph.node import NodeLabels
 from .types.node import Node
 

@@ -25,7 +25,7 @@ from .fixtures import multi_provider_env, single_provider_env  # noqa: F401  # t
 class TestKeyDiscoveryAndInitialization:
     """Test key discovery and manager initialization."""
 
-    def test_key_discovery_all_providers(self) -> None:  # noqa: F811
+    def test_key_discovery_all_providers(self, multi_provider_env: Any) -> None:  # noqa: F811
         """Test that all keys are discovered for each provider."""
         # OpenAI
         openai_keys = discover_keys_for_provider("openai")
@@ -42,7 +42,7 @@ class TestKeyDiscoveryAndInitialization:
         assert len(google_keys) == 2
         assert all("google" in k for k in google_keys)
 
-    def test_api_key_manager_initialization(self) -> None:
+    def test_api_key_manager_initialization(self, multi_provider_env: Any) -> None:
         """Test APIKeyManager initializes with discovered keys."""
         # OpenAI manager
         openai_manager = APIKeyManager("openai", auto_discover=True)
@@ -54,7 +54,7 @@ class TestKeyDiscoveryAndInitialization:
         assert len(anthropic_manager.keys) == 2
         assert anthropic_manager.get_available_count() == 2
 
-    def test_llm_provider_detects_rotation(self) -> None:
+    def test_llm_provider_detects_rotation(self, multi_provider_env: Any) -> None:
         """Test LLMProvider correctly detects when to use rotation."""
         # Create an LLMProvider instance
         provider = LLMProvider()
@@ -85,7 +85,7 @@ class TestKeyDiscoveryAndInitialization:
 class TestRateLimitRotation:
     """Test rate limit rotation scenarios."""
 
-    def test_openai_rate_limit_rotation(self) -> None:
+    def test_openai_rate_limit_rotation(self, multi_provider_env: Any) -> None:
         """Test OpenAI rotates keys on rate limit."""
         manager = APIKeyManager("openai", auto_discover=True)
         wrapper = RotatingKeyChatOpenAI(key_manager=manager, model="gpt-4")
@@ -136,7 +136,7 @@ class TestRateLimitRotation:
         rate_limited_count = sum(1 for state in key_states.values() if state.state.value == "rate_limited")
         assert rate_limited_count >= 2
 
-    def test_anthropic_spike_detection(self) -> None:
+    def test_anthropic_spike_detection(self, multi_provider_env: Any) -> None:
         """Test Anthropic detects and handles spike-triggered rate limits."""
         manager = APIKeyManager("anthropic", auto_discover=True)
         wrapper = RotatingKeyChatAnthropic(key_manager=manager, model_name="claude-3-opus-20240229")
@@ -161,7 +161,7 @@ class TestRateLimitRotation:
         assert error_type == ErrorType.RATE_LIMIT
         assert retry_after == 5
 
-    def test_google_exponential_backoff(self) -> None:
+    def test_google_exponential_backoff(self, multi_provider_env: Any) -> None:
         """Test Google uses exponential backoff correctly."""
         manager = APIKeyManager("google", auto_discover=True)
         wrapper = RotatingKeyChatGoogle(key_manager=manager, model="gemini-1.5-flash")
@@ -204,7 +204,7 @@ class TestRateLimitRotation:
 class TestProviderFallback:
     """Test provider fallback with rotation."""
 
-    def test_models_with_rotation(self) -> None:
+    def test_models_with_rotation(self, multi_provider_env: Any) -> None:
         """Test models use rotation when multiple keys are available."""
         provider_instance = LLMProvider()
         models = ["gpt-4.1", "claude-3-5-haiku-latest"]
@@ -222,7 +222,7 @@ class TestProviderFallback:
                 model_instance = provider_instance._get_or_create_model(model)  # type: ignore[attr-defined]
                 assert hasattr(model_instance, "key_manager")
 
-    def test_all_keys_exhausted_fallback(self) -> None:
+    def test_all_keys_exhausted_fallback(self, multi_provider_env: Any) -> None:
         """Test provider fallback when all keys for primary are exhausted."""
         manager_openai = APIKeyManager("openai", auto_discover=True)
         manager_anthropic = APIKeyManager("anthropic", auto_discover=True)
@@ -247,7 +247,7 @@ class TestProviderFallback:
 class TestThreadSafety:
     """Test thread safety and concurrent operations."""
 
-    def test_concurrent_rotation_thread_safety(self) -> None:
+    def test_concurrent_rotation_thread_safety(self, multi_provider_env: Any) -> None:
         """Test concurrent requests with rotation are thread-safe."""
         manager = APIKeyManager("openai", auto_discover=True)
         wrapper = RotatingKeyChatOpenAI(key_manager=manager, model="gpt-4")
@@ -293,7 +293,7 @@ class TestThreadSafety:
         metrics = wrapper.get_metrics_snapshot()
         assert metrics.total_requests >= 50
 
-    def test_shared_key_manager_coordination(self) -> None:
+    def test_shared_key_manager_coordination(self, multi_provider_env: Any) -> None:
         """Test multiple components sharing the same key manager."""
         shared_manager = APIKeyManager("openai", auto_discover=True)
 
@@ -320,7 +320,7 @@ class TestThreadSafety:
 class TestEdgeCases:
     """Test edge cases and error recovery."""
 
-    def test_invalid_keys_removal(self) -> None:
+    def test_invalid_keys_removal(self, multi_provider_env: Any) -> None:
         """Test that invalid keys are properly marked and excluded."""
         manager = APIKeyManager("openai", auto_discover=True)
 
@@ -333,7 +333,7 @@ class TestEdgeCases:
             key = manager.get_next_available_key()
             assert key != first_key
 
-    def test_cooldown_expiration(self) -> None:
+    def test_cooldown_expiration(self, multi_provider_env: Any) -> None:
         """Test that rate-limited keys become available after cooldown."""
         manager = APIKeyManager("openai", auto_discover=True)
 
@@ -365,7 +365,7 @@ class TestEdgeCases:
                 provider = LLMProvider()
                 provider._get_or_create_model("gpt-4.1")  # type: ignore[attr-defined]
 
-    def test_backwards_compatibility(self) -> None:
+    def test_backwards_compatibility(self, single_provider_env: Any) -> None:
         """Test that single-key setup still works without rotation."""
         provider = LLMProvider()
 
@@ -381,7 +381,7 @@ class TestEdgeCases:
 class TestInvokeWrapping:
     """Test that invoke methods are properly wrapped for rotation."""
 
-    def test_openai_invoke_wrapped(self) -> None:
+    def test_openai_invoke_wrapped(self, multi_provider_env: Any) -> None:
         """Test that ChatOpenAI.invoke is wrapped when using rotation."""
         provider = LLMProvider()
 
@@ -411,7 +411,7 @@ class TestInvokeWrapping:
             assert mock_execute.called
             assert result is not None
 
-    def test_anthropic_invoke_wrapped(self) -> None:
+    def test_anthropic_invoke_wrapped(self, multi_provider_env: Any) -> None:
         """Test that ChatAnthropic.invoke is wrapped when using rotation."""
         provider = LLMProvider()
 
@@ -443,7 +443,7 @@ class TestInvokeWrapping:
             assert mock_execute.called
             assert result is not None
 
-    def test_google_invoke_wrapped(self) -> None:
+    def test_google_invoke_wrapped(self, multi_provider_env: Any) -> None:
         """Test that ChatGoogleGenerativeAI.invoke is wrapped when using rotation."""
         provider = LLMProvider()
 
@@ -475,7 +475,7 @@ class TestInvokeWrapping:
             assert mock_execute.called
             assert result is not None
 
-    def test_metrics_persist_across_invokes(self) -> None:
+    def test_metrics_persist_across_invokes(self, multi_provider_env: Any) -> None:
         """Test that metrics persist across multiple invokes through LLMProvider."""
         provider = LLMProvider()
 
@@ -507,7 +507,7 @@ class TestInvokeWrapping:
             assert final_metrics.total_requests == initial_requests + 2
             assert final_metrics.successful_requests == initial_metrics.successful_requests + 2
 
-    def test_single_key_uses_standard_provider(self) -> None:
+    def test_single_key_uses_standard_provider(self, single_provider_env: Any) -> None:
         """Test that single key configuration uses standard provider without wrapping."""
         provider = LLMProvider()
 
@@ -531,7 +531,7 @@ class TestInvokeWrapping:
 class TestPerformanceAndMetrics:
     """Test performance characteristics and metrics collection."""
 
-    def test_rotation_performance(self) -> None:
+    def test_rotation_performance(self, multi_provider_env: Any) -> None:
         """Test that rotation adds minimal overhead."""
         manager = APIKeyManager("openai", auto_discover=True)
 
@@ -548,7 +548,7 @@ class TestPerformanceAndMetrics:
         per_selection = duration / 1000
         assert per_selection < 0.00001
 
-    def test_metrics_accuracy(self) -> None:
+    def test_metrics_accuracy(self, multi_provider_env: Any) -> None:
         """Test that metrics are accurately tracked."""
         manager = APIKeyManager("openai", auto_discover=True)
         wrapper = RotatingKeyChatOpenAI(key_manager=manager, model="gpt-4")
@@ -587,7 +587,7 @@ class TestPerformanceAndMetrics:
         # Rate limit hits should be tracked
         assert metrics.rate_limit_hits >= rate_limit_count
 
-    def test_rotation_with_metrics(self) -> None:
+    def test_rotation_with_metrics(self, multi_provider_env: Any) -> None:
         """Test that rotation maintains metrics across calls."""
         provider = LLMProvider()
 
@@ -619,7 +619,7 @@ class TestPerformanceAndMetrics:
 class TestKeyReuse:
     """Test cases for key reuse behavior."""
 
-    def test_key_reused_on_success(self) -> None:
+    def test_key_reused_on_success(self, multi_provider_env: Any) -> None:
         """Test that the same key is reused for successful requests."""
         manager = APIKeyManager("openai", auto_discover=True)
         wrapper = RotatingKeyChatOpenAI(key_manager=manager, model="gpt-4")
@@ -642,7 +642,7 @@ class TestKeyReuse:
         assert len(keys_used) == 3
         assert len(set(keys_used)) == 1, f"Expected same key for all calls, got: {keys_used}"
 
-    def test_key_rotated_on_rate_limit(self) -> None:
+    def test_key_rotated_on_rate_limit(self, multi_provider_env: Any) -> None:
         """Test that key is rotated on rate limit errors."""
         manager = APIKeyManager("openai", auto_discover=True)
         wrapper = RotatingKeyChatOpenAI(key_manager=manager, model="gpt-4")
@@ -681,7 +681,7 @@ class TestKeyReuse:
         assert keys_used[0] == keys_used[1], "Same key should be used for first two attempts"
         assert keys_used[1] != keys_used[2], "Different key should be used after rate limit"
 
-    def test_key_rotated_on_auth_error(self) -> None:
+    def test_key_rotated_on_auth_error(self, multi_provider_env: Any) -> None:
         """Test that key is rotated on authentication errors."""
         manager = APIKeyManager("anthropic", auto_discover=True)
         wrapper = RotatingKeyChatAnthropic(key_manager=manager, model_name="claude-3-opus-20240229")
@@ -712,7 +712,7 @@ class TestKeyReuse:
         assert len(keys_used) == 2
         assert keys_used[0] != keys_used[1], "Different key should be used after auth error"
 
-    def test_key_reused_on_retryable_error(self) -> None:
+    def test_key_reused_on_retryable_error(self, multi_provider_env: Any) -> None:
         """Test that the same key is reused for retryable errors."""
         manager = APIKeyManager("google", auto_discover=True)
         wrapper = RotatingKeyChatGoogle(key_manager=manager, model="gemini-1.5-pro")

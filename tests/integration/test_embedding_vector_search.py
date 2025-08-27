@@ -509,6 +509,7 @@ class TestEmbeddingVectorSearch:
         search_results = []
         for r in results:
             dto = DocumentationSearchResultDto(
+                title=r["title"],
                 node_id=r["node_id"],
                 content=r["content"],
                 similarity_score=r["similarity_score"],

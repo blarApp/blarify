@@ -141,7 +141,9 @@ def create_test_function_node(
     return node
 
 
-def insert_nodes_and_edges(db_manager: AbstractDbManager, nodes: List[Any], edges: List[Dict[str, Any]] = None) -> None:
+def insert_nodes_and_edges(
+    db_manager: AbstractDbManager, nodes: List[Any], edges: Optional[List[Dict[str, Any]]] = None
+) -> None:
     """Insert nodes and optionally edges into the database using the proper methods."""
     # Convert nodes to their object representation
     node_objects = [node.as_object() for node in nodes]

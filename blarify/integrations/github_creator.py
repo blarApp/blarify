@@ -443,8 +443,6 @@ class GitHubCreator:
         query = get_code_nodes_by_ids_query()
         params = {
             "node_ids": node_ids,
-            "entity_id": self.graph_environment.diff_identifier,
-            "repo_id": self.graph_environment.root_path,
         }
 
         results = self.db_manager.query(query, params)

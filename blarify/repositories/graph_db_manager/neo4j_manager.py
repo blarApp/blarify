@@ -162,6 +162,11 @@ class Neo4jManager(AbstractDbManager):
         if parameters is None:
             parameters = {}
 
+        if "repo_id" not in parameters:
+            parameters["repo_id"] = self.repo_id
+        if "entity_id" not in parameters:
+            parameters["entity_id"] = self.entity_id
+
         try:
             with self.driver.session() as session:
                 result = session.run(cypher_query, parameters)

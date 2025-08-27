@@ -187,6 +187,8 @@ class TestBlameBasedIntegration:
             mock_github = Mock(spec=GitHub)
             mock_github.blame_commits_for_range = Mock(side_effect=mock_blame_response)
             mock_github.blame_commits_for_nodes = Mock(side_effect=mock_blame_for_nodes)
+            mock_github.fetch_commit_patch = Mock(return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch fetching
+            mock_github.extract_relevant_patch = Mock(return_value="@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch extraction
             mock_github_class.return_value = mock_github
 
             creator = GitHubCreator(
@@ -347,6 +349,8 @@ class TestBlameBasedIntegration:
         with patch("blarify.integrations.github_creator.GitHub") as mock_github_class:
             mock_github = Mock(spec=GitHub)
             mock_github.blame_commits_for_nodes = Mock(return_value=blame_results)
+            mock_github.fetch_commit_patch = Mock(return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch fetching
+            mock_github.extract_relevant_patch = Mock(return_value="@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch extraction
             mock_github_class.return_value = mock_github
 
             creator = GitHubCreator(
@@ -462,6 +466,8 @@ class TestBlameBasedIntegration:
         with patch("blarify.integrations.github_creator.GitHub") as mock_github_class:
             mock_github = Mock(spec=GitHub)
             mock_github.blame_commits_for_nodes = Mock(return_value=blame_results)
+            mock_github.fetch_commit_patch = Mock(return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch fetching
+            mock_github.extract_relevant_patch = Mock(return_value="@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch extraction
             mock_github_class.return_value = mock_github
 
             creator = GitHubCreator(

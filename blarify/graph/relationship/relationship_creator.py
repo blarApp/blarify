@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, TYPE_CHECKING
+from blarify.graph.node.commit_node import CommitNode
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.relationship import Relationship, WorkflowStepRelationship, RelationshipType
 from blarify.graph.node import NodeLabels
@@ -34,7 +35,7 @@ class RelationshipCreator:
             if found_relationship_scope.node_in_scope is None:
                 scope_text = ""
             else:
-                scope_text = found_relationship_scope.node_in_scope.text.decode("utf-8")
+                scope_text = found_relationship_scope.node_in_scope.text.decode("utf-8") if found_relationship_scope.node_in_scope.text else ""
 
             # Extract start_line and reference_character for CALL relationships
             start_line = None
@@ -99,13 +100,13 @@ class RelationshipCreator:
             next_step_node,
             RelationshipType.WORKFLOW_STEP,
             scope_text,
-            step_order=step_order,
+            step_order=step_order or 0,
         )
 
     @staticmethod
     def create_belongs_to_workflow_relationships_for_workflow_nodes(
         workflow_node: "Node", workflow_node_ids: List[str]
-    ) -> List[dict]:
+    ) -> List[Dict[str, Any]]:
         """
         Create BELONGS_TO_WORKFLOW relationships from workflow participant nodes to workflow node.
 
@@ -132,7 +133,7 @@ class RelationshipCreator:
         return relationships
 
     @staticmethod
-    def create_describes_relationships(documentation_nodes: List[DocumentationNode]) -> List[dict]:
+    def create_describes_relationships(documentation_nodes: List[DocumentationNode]) -> List[Dict[str, Any]]:
         """
         Create DESCRIBES relationships from documentation nodes to their source code nodes.
 
@@ -159,7 +160,7 @@ class RelationshipCreator:
     @staticmethod
     def create_workflow_step_relationships_from_execution_edges(
         workflow_node: "Node", execution_edges: List[Dict[str, Any]]
-    ) -> List[dict]:
+    ) -> List[Dict[str, Any]]:
         """
         Create WORKFLOW_STEP relationships between documentation nodes based on execution edges.
 
@@ -316,7 +317,10 @@ class RelationshipCreator:
 
     @staticmethod
     def create_modified_by_with_blame(
-        commit_node: "Node", code_node: CodeNodeDto, line_ranges: List[BlameLineRangeDto]
+        commit_node: CommitNode, 
+        code_node: CodeNodeDto, 
+        line_ranges: List[BlameLineRangeDto],
+        relevant_patch: str = ""
     ) -> Dict[str, Any]:
         """Create MODIFIED_BY relationship with exact blame attribution.
 
@@ -324,6 +328,7 @@ class RelationshipCreator:
             commit_node: The commit that modified the code
             code_node: The code node that was modified (as DTO)
             line_ranges: Exact line ranges from blame (as DTOs)
+            relevant_patch: The patch hunks relevant to this specific node
 
         Returns:
             Relationship dictionary with blame attribution
@@ -346,22 +351,24 @@ class RelationshipCreator:
             "node_path": code_node.path,
             "node_name": code_node.name,
             # Commit context
-            "commit_sha": commit_node.external_id if hasattr(commit_node, "external_id") else "",
-            "commit_timestamp": commit_node.timestamp if hasattr(commit_node, "timestamp") else "",
-            "commit_message": commit_node.title if hasattr(commit_node, "title") else "",
-            "commit_author": commit_node.author if hasattr(commit_node, "author") else "",
+            "commit_sha": commit_node.external_id,
+            "commit_timestamp": commit_node.timestamp,
+            "commit_message": commit_node.title,
+            "commit_author": commit_node.author,
             # Attribution metadata
             "attribution_method": "blame",
             "attribution_accuracy": "exact",
             # PR information if available
-            "pr_number": commit_node.metadata.get("pr_number") if hasattr(commit_node, "metadata") else None,
+            "pr_number": commit_node.metadata.get("pr_number"),
+            # Relevant patch for this specific node
+            "relevant_patch": relevant_patch if relevant_patch else None,
         }
 
         # Return as dictionary format for database
         # Use sourceId/targetId to match Neo4j manager expectations
         return {
             "sourceId": code_node.id,
-            "targetId": commit_node.hashed_id if hasattr(commit_node, "hashed_id") else commit_node.id,
+            "targetId": commit_node.hashed_id,
             "type": "MODIFIED_BY",
             **attributes,  # Spread attributes directly into the edge object
         }

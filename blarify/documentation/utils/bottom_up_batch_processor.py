@@ -5,38 +5,32 @@ This module implements a scalable approach to documentation generation that proc
 nodes in batches using database queries, avoiding memory exhaustion for large codebases.
 """
 
-import re
 import logging
+import re
 import uuid
-import concurrent.futures
-import threading
-from typing import Dict, List, Optional, Any, Set
-from concurrent.futures import Future, as_completed
-from collections import deque, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Any
+
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Union
 from pydantic import field_validator
 
-from ...agents.llm_provider import LLMProvider
-from ...agents.prompt_templates import (
+from blarify.agents.llm_provider import LLMProvider
+from blarify.agents.prompt_templates import (
     LEAF_NODE_ANALYSIS_TEMPLATE,
     PARENT_NODE_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE,
 )
-from ...repositories.graph_db_manager.db_manager import AbstractDbManager
-from ...repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
-from ...repositories.graph_db_manager.queries import (
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
+from blarify.repositories.graph_db_manager.queries import (
     get_node_by_path,
-    get_direct_children,
-    get_call_stack_children,
     detect_function_cycles,
-    get_existing_documentation_for_node,
 )
-from ...graph.node.documentation_node import DocumentationNode
-from ...graph.relationship.relationship_creator import RelationshipCreator
-from ..queries import (
-    initialize_processing_status_query,
+from blarify.graph.node.documentation_node import DocumentationNode
+from blarify.graph.relationship.relationship_creator import RelationshipCreator
+from blarify.documentation.queries import (
     get_leaf_nodes_batch_query,
     get_processable_nodes_with_descriptions_query,
     mark_nodes_completed_query,
@@ -44,13 +38,13 @@ from ..queries import (
 )
 
 # Note: We don't import concrete Node classes as we work with DTOs in documentation layer
-from ...graph.graph_environment import GraphEnvironment
+from blarify.graph.graph_environment import GraphEnvironment
 
 logger = logging.getLogger(__name__)
 
 
 class ProcessingResult(BaseModel):
-    """Result of processing a node (folder or file) with recursive DFS."""
+    """Result of processing a node (folder or file) with query-based processing."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)  # Allow Node objects
 
@@ -58,7 +52,7 @@ class ProcessingResult(BaseModel):
     node_relationships: List[Dict[str, Any]] = Field(default_factory=list)
     hierarchical_analysis: Dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
-    node_source_mapping: Dict[str, str] = Field(default_factory=dict)  # Maps info_node_id -> source_node_id
+    total_nodes_processed: int = 0
     save_status: Optional[Dict[str, Any]] = None  # Optional save status information
     information_nodes: List[Dict[str, Any]] = Field(default_factory=list)  # DocumentationNode objects (as dicts)
 
@@ -89,11 +83,11 @@ class ProcessingResult(BaseModel):
 
 class BottomUpBatchProcessor:
     """
-    Processes code hierarchies using recursive depth-first search.
+    Processes code hierarchies using query-based batch processing.
 
     This processor analyzes leaf nodes first, then builds up understanding
-    through parent nodes, replacing skeleton comments with LLM-generated
-    descriptions as it traverses up the hierarchy.
+    through parent nodes, using database queries to manage processing state
+    and avoid memory exhaustion for large codebases.
     """
 
     def __init__(
@@ -105,9 +99,12 @@ class BottomUpBatchProcessor:
         graph_environment: GraphEnvironment,
         max_workers: int = 5,
         root_node: Optional[NodeWithContentDto] = None,
+        overwrite_documentation: bool = False,
+        batch_size: int = 1000,
+        generate_embeddings: bool = False,
     ):
         """
-        Initialize the recursive DFS processor.
+        Initialize the query-based batch processor.
 
         Args:
             db_manager: Database manager for querying nodes
@@ -115,7 +112,10 @@ class BottomUpBatchProcessor:
             company_id: Company/entity ID for database queries
             repo_id: Repository ID for database queries
             graph_environment: Graph environment for node ID generation
-            max_workers: Maximum number of threads for parallel child processing
+            max_workers: Maximum number of threads for parallel processing
+            root_node: Optional root node to start processing from
+            overwrite_documentation: Whether to overwrite existing documentation
+            batch_size: Number of nodes to process in each batch
         """
         self.db_manager = db_manager
         self.agent_caller = agent_caller
@@ -123,736 +123,434 @@ class BottomUpBatchProcessor:
         self.repo_id = repo_id
         self.graph_environment = graph_environment
         self.max_workers = max_workers
-        self.node_descriptions: Dict[str, DocumentationNode] = {}  # Cache processed nodes
-        self.node_source_mapping: Dict[str, str] = {}  # Maps info_node_id -> source_node_id
-        self.source_nodes_cache: Dict[str, NodeWithContentDto] = {}  # Cache source DTOs by node_id
-        self.source_to_description: Dict[str, str] = {}  # Maps source_node_id -> description content
-        self.processing_futures: Dict[
-            str, Future[DocumentationNode]
-        ] = {}  # Per-node futures for coordination (broadcast)
-        self.futures_lock = threading.Lock()  # Protects the processing_futures dictionary
-        self.root_node = root_node  # Optional root node to start processing from
-        self.processing_stack: Set[str] = set()  # Detect cycles during processing
-        self.cycle_participants: Dict[str, Set[str]] = {}  # Track cycle relationships
-        self._global_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None  # Shared thread pool
-        self._thread_local = threading.local()  # Thread-local storage for processing paths
+        self.root_node = root_node
+        self.overwrite_documentation = overwrite_documentation
+        self.batch_size = batch_size
+        self.generate_embeddings = generate_embeddings
 
-        # Deadlock prevention and fallback mechanisms
-        self.deadlock_fallback_cache: Dict[str, DocumentationNode] = {}
-        self.processing_timeouts: Dict[str, float] = {}  # node_id -> timeout timestamp
-        self.fallback_timeout_seconds: float = 30.0  # Maximum wait time before fallback
+        # Unique ID for this processing run
+        self.processing_run_id = str(uuid.uuid4())
+
+        # Initialize embedding service if needed
+        self.embedding_service = None
+        if self.generate_embeddings:
+            from blarify.services.embedding_service import EmbeddingService
+
+            self.embedding_service = EmbeddingService()
+
+        # Remove ALL in-memory caches - we use database for state management
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
-        Entry point - processes a node (folder or file) iteratively.
-
-        Uses an iterative, batch-based approach for efficient thread reuse.
+        Entry point - process using database queries only.
 
         Args:
             node_path: Path to the node (folder or file) to process
 
         Returns:
-            ProcessingResult with all information nodes and relationships
+            ProcessingResult with processing statistics
         """
         try:
-            logger.info(f"Starting iterative DFS processing for node: {node_path}")
-
-            # Get the root node (folder or file)
-            root_node: Optional[NodeWithContentDto] = self.root_node
+            # Get root node
+            root_node = self.root_node
             if not root_node:
                 root_node = get_node_by_path(self.db_manager, self.company_id, self.repo_id, node_path)
                 if not root_node:
-                    logger.exception(f"Node not found for path: {node_path}")
                     return ProcessingResult(node_path=node_path, error=f"Node not found: {node_path}")
 
-            # Initialize global thread pool with limited threads to prevent exhaustion
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                self._global_executor = executor
-
-                # Process the node iteratively
-                root_description = self._process_node_iterative(root_node)
-
-            # Clear executor reference
-            self._global_executor = None
-
-            # Collect all processed descriptions and convert to dicts
-            all_descriptions_as_dicts = [node.as_object() for node in self.node_descriptions.values()]
-            all_documentation_nodes = list(self.node_descriptions.values())
-            # Convert NodeWithContentDto instances to dicts for Pydantic validation
-            # (NodeWithContentDto is a Pydantic model, so we need to pass dicts)
-            all_source_nodes = [node.model_dump() for node in self.source_nodes_cache.values()]
-
-            logger.info(f"Completed iterative DFS processing. Generated {len(all_descriptions_as_dicts)} descriptions")
+            # Process using queries
+            total_processed = self._process_node_query_based(root_node)
 
             return ProcessingResult(
                 node_path=node_path,
-                hierarchical_analysis={"complete": True, "root_description": root_description.as_object()},
-                node_source_mapping=self.node_source_mapping,
-                information_nodes=all_descriptions_as_dicts,
-                documentation_nodes=all_documentation_nodes,
-                source_nodes=all_source_nodes,  # type: ignore[arg-type] # Validator handles dict to NodeWithContentDto conversion
+                hierarchical_analysis={"complete": True},
+                total_nodes_processed=total_processed,
+                error=None,
+                # Don't return nodes - they're in the database
+                information_nodes=[],
+                documentation_nodes=[],
+                source_nodes=[],
             )
 
         except Exception as e:
-            logger.exception(f"Error in iterative DFS processing: {e}")
+            logger.exception(f"Error in query-based processing: {e}")
             return ProcessingResult(node_path=node_path, error=str(e))
 
-    def _get_processing_path(self) -> Set[str]:
-        """Get the current thread's processing path, creating it if necessary."""
-        if not hasattr(self._thread_local, "processing_path"):
-            self._thread_local.processing_path = set()
-        return self._thread_local.processing_path
+    def _process_node_query_based(self, root_node: NodeWithContentDto) -> int:
+        """Process using database queries without memory storage."""
 
-    def _process_node_iterative(self, root_node: NodeWithContentDto) -> DocumentationNode:
-        """
-        Process a node and all its children using an iterative, batch-based approach.
+        total_processed = 0
+        max_iterations = 1000  # Safety limit
+        iteration = 0
 
-        This method replaces the recursive implementation to prevent thread pool exhaustion.
-        It uses a work queue and processes nodes in batches, enabling thread reuse.
+        # process all leaf nodes first
+        while iteration < max_iterations:
+            iteration += 1
 
-        Args:
-            root_node: The root node to process
+            # Try to process leaf nodes first
+            leaf_count = self._process_leaf_batch()
+            if leaf_count == 0:
+                break
+            total_processed += leaf_count
 
-        Returns:
-            DocumentationNode for the root node
-        """
-        # Track all nodes to process and their dependencies
-        nodes_to_process: Dict[str, NodeWithContentDto] = {}
-        node_children: Dict[str, List[str]] = defaultdict(list)
-        node_parents: Dict[str, List[str]] = defaultdict(list)
-        processing_results: Dict[str, DocumentationNode] = {}
+        iteration = 0
 
-        # Build the complete node graph using BFS
-        queue = deque([root_node])
-        visited = set()
+        # Then process parent nodes with descriptions
+        while iteration < max_iterations:
+            iteration += 1
 
-        while queue:
-            node = queue.popleft()
-            if node.id in visited:
+            # Then process parent nodes with descriptions
+            parent_count = self._process_parent_batch()
+            if parent_count > 0:
+                total_processed += parent_count
                 continue
-            visited.add(node.id)
-            nodes_to_process[node.id] = node
 
-            # Get children based on navigation strategy
-            children = self._get_navigation_children(node)
-            for child in children:
-                # Check if child has been visited (for BFS efficiency, not cycle detection)
-                if child.id not in visited:
-                    queue.append(child)
-                    node_children[node.id].append(child.id)
-                    node_parents[child.id].append(node.id)
-                else:
-                    # Child already visited - skip to avoid duplicate processing
-                    # This is NOT necessarily a cycle, just means this node has been reached before
-                    logger.debug(f"Skipping already visited node: {child.name} (called by {node.name})")
-                    if child.id != node.id:  # Not self-reference
-                        node_children[node.id].append(child.id)
-                        # Don't add to parents to avoid circular dependency in BFS traversal
-
-        # Process nodes in bottom-up order using batch processing
-        return self._process_batch_iterative(
-            nodes_to_process, node_children, node_parents, processing_results, root_node.id
-        )
-
-    def _process_batch_iterative(
-        self,
-        nodes_to_process: Dict[str, NodeWithContentDto],
-        node_children: Dict[str, List[str]],
-        node_parents: Dict[str, List[str]],
-        processing_results: Dict[str, DocumentationNode],
-        root_id: str,
-    ) -> DocumentationNode:
-        """
-        Process nodes in batches with bottom-up order and immediate thread harvesting.
-
-        Args:
-            nodes_to_process: All nodes that need processing
-            node_children: Mapping of node_id -> list of child_ids
-            node_parents: Mapping of node_id -> list of parent_ids
-            processing_results: Results accumulator
-            root_id: ID of the root node
-
-        Returns:
-            DocumentationNode for the root node
-        """
-        processed_nodes: Set[str] = set()
-
-        while len(processed_nodes) < len(nodes_to_process):
-            # Get next batch of processable nodes (leaves or nodes with all children processed)
-            batch = self._get_processable_batch(nodes_to_process, node_children, processed_nodes, processing_results)
-
-            if not batch:
-                # Handle remaining nodes with cycles or errors
-                remaining = set(nodes_to_process.keys()) - processed_nodes
-                if remaining:
-                    logger.warning(f"Processing {len(remaining)} nodes with unresolved dependencies")
-                    for node_id in remaining:
-                        if node_id not in processing_results:
-                            node = nodes_to_process[node_id]
-                            # Process as leaf with cycle indication
-                            result = self._process_node_with_cycle_fallback(node)
-                            processing_results[node_id] = result
-                            self.node_descriptions[node_id] = result
-                            processed_nodes.add(node_id)
+            # Check if any nodes remain
+            if not self._has_pending_nodes():
                 break
 
-            # Process batch with immediate thread harvesting using as_completed
-            self._process_batch_with_harvesting(batch, nodes_to_process, node_children, processing_results)
-            processed_nodes.update(batch)
+            # If we have pending nodes but can't process them, there might be a cycle issue
+            # This could also mean the root node is the only one left
+            logger.warning(f"Iteration {iteration}: Pending nodes exist but none processable - checking for root node")
+            break
 
-        # Return the root node's result
-        return processing_results.get(
-            root_id, self._create_fallback_description(nodes_to_process[root_id], "Failed to process root node")
-        )
+        return total_processed
 
-    def _get_processable_batch(
-        self,
-        nodes_to_process: Dict[str, NodeWithContentDto],
-        node_children: Dict[str, List[str]],
-        processed_nodes: Set[str],
-        processing_results: Dict[str, DocumentationNode],
-    ) -> List[str]:
-        """
-        Get the next batch of nodes that can be processed (bottom-up order).
+    def _process_leaf_batch(self) -> int:
+        """Process a batch of leaf nodes."""
+        # Get leaf nodes from database
+        query = get_leaf_nodes_batch_query()
+        params = {
+            "entity_id": self.company_id,
+            "repo_id": self.repo_id,
+            "run_id": self.processing_run_id,
+            "batch_size": self.batch_size,
+        }
 
-        A node is processable if:
-        1. It's a leaf node (no children), OR
-        2. All its children have been processed
+        batch_results = self.db_manager.query(query, params)
+        if not batch_results:
+            return 0
 
-        Args:
-            nodes_to_process: All nodes to process
-            node_children: Child relationships
-            processed_nodes: Already processed node IDs
-            processing_results: Results so far
+        # Process batch with thread pool
+        documentation_nodes = []
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
 
-        Returns:
-            List of node IDs ready for processing
-        """
-        batch = []
-
-        for node_id in nodes_to_process.keys():
-            if node_id in processed_nodes:
-                continue
-
-            children = node_children.get(node_id, [])
-
-            # Check if all children are processed (or it's a leaf)
-            if not children:
-                # Leaf node
-                batch.append(node_id)
-            else:
-                # Check if all children are processed
-                all_children_ready = all(
-                    child_id in processing_results or child_id in processed_nodes for child_id in children
+            for node_data in batch_results:
+                # Create NodeWithContentDto from query result
+                node = NodeWithContentDto(
+                    id=node_data["id"],
+                    name=node_data["name"],
+                    labels=node_data["labels"],
+                    path=node_data["path"],
+                    start_line=node_data.get("start_line"),
+                    end_line=node_data.get("end_line"),
+                    content=node_data.get("content", ""),
                 )
-                if all_children_ready:
-                    batch.append(node_id)
+                future = executor.submit(self._process_leaf_node, node)
+                futures.append((future, node.id))
 
-        # Return all processable nodes - thread pool executor will handle queuing
-        # and processing them with available workers
-        return batch
+            # Harvest results as they complete
+            for future in as_completed([f[0] for f in futures]):
+                try:
+                    doc_node = future.result(timeout=30)
+                    if doc_node:
+                        documentation_nodes.append(doc_node)
+                except Exception as e:
+                    logger.error(f"Error processing leaf node: {e}")
 
-    def _process_batch_with_harvesting(
-        self,
-        batch: List[str],
-        nodes_to_process: Dict[str, NodeWithContentDto],
-        node_children: Dict[str, List[str]],
-        processing_results: Dict[str, DocumentationNode],
-    ) -> None:
-        """
-        Process a batch of nodes using thread pool with immediate harvesting.
+        # Save batch to database immediately
+        if documentation_nodes:
+            self._save_documentation_batch(documentation_nodes)
 
-        Uses concurrent.futures.as_completed() for immediate thread reuse.
+        return len(batch_results)
 
-        Args:
-            batch: Node IDs to process in this batch
-            nodes_to_process: All nodes
-            node_children: Child relationships
-            processing_results: Results accumulator
-        """
-        if not self._global_executor:
-            # Fallback to sequential processing
-            for node_id in batch:
-                node = nodes_to_process[node_id]
-                result = self._process_single_node_iterative(node, node_children, processing_results)
-                processing_results[node_id] = result
-                self.node_descriptions[node_id] = result
+    def _process_parent_batch(self) -> int:
+        """Process a batch of parent nodes with child descriptions."""
+        # Get parent nodes with descriptions from database
+        query = get_processable_nodes_with_descriptions_query()
+        params = {
+            "entity_id": self.company_id,
+            "repo_id": self.repo_id,
+            "run_id": self.processing_run_id,
+            "batch_size": self.batch_size,
+        }
+
+        batch_results = self.db_manager.query(query, params)
+        if not batch_results:
+            return 0
+
+        # Process batch with thread pool
+        documentation_nodes = []
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
+
+            for node_data in batch_results:
+                # Extract node info
+                node = NodeWithContentDto(
+                    id=node_data["id"],
+                    name=node_data["name"],
+                    labels=node_data["labels"],
+                    path=node_data["path"],
+                    start_line=node_data.get("start_line"),
+                    end_line=node_data.get("end_line"),
+                    content=node_data.get("content", ""),
+                )
+
+                # Extract child descriptions
+                hier_descriptions = node_data.get("hier_descriptions", [])
+                call_descriptions = node_data.get("call_descriptions", [])
+
+                # Convert descriptions to DocumentationNode-like objects for processing
+                child_descriptions = []
+                for desc in hier_descriptions + call_descriptions:
+                    if desc and desc.get("description"):
+                        # Create minimal DocumentationNode for child context
+                        child_doc = DocumentationNode(
+                            content=desc["description"],
+                            info_type="child_description",
+                            source_path=desc.get("path", ""),
+                            source_name=desc.get("name", ""),
+                            source_id=desc.get("id", ""),
+                            source_labels=desc.get("labels", []),
+                            source_type="child",
+                            graph_environment=self.graph_environment,
+                        )
+                        child_descriptions.append(child_doc)
+
+                future = executor.submit(self._process_parent_node, node, child_descriptions)
+                futures.append((future, node.id))
+
+            # Harvest results
+            for future in as_completed([f[0] for f in futures]):
+                try:
+                    doc_node = future.result(timeout=30)
+                    if doc_node:
+                        documentation_nodes.append(doc_node)
+                except Exception as e:
+                    logger.error(f"Error processing parent node: {e}")
+
+        # Save batch immediately
+        if documentation_nodes:
+            self._save_documentation_batch(documentation_nodes)
+
+        return len(batch_results)
+
+    def _save_documentation_batch(self, documentation_nodes: List[DocumentationNode]):
+        """Save documentation to database using create_nodes and mark nodes completed."""
+        if not documentation_nodes:
             return
 
-        # Submit all tasks to thread pool
-        futures_to_node = {}
-        for node_id in batch:
-            node = nodes_to_process[node_id]
-            future = self._global_executor.submit(
-                self._process_single_node_iterative, node, node_children, processing_results
-            )
-            futures_to_node[future] = (node_id, node)
+        # Generate embeddings if requested
+        if self.generate_embeddings and self.embedding_service:
+            logger.debug(f"Generating embeddings for {len(documentation_nodes)} documentation nodes")
+            embeddings_dict = self.embedding_service.embed_documentation_nodes(documentation_nodes)
 
-        # Process results as they complete (immediate thread harvesting)
-        for future in as_completed(futures_to_node):
-            node_id, node = futures_to_node[future]
-            try:
-                result = future.result(timeout=30)
-                processing_results[node_id] = result
-                self.node_descriptions[node_id] = result
-                logger.debug(f"Completed processing: {node.name}")
-            except Exception as e:
-                logger.error(f"Error processing node {node.name}: {e}")
-                # Create fallback result
-                fallback = self._create_fallback_description(node, str(e))
-                processing_results[node_id] = fallback
-                self.node_descriptions[node_id] = fallback
+            # Update nodes with embeddings
+            for node in documentation_nodes:
+                if node.id in embeddings_dict:
+                    node.content_embedding = embeddings_dict[node.id]
 
-    def _process_single_node_iterative(
-        self,
-        node: NodeWithContentDto,
-        node_children: Dict[str, List[str]],
-        processing_results: Dict[str, DocumentationNode],
-    ) -> DocumentationNode:
+        # Convert DocumentationNode objects to dictionaries for create_nodes
+        node_objects = [node.as_object() for node in documentation_nodes]
+
+        # Create DOCUMENTATION nodes and DESCRIBES relationships
+        self.db_manager.create_nodes(node_objects)
+
+        # Create DESCRIBES relationships
+        relationships = RelationshipCreator.create_describes_relationships(documentation_nodes)
+
+        # Create relationships
+        if relationships:
+            self.db_manager.create_edges(relationships)
+
+        # Extract node IDs for marking as completed
+        node_ids = [doc_node.source_id for doc_node in documentation_nodes]
+
+        # Mark source nodes as completed
+        if node_ids:
+            query = mark_nodes_completed_query()
+            params = {
+                "node_ids": node_ids,
+                "entity_id": self.company_id,
+                "repo_id": self.repo_id,
+                "run_id": self.processing_run_id,
+            }
+            result = self.db_manager.query(query, params)
+            if result:
+                completed_count = result[0].get("completed_count", 0)
+                logger.debug(f"Marked {completed_count} nodes as completed")
+
+        logger.debug(f"Saved {len(documentation_nodes)} documentation nodes to database")
+
+    def _has_pending_nodes(self) -> bool:
+        """Check if there are still pending nodes."""
+        query = check_pending_nodes_query()
+        params = {"entity_id": self.company_id, "repo_id": self.repo_id}
+
+        result = self.db_manager.query(query, params)
+        if result:
+            pending_count = result[0].get("pending_count", 0)
+            return pending_count > 0
+        return False
+
+    def _process_leaf_node(self, node: NodeWithContentDto) -> Optional[DocumentationNode]:
         """
-        Process a single node (leaf or parent) in the iterative approach.
+        Process a leaf node (FUNCTION with no calls or FILE with no children).
+        Leaf nodes cannot be part of cycles since they don't make any calls.
 
         Args:
-            node: Node to process
-            node_children: Child relationships
-            processing_results: Already processed results
+            node: The node DTO to process
 
         Returns:
-            DocumentationNode for this node
-        """
-        node_id = node.id
-
-        # Check if already in cache (from database or previous processing)
-        if node_id in self.node_descriptions:
-            return self.node_descriptions[node_id]
-
-        # Check database for existing documentation
-        existing_doc = self._check_database_for_existing_documentation(node)
-        if existing_doc:
-            self.node_descriptions[node_id] = existing_doc
-            self.node_source_mapping[existing_doc.hashed_id] = node_id
-            self.source_nodes_cache[node_id] = node
-            self.source_to_description[node_id] = existing_doc.content
-            return existing_doc
-
-        # Get children IDs for this node
-        child_ids = node_children.get(node_id, [])
-
-        if not child_ids:
-            # Leaf node - process directly
-            return self._process_leaf_node(node)
-        else:
-            # Parent node - gather child descriptions
-            child_descriptions = []
-            for child_id in child_ids:
-                if child_id in processing_results:
-                    child_descriptions.append(processing_results[child_id])
-                elif child_id in self.node_descriptions:
-                    child_descriptions.append(self.node_descriptions[child_id])
-                # Skip children that aren't ready (cycles)
-
-            # Process parent with available children
-            return self._process_parent_node(node, child_descriptions)
-
-    def _process_node_with_cycle_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
-        """
-        Process a node that's part of a cycle using fallback strategy.
-
-        Args:
-            node: Node that's part of a cycle
-
-        Returns:
-            DocumentationNode with cycle indication
+            DocumentationNode with generated description
         """
         try:
-            # Process as leaf but with cycle indication in content
-            info_node = self._process_leaf_node(node)
-
-            # Add cycle indication to content
-            info_node.mark_cycle()
-
-            return info_node
-
-        except Exception as e:
-            logger.error(f"Error in cycle fallback for {node.name}: {e}")
-            return self._create_fallback_description(node, f"Cycle processing error: {e}")
-
-    def _create_fallback_description(self, node: NodeWithContentDto, error_msg: str) -> DocumentationNode:
-        """
-        Create a fallback description for nodes that failed to process.
-
-        Args:
-            node: The node that failed to process
-            error_msg: Error message describing the failure
-
-        Returns:
-            Fallback DocumentationNode
-        """
-        info_node = DocumentationNode(
-            content=f"Error processing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}",
-            info_type="error_fallback",
-            source_path=node.path,
-            source_name=node.name,
-            source_labels=node.labels,
-            source_id=node.id,
-            source_type="parallel_processing_error",
-            graph_environment=self.graph_environment,
-        )
-
-        # Update mappings (protected by the calling method's per-node lock)
-        self.node_source_mapping[info_node.hashed_id] = node.id
-        self.source_to_description[node.id] = info_node.content
-
-        return info_node
-
-    def _process_leaf_node(self, node: NodeWithContentDto) -> DocumentationNode:
-        """
-        Process a leaf node using the dumb agent.
-
-        Args:
-            node: The leaf node to process
-
-        Returns:
-            DocumentationNodeDescription for the leaf node
-        """
-        try:
-            # Get raw templates and let LLM provider handle formatting
+            # Use standard leaf template for both functions and files
+            # No cycle detection needed - leaf nodes can't be in cycles
             system_prompt, input_prompt = LEAF_NODE_ANALYSIS_TEMPLATE.get_prompts()
+            prompt_dict = {
+                "node_name": node.name,
+                "node_labels": " | ".join(node.labels),
+                "node_path": node.path,
+                "node_content": node.content or "",
+            }
 
-            # Use call_dumb_agent for simple, fast processing with 5s timeout
-            runnable_config = {"run_name": node.name}
-            response = self.agent_caller.call_dumb_agent(
-                system_prompt=system_prompt,
-                input_dict={
-                    "node_name": node.name,
-                    "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
-                    "node_path": node.path,
-                    "node_content": node.content,
-                },
-                output_schema=None,
-                input_prompt=input_prompt,
-                config=runnable_config,
-                timeout=5,
+            # Generate description using LLM
+            description = self.agent_caller.call_dumb_agent(
+                system_prompt=system_prompt, input_dict=prompt_dict, input_prompt=input_prompt
             )
-
-            # Extract response content
-            response_content = response.content if hasattr(response, "content") else str(response)
 
             # Create DocumentationNode
-            info_node = DocumentationNode(
-                content=response_content,
-                info_type="leaf_description",
+            doc_node = DocumentationNode(
+                content=description,
+                info_type="leaf_analysis",
+                source_type="code",
                 source_path=node.path,
                 source_name=node.name,
-                source_labels=node.labels,
                 source_id=node.id,
-                source_type="recursive_leaf_analysis",
+                source_labels=node.labels,
                 graph_environment=self.graph_environment,
             )
 
-            # Track mapping using the node's hashed_id (protected by per-node lock)
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            # Cache the actual source Node object
-            self.source_nodes_cache[node.id] = node
-            # Also track for efficient child lookup during skeleton replacement
-            self.source_to_description[node.id] = response_content
-
-            return info_node
+            return doc_node
 
         except Exception as e:
-            logger.exception(f"Error analyzing leaf node {node.name} ({node.id}): {e}")
-            # Return fallback description
-            info_node = DocumentationNode(
-                content=f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}",
-                info_type="leaf_description",
+            logger.error(f"Error processing leaf node {node.name}: {e}")
+            # Create fallback documentation
+            return DocumentationNode(
+                content=f"Error processing {node.name}: {str(e)}",
+                info_type="error",
+                source_type="code",
                 source_path=node.path,
                 source_name=node.name,
-                source_labels=node.labels,
                 source_id=node.id,
-                source_type="error_fallback",
+                source_labels=node.labels,
+                metadata={"error": str(e)},
                 graph_environment=self.graph_environment,
             )
-
-            # Track mapping using the node's hashed_id (protected by per-node lock)
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            # Cache the actual source Node object
-            self.source_nodes_cache[node.id] = node
-            # Also track for efficient child lookup during skeleton replacement
-            self.source_to_description[node.id] = (
-                f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {str(e)}"
-            )
-
-            return info_node
 
     def _process_parent_node(
         self, node: NodeWithContentDto, child_descriptions: List[DocumentationNode]
-    ) -> DocumentationNode:
+    ) -> Optional[DocumentationNode]:
         """
-        Process a parent node with context from all its children.
+        Process a parent node with child descriptions.
 
         Args:
-            node: The parent node to process
-            child_descriptions: List of child descriptions
+            node: The parent node DTO to process
+            child_descriptions: List of child documentation nodes
 
         Returns:
-            DocumentationNodeDescription for the parent node
+            DocumentationNode with generated description
         """
         try:
-            # Determine processing strategy and get analysis input
-            system_prompt, input_prompt, input_dict, enhanced_content = self._prepare_parent_analysis(
-                node, child_descriptions
+            # Check if it's a function with calls
+            is_function_with_calls = "FUNCTION" in node.labels and child_descriptions
+
+            if is_function_with_calls:
+                # Use function calls context for functions
+                child_calls_context = self._create_function_calls_context(child_descriptions)
+                # Check for cycles
+                cycles = detect_function_cycles(self.db_manager, node.id)
+
+                if cycles:
+                    system_prompt, input_prompt = FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE.get_prompts()
+                    cycle_participants = self._format_cycle_participants(cycles)
+                    prompt_dict = {
+                        "node_name": node.name,
+                        "node_labels": " | ".join(node.labels),
+                        "node_path": node.path,
+                        "start_line": str(node.start_line) if node.start_line else "Unknown",
+                        "end_line": str(node.end_line) if node.end_line else "Unknown",
+                        "node_content": node.content or "",
+                        "cycle_participants": cycle_participants,
+                        "child_calls_context": child_calls_context,
+                    }
+                else:
+                    system_prompt, input_prompt = FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE.get_prompts()
+                    prompt_dict = {
+                        "node_name": node.name,
+                        "node_labels": " | ".join(node.labels),
+                        "node_path": node.path,
+                        "start_line": str(node.start_line) if node.start_line else "Unknown",
+                        "end_line": str(node.end_line) if node.end_line else "Unknown",
+                        "node_content": node.content or "",
+                        "child_calls_context": child_calls_context,
+                    }
+            else:
+                # Parent node (class, file, folder)
+                system_prompt, input_prompt = PARENT_NODE_ANALYSIS_TEMPLATE.get_prompts()
+
+                # Create enhanced content based on node type
+                if "FOLDER" in node.labels:
+                    enhanced_content = self._create_child_descriptions_summary(child_descriptions)
+                else:
+                    # For files and code nodes with actual content, replace skeleton comments
+                    enhanced_content = self._replace_skeleton_comments_with_descriptions(
+                        node.content, child_descriptions
+                    )
+
+                prompt_dict = {
+                    "node_name": node.name,
+                    "node_labels": " | ".join(node.labels),
+                    "node_path": node.path,
+                    "node_content": enhanced_content,
+                }
+
+            # Generate description using LLM
+            description = self.agent_caller.call_dumb_agent(
+                system_prompt=system_prompt, input_dict=prompt_dict, input_prompt=input_prompt
             )
 
-            # Generate LLM response
-            response_content = self._generate_parent_response(node, system_prompt, input_prompt, input_dict)
+            # Create DocumentationNode
+            doc_node = DocumentationNode(
+                content=description,
+                info_type="parent_analysis",
+                source_type="code",
+                source_path=node.path,
+                source_name=node.name,
+                source_id=node.id,
+                source_labels=node.labels,
+                children_count=len(child_descriptions),
+                graph_environment=self.graph_environment,
+            )
 
-            # Create and cache documentation node
-            return self._create_parent_documentation_node(node, response_content, enhanced_content, child_descriptions)
+            return doc_node
 
         except Exception as e:
-            logger.exception(f"Error analyzing parent node {node.name} ({node.id}): {e}")
-            return self._create_fallback_parent_node(node, child_descriptions, str(e))
-
-    def _prepare_parent_analysis(
-        self, node: NodeWithContentDto, child_descriptions: List[DocumentationNode]
-    ) -> tuple[str, str, Dict[str, Any], str]:
-        """
-        Prepare analysis input for parent node based on type and cycle detection.
-
-        Args:
-            node: The parent node to process
-            child_descriptions: List of child descriptions
-
-        Returns:
-            Tuple of (system_prompt, input_prompt, input_dict, enhanced_content)
-        """
-        is_function_with_calls = self._should_use_call_stack(node) and child_descriptions
-
-        if is_function_with_calls:
-            # Check for cycles in function calls with error handling
-            try:
-                cycles = detect_function_cycles(self.db_manager, node.id)
-                has_cycles = len(cycles) > 0
-
-                if has_cycles:
-                    logger.info(f"Function {node.name} participates in {len(cycles)} actual call cycle(s)")
-                    return self._prepare_function_with_cycle_analysis(node, child_descriptions, cycles)
-                else:
-                    return self._prepare_function_with_calls_analysis(node, child_descriptions)
-            except Exception as e:
-                logger.warning(f"Cycle detection failed for function {node.name} ({node.id}): {e}")
-                # Fall back to regular function with calls analysis
-                return self._prepare_function_with_calls_analysis(node, child_descriptions)
-        else:
-            return self._prepare_regular_parent_analysis(node, child_descriptions)
-
-    def _prepare_function_with_calls_analysis(
-        self, node: NodeWithContentDto, child_descriptions: List[DocumentationNode]
-    ) -> tuple[str, str, Dict[str, Any], str]:
-        """Prepare analysis for functions with calls but no cycles."""
-        system_prompt, input_prompt = FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE.get_prompts()
-        child_calls_context = self._create_function_calls_context(child_descriptions)
-
-        # Check if this function makes recursive calls
-        recursive_calls = getattr(self._thread_local, "recursive_calls", {}).get(node.id, [])
-        if recursive_calls:
-            # Add recursive call information to the context
-            recursive_info = "\n\n**Recursive Calls Detected:**\n"
-            for recursive_call in recursive_calls:
-                recursive_info += f"- This function recursively calls **{recursive_call.name}** (which is currently being processed)\n"
-            child_calls_context += recursive_info
-
-        input_dict = {
-            "node_name": node.name,
-            "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
-            "node_path": node.path,
-            "start_line": str(node.start_line) if node.start_line else "Unknown",
-            "end_line": str(node.end_line) if node.end_line else "Unknown",
-            "node_content": node.content,
-            "child_calls_context": child_calls_context,
-        }
-
-        return system_prompt, input_prompt, input_dict, child_calls_context
-
-    def _prepare_function_with_cycle_analysis(
-        self, node: NodeWithContentDto, child_descriptions: List[DocumentationNode], cycles: List[List[str]]
-    ) -> tuple[str, str, Dict[str, Any], str]:
-        """Prepare analysis for functions that participate in cycles."""
-        system_prompt, input_prompt = FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE.get_prompts()
-        child_calls_context = self._create_function_calls_context(child_descriptions)
-        cycle_participants = self._format_cycle_participants(cycles)
-
-        # Check if this function makes recursive calls
-        recursive_calls = getattr(self._thread_local, "recursive_calls", {}).get(node.id, [])
-        if recursive_calls:
-            # Add recursive call information to the context
-            recursive_info = "\n\n**Direct Recursive Calls Detected:**\n"
-            for recursive_call in recursive_calls:
-                recursive_info += f"- This function directly calls **{recursive_call.name}** recursively\n"
-            child_calls_context += recursive_info
-
-        input_dict = {
-            "node_name": node.name,
-            "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
-            "node_path": node.path,
-            "start_line": str(node.start_line) if node.start_line else "Unknown",
-            "end_line": str(node.end_line) if node.end_line else "Unknown",
-            "node_content": node.content,
-            "cycle_participants": cycle_participants,
-            "child_calls_context": child_calls_context,
-        }
-
-        return system_prompt, input_prompt, input_dict, child_calls_context
-
-    def _prepare_regular_parent_analysis(
-        self, node: NodeWithContentDto, child_descriptions: List[DocumentationNode]
-    ) -> tuple[str, str, Dict[str, Any], str]:
-        """Prepare analysis for non-function parent nodes."""
-        system_prompt, input_prompt = PARENT_NODE_ANALYSIS_TEMPLATE.get_prompts()
-
-        # Create enhanced content based on node type
-        if "FOLDER" in node.labels:
-            enhanced_content = self._create_child_descriptions_summary(child_descriptions)
-        else:
-            # For files and code nodes with actual content, replace skeleton comments
-            enhanced_content = self._replace_skeleton_comments_with_descriptions(node.content)
-
-        input_dict = {
-            "node_name": node.name,
-            "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
-            "node_path": node.path,
-            "node_content": enhanced_content,
-        }
-
-        return system_prompt, input_prompt, input_dict, enhanced_content
-
-    def _generate_parent_response(
-        self, node: NodeWithContentDto, system_prompt: str, input_prompt: str, input_dict: Dict[str, Any]
-    ) -> str:
-        """Generate LLM response for parent node analysis."""
-        runnable_config = {"run_name": node.name}
-        response = self.agent_caller.call_dumb_agent(
-            system_prompt=system_prompt,
-            input_dict=input_dict,
-            output_schema=None,
-            input_prompt=input_prompt,
-            config=runnable_config,
-            timeout=10,
-        )
-
-        return response.content if hasattr(response, "content") else str(response)
-
-    def _create_parent_documentation_node(
-        self,
-        node: NodeWithContentDto,
-        response_content: str,
-        enhanced_content: str,
-        child_descriptions: List[DocumentationNode],
-    ) -> DocumentationNode:
-        """Create and cache the documentation node for a parent."""
-        info_node = DocumentationNode(
-            content=response_content,
-            info_type="parent_description",
-            source_path=node.path,
-            source_name=node.name,
-            source_labels=node.labels,
-            source_id=node.id,
-            source_type="recursive_parent_analysis",
-            enhanced_content=enhanced_content,
-            children_count=len(child_descriptions),
-            graph_environment=self.graph_environment,
-        )
-
-        # Track mapping using the node's hashed_id (protected by per-node lock)
-        self.node_source_mapping[info_node.hashed_id] = node.id
-        # Cache the actual source Node object
-        self.source_nodes_cache[node.id] = node
-        self.source_to_description[node.id] = response_content
-
-        return info_node
-
-    def _create_fallback_parent_node(
-        self, node: NodeWithContentDto, child_descriptions: List[DocumentationNode], error_msg: str
-    ) -> DocumentationNode:
-        """Create fallback documentation node for failed parent processing."""
-        info_node = DocumentationNode(
-            content=f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}",
-            info_type="parent_description",
-            source_path=node.path,
-            source_name=node.name,
-            source_labels=node.labels,
-            source_id=node.id,
-            source_type="error_fallback",
-            children_count=len(child_descriptions),
-            graph_environment=self.graph_environment,
-        )
-
-        # Track mapping using the node's hashed_id (protected by per-node lock)
-        self.node_source_mapping[info_node.hashed_id] = node.id
-        # Cache the actual source Node object
-        self.source_nodes_cache[node.id] = node
-        self.source_to_description[node.id] = (
-            f"Error analyzing this {' | '.join(node.labels) if node.labels else 'code element'}: {error_msg}"
-        )
-
-        return info_node
-
-    def _format_cycle_participants(self, cycles: List[List[str]]) -> str:
-        """Format cycle information for LLM analysis."""
-        if not cycles:
-            return "No cycles detected"
-
-        cycle_info = []
-        for i, cycle in enumerate(cycles):
-            cycle_str = " -> ".join(cycle)
-            cycle_info.append(f"Cycle {i + 1}: {cycle_str}")
-
-        return "; ".join(cycle_info)
-
-    def _replace_skeleton_comments_with_descriptions(self, parent_content: str) -> str:
-        """
-        Replace skeleton comments with LLM-generated descriptions.
-
-        Args:
-            parent_content: The parent node's content with skeleton comments
-            child_descriptions: List of child descriptions to insert
-
-        Returns:
-            Enhanced content with descriptions replacing skeleton comments
-        """
-        if not parent_content:
-            return ""
-
-        enhanced_content = parent_content
-
-        # Use the pre-built source_to_description mapping for efficient lookup
-        # (safe since this runs within the per-node lock context)
-        child_lookup = self.source_to_description.copy()
-
-        # Pattern to match skeleton comments
-        # Example: # Code replaced for brevity, see node: 6fd101f9571073a44fed7c085c94eec2
-        skeleton_pattern = r"# Code replaced for brevity, see node: ([a-f0-9]+)"
-
-        def replace_comment(match: re.Match[str]) -> str:
-            node_id = match.group(1)
-            if node_id in child_lookup:
-                description = child_lookup[node_id]
-                # Format as a proper docstring
-                # Indent the description to match the original comment's indentation
-                indent_match = re.search(r"^(\s*)", match.group(0))
-                indent = indent_match.group(1) if indent_match else ""
-                formatted_desc = f'{indent}"""\n'
-                for line in description.split("\n"):
-                    formatted_desc += f"{indent}{line}\n"
-                formatted_desc += f'{indent}"""'
-                return formatted_desc
-            else:
-                # Keep original if no description found
-                return match.group(0)
-
-        enhanced_content = re.sub(skeleton_pattern, replace_comment, enhanced_content, flags=re.MULTILINE)
-
-        return enhanced_content
+            logger.error(f"Error processing parent node {node.name}: {e}")
+            # Create fallback documentation
+            return DocumentationNode(
+                content=f"Error processing {node.name}: {str(e)}",
+                info_type="error",
+                source_type="code",
+                source_path=node.path,
+                source_name=node.name,
+                source_id=node.id,
+                source_labels=node.labels,
+                metadata={"error": str(e)},
+                graph_environment=self.graph_environment,
+            )
 
     def _create_child_descriptions_summary(self, child_descriptions: List[DocumentationNode]) -> str:
         """
@@ -879,85 +577,6 @@ class BottomUpBatchProcessor:
             content_parts.append(f"- **{component_name}** ({node_type}): {desc.content}")
 
         return "\n".join(content_parts)
-
-    # Call Stack Navigation Methods
-
-    def _get_navigation_children(self, node: NodeWithContentDto) -> List[NodeWithContentDto]:
-        """
-        Decides between hierarchy or call stack children based on node type.
-
-        Args:
-            node: The node to get children for
-
-        Returns:
-            List of child nodes using appropriate navigation strategy
-        """
-        if self._should_use_call_stack(node):
-            return self._get_call_stack_children(node)
-        else:
-            return self._get_hierarchy_children(node)
-
-    def _should_use_call_stack(self, node: NodeWithContentDto) -> bool:
-        """
-        Determines if node should use call stack navigation.
-
-        Args:
-            node: The node to check
-
-        Returns:
-            True if should use call stack navigation, False for hierarchy
-        """
-        # Use call stack navigation for functions that are not files or folders
-        return "FUNCTION" in node.labels and not ("FILE" in node.labels or "FOLDER" in node.labels)
-
-    def _get_hierarchy_children(self, node: NodeWithContentDto) -> List[NodeWithContentDto]:
-        """
-        Get children using hierarchy relationships (CONTAINS, FUNCTION_DEFINITION, CLASS_DEFINITION).
-
-        Args:
-            node: The parent node
-
-        Returns:
-            List of child nodes through hierarchical relationships
-        """
-        return get_direct_children(self.db_manager, self.company_id, self.repo_id, node.id)
-
-    def _get_call_stack_children(self, node: NodeWithContentDto) -> List[NodeWithContentDto]:
-        """
-        Get children using call stack relationships (CALLS, USES).
-        Filters out children that would create cycles to prevent infinite recursion.
-
-        Args:
-            node: The parent function node
-
-        Returns:
-            List of called/used nodes through CALLS and USES relationships, excluding cycles
-        """
-        all_children = get_call_stack_children(self.db_manager, self.company_id, self.repo_id, node.id)
-
-        # Get current processing path to detect potential cycles
-        processing_path = self._get_processing_path()
-
-        # Filter out children that are already in the processing path
-        filtered_children = []
-        recursive_calls = []
-
-        for child in all_children:
-            if child.id in processing_path:
-                logger.info(
-                    f"Detected recursive call: {node.name} calls {child.name} which is already in processing path"
-                )
-                recursive_calls.append(child)
-            else:
-                filtered_children.append(child)
-
-        # Store recursive call information for later use in description
-        if recursive_calls:
-            if not hasattr(self._thread_local, "recursive_calls"):
-                self._thread_local.recursive_calls = {}
-            self._thread_local.recursive_calls[node.id] = recursive_calls
-
-        return filtered_children
 
     def _create_function_calls_context(self, child_descriptions: List[DocumentationNode]) -> str:
         """
@@ -990,253 +609,65 @@ class BottomUpBatchProcessor:
                 unique_functions[unique_key] = desc
 
         context_parts = []
+
         for desc in unique_functions.values():
-            # Get function name from source name or path
             function_name = desc.source_name or "Unknown function"
+            context_parts.append(f"- **{function_name}**: {desc.content}")
 
-            # Extract node type info
-            node_type = " | ".join(desc.source_labels) if desc.source_labels else "FUNCTION"
+        return "\nCalled functions and dependencies:\n" + "\n".join(context_parts)
 
-            # Format the description entry
-            context_parts.append(f"- **{function_name}** ({node_type}): {desc.content}")
+    def _format_cycle_participants(self, cycles: List[List[str]]) -> str:
+        """Format cycle information for LLM analysis."""
+        if not cycles:
+            return "No cycles detected"
 
-        return "\n".join(context_parts)
+        cycle_info = []
+        for i, cycle in enumerate(cycles):
+            cycle_str = " -> ".join(cycle)
+            cycle_info.append(f"Cycle {i + 1}: {cycle_str}")
 
-    def _check_database_for_existing_documentation(self, node: NodeWithContentDto) -> Optional[DocumentationNode]:
+        return "; ".join(cycle_info)
+
+    def _replace_skeleton_comments_with_descriptions(
+        self, parent_content: str, child_descriptions: List[DocumentationNode]
+    ) -> str:
         """
-        Check if documentation already exists for this node in the database.
+        Replace skeleton comments with LLM-generated descriptions.
 
         Args:
-            node: The node to check for existing documentation
+            parent_content: The parent node's content with skeleton comments
+            child_descriptions: List of child descriptions to insert
 
         Returns:
-            DocumentationNode if documentation exists, None otherwise
+            Enhanced content with descriptions replacing skeleton comments
         """
-        try:
-            # Query database for existing documentation
-            doc_data = get_existing_documentation_for_node(self.db_manager, self.company_id, self.repo_id, node.id)
+        if not parent_content:
+            return ""
 
-            if not doc_data:
-                return None
+        enhanced_content = parent_content
 
-            # Create DocumentationNode from database data
-            info_node = DocumentationNode(
-                content=doc_data.get("content", ""),
-                info_type=doc_data.get("info_type", "database_cached"),
-                source_path=doc_data.get("source_path", node.path),
-                source_name=node.name,  # Use node.name since source_name is not stored in database
-                source_labels=doc_data.get("source_labels", node.labels),
-                source_id=node.id,
-                source_type=doc_data.get("source_type", "database_cached"),
-                enhanced_content=doc_data.get("enhanced_content"),
-                children_count=doc_data.get("children_count"),
-                graph_environment=self.graph_environment,
-            )
+        # Build a mapping of source IDs to descriptions
+        child_lookup = {}
+        for desc in child_descriptions:
+            if desc.source_id:
+                child_lookup[desc.source_id] = desc.content
 
-            return info_node
+        # Pattern to match skeleton comments
+        # Example: # Code replaced for brevity, see node: 6fd101f9571073a44fed7c085c94eec2
+        skeleton_pattern = r"# Code replaced for brevity, see node: ([a-f0-9]+)"
 
-        except Exception as e:
-            logger.exception(
-                f"Error checking database for existing documentation for node {node.name} ({node.id}): {e}"
-            )
-            return None
+        def replace_comment(match: re.Match[str]) -> str:
+            node_id = match.group(1)
+            if node_id in child_lookup:
+                description = child_lookup[node_id]
+                # Format as a proper docstring
+                # Indent the description to match the original comment's indentation
+                indent_match = re.search(r"^(\s*)", match.group(0))
+                indent = indent_match.group(1) if indent_match else ""
+                return f"{indent}# {description}"
+            return match.group(0)  # Keep original if no description found
 
-    def _handle_deadlock_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
-        """
-        Handle deadlock scenario by using available context or processing as leaf.
+        # Replace all skeleton comments with descriptions
+        enhanced_content = re.sub(skeleton_pattern, replace_comment, enhanced_content)
 
-        Args:
-            node: The node to process with fallback strategy
-
-        Returns:
-            DocumentationNode with fallback processing
-        """
-        node_id = node.id
-
-        # Check if we already have a fallback result for this node
-        if node_id in self.deadlock_fallback_cache:
-            return self.deadlock_fallback_cache[node_id]
-
-        logger.info(f"Processing node {node.name} ({node_id}) with deadlock fallback strategy")
-
-        # Strategy 1: Try to get partial context from already-processed children
-        children = self._get_navigation_children(node)
-        available_children: List[DocumentationNode] = []
-
-        for child in children:
-            if child.id in self.node_descriptions:
-                # Child is already processed - we can use it
-                available_children.append(self.node_descriptions[child.id])
-
-        if available_children:
-            # We have some child context - process as parent with partial information
-            description = self._process_parent_node_with_partial_context(node, available_children, is_fallback=True)
-        else:
-            # No child context available - process as enhanced leaf
-            description = self._process_node_as_enhanced_leaf(node, is_fallback=True)
-
-        # Cache the fallback result
-        self.deadlock_fallback_cache[node_id] = description
-        self.node_descriptions[node_id] = description
-
-        return description
-
-    def _handle_timeout_fallback(self, node: NodeWithContentDto) -> DocumentationNode:
-        """Handle timeout by using available context or creating fallback description."""
-        return self._handle_deadlock_fallback(node)  # Same strategy for now
-
-    def _process_parent_node_with_partial_context(
-        self, node: NodeWithContentDto, available_children: List[DocumentationNode], is_fallback: bool = False
-    ) -> DocumentationNode:
-        """
-        Process parent node with only partially available child context.
-
-        Args:
-            node: The parent node to process
-            available_children: List of available child DocumentationNodes
-            is_fallback: Whether this is fallback processing
-
-        Returns:
-            DocumentationNode with partial context processing
-        """
-        try:
-            # Prepare child descriptions
-            child_descriptions = "\n\n".join(
-                [f"- **{child.source_name}**: {child.content}" for child in available_children]
-            )
-
-            # Prepare fallback note
-            fallback_note = ""
-            if is_fallback:
-                fallback_note = (
-                    "**Note**: This analysis uses partial information due to circular "
-                    "dependencies in the codebase. Some child function details may be incomplete."
-                )
-
-            # Use the existing parent node template with partial context
-            system_prompt, input_prompt = PARENT_NODE_ANALYSIS_TEMPLATE.get_prompts()
-
-            # Prepare input dictionary
-            input_dict = {
-                "node_name": node.name,
-                "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
-                "node_path": node.path,
-                "node_content": node.content,
-                "child_descriptions": child_descriptions,
-                "fallback_note": fallback_note,
-            }
-
-            # Generate response
-            runnable_config = {"run_name": f"{node.name}_partial_parent"}
-            response = self.agent_caller.call_dumb_agent(
-                system_prompt=system_prompt,
-                input_dict=input_dict,
-                output_schema=None,
-                input_prompt=input_prompt,
-                config=runnable_config,
-                timeout=10,
-            )
-
-            response_content = response.content if hasattr(response, "content") else str(response)
-
-            # Create documentation node with fallback metadata
-            info_node = DocumentationNode(
-                content=response_content,
-                info_type="parent_description_fallback" if is_fallback else "parent_description",
-                source_path=node.path,
-                source_name=node.name,
-                source_labels=node.labels,
-                source_id=node.id,
-                source_type="recursive_parent_analysis_fallback" if is_fallback else "recursive_parent_analysis",
-                enhanced_content=node.content,
-                children_count=len(available_children),
-                graph_environment=self.graph_environment,
-                metadata={
-                    "is_fallback": is_fallback,
-                    "partial_children_count": len(available_children),
-                    "fallback_reason": "circular_dependency_deadlock" if is_fallback else None,
-                },
-            )
-
-            # Update mappings
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            self.source_nodes_cache[node.id] = node
-            self.source_to_description[node.id] = response_content
-
-            return info_node
-
-        except Exception as e:
-            logger.exception(f"Error in fallback parent processing for {node.name}: {e}")
-            return self._create_fallback_description(node, f"Fallback processing error: {e}")
-
-    def _process_node_as_enhanced_leaf(self, node: NodeWithContentDto, is_fallback: bool = False) -> DocumentationNode:
-        """
-        Process node as an enhanced leaf when child context is not available.
-
-        Args:
-            node: The node to process as enhanced leaf
-            is_fallback: Whether this is fallback processing
-
-        Returns:
-            DocumentationNode with enhanced leaf processing
-        """
-        try:
-            # Prepare fallback note
-            fallback_note = ""
-            if is_fallback:
-                fallback_note = (
-                    "**Note**: This analysis is limited due to circular dependencies "
-                    "in the codebase that prevented full context analysis."
-                )
-
-            # Use the existing leaf node template
-            system_prompt, input_prompt = LEAF_NODE_ANALYSIS_TEMPLATE.get_prompts()
-
-            # Prepare input dictionary
-            input_dict = {
-                "node_name": node.name,
-                "node_labels": " | ".join(node.labels) if node.labels else "UNKNOWN",
-                "node_path": node.path,
-                "node_content": node.content,
-                "fallback_note": fallback_note,
-            }
-
-            # Generate description
-            runnable_config = {"run_name": f"{node.name}_enhanced_leaf"}
-            response = self.agent_caller.call_dumb_agent(
-                system_prompt=system_prompt,
-                input_dict=input_dict,
-                output_schema=None,
-                input_prompt=input_prompt,
-                config=runnable_config,
-                timeout=10,
-            )
-
-            response_content = response.content if hasattr(response, "content") else str(response)
-
-            # Create documentation node
-            info_node = DocumentationNode(
-                content=response_content,
-                info_type="enhanced_leaf_fallback" if is_fallback else "enhanced_leaf_description",
-                source_path=node.path,
-                source_name=node.name,
-                source_labels=node.labels,
-                source_id=node.id,
-                source_type="enhanced_leaf_analysis_fallback" if is_fallback else "enhanced_leaf_analysis",
-                graph_environment=self.graph_environment,
-                metadata={
-                    "is_fallback": is_fallback,
-                    "fallback_reason": "circular_dependency_deadlock" if is_fallback else None,
-                },
-            )
-
-            # Update mappings
-            self.node_source_mapping[info_node.hashed_id] = node.id
-            self.source_nodes_cache[node.id] = node
-            self.source_to_description[node.id] = response_content
-
-            return info_node
-
-        except Exception as e:
-            logger.exception(f"Error in enhanced leaf processing for {node.name}: {e}")
-            return self._create_fallback_description(node, f"Enhanced leaf processing error: {e}")
+        return enhanced_content

@@ -1,3 +1,4 @@
+from typing import Optional
 from blarify.project_graph_creator import ProjectGraphCreator
 from blarify.project_file_explorer import ProjectFilesIterator
 from blarify.project_file_explorer import ProjectFileStats
@@ -126,8 +127,6 @@ def test_documentation_only(root_path: str = None):
     repoId = "test"
     entity_id = "test"
     graph_manager = Neo4jManager(repoId, entity_id)
-    graph_manager.save_graph(nodes, relationships)
-    print("   Graph saved to database")
 
     # Initialize LLM provider
     llm_provider = LLMProvider()
@@ -135,12 +134,18 @@ def test_documentation_only(root_path: str = None):
     # Initialize graph environment
     graph_environment = GraphEnvironment(
         entity_id,
-        repo_id,
+        repoId,
         root_path,
     )
 
-        # Run the documentation creation
-        result = documentation_creator.create_documentation()
+    documentation_creator = DocumentationCreator(
+        db_manager=graph_manager,
+        agent_caller=llm_provider,
+        graph_environment=graph_environment,
+        company_id=entity_id,
+        repo_id=repoId,
+        max_workers=50,
+    )
 
     # Step 3: Run documentation generation
     print("\n🚀 Phase 3: Running documentation generation workflow...")
@@ -163,12 +168,7 @@ def test_documentation_only(root_path: str = None):
         print(f"   - Documentation nodes: {len(doc_result.documentation_nodes)}")
         print(f"   - Processing time: {doc_result.processing_time_seconds:.2f} seconds")
 
-        if doc_result.detected_framework:
-            print(f"   - Primary framework detected: {doc_result.detected_framework.primary_framework}")
-
     # Step 5: Close resources
-    print("\n🧹 Cleaning up...")
-    lsp_query_helper.shutdown_exit_close()
     graph_manager.close()
 
     print("\n✨ Integrated workflow completed!")
@@ -686,4 +686,4 @@ if __name__ == "__main__":
     blarignore_path = os.getenv("BLARIGNORE_PATH")
 
     # Run the new blame integration test for a single function
-    test_blame_integration_single_function(root_path=root_path, blarignore_path=blarignore_path)
+    test_documentation_only(root_path=root_path)

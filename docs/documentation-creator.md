@@ -23,20 +23,37 @@ The main orchestration class that:
 - Handles database persistence of documentation nodes
 - Provides both full and targeted documentation modes
 
-#### 2. RecursiveDFSProcessor (`recursive_dfs_processor.py:61-950`)
+#### 2. BottomUpBatchProcessor (`bottom_up_batch_processor.py`)
 The workhorse component that:
-- Implements depth-first search traversal of code hierarchies
-- Processes leaf nodes first, then builds up understanding through parent nodes
+- Implements query-based batch processing for scalability
+- Processes nodes in bottom-up order using database queries
 - Handles parallel processing with thread pool management
-- Prevents deadlocks through intelligent coordination
+- Prevents memory exhaustion through batch-based approach
 - Manages cycle detection for recursive functions
 
-#### 3. RootFileFolderProcessingWorkflow (`root_file_folder_processing_workflow.py:39-208`)
-Workflow component for:
-- Processing multiple root paths sequentially
-- Aggregating results from different roots
-- Providing better tracking and monitoring
-- Managing state across root processing
+#### 3. Query-Based Processing (`queries/batch_processing_queries.py`)
+Database queries for:
+- Initializing processing status on nodes
+- Retrieving processable nodes in batches
+- Fetching leaf nodes and parent nodes with descriptions
+- Managing processing state without memory storage
+
+### Design Decision: Processing Status Fields
+
+**Decision**: The `processing_status` and `processing_run_id` fields are managed entirely through database queries, not as part of the node class definitions (DefinitionNode, FileNode, etc.).
+
+**Rationale**:
+- Node classes are used for building the code graph during graph creation
+- During documentation processing, we work with DTOs and database queries, not node class instances
+- Keeping processing state separate from node classes maintains clean separation of concerns
+- Processing fields are added/removed dynamically via queries during documentation runs
+
+**Implementation**:
+- Processing fields are set when nodes transition to `in_progress` status
+- Nodes without `processing_status` are treated as implicitly pending
+- Fields are queried and updated through batch processing queries
+- DTOs (`ProcessableNodeDto`) handle these fields during processing
+- No modification to core node classes is needed
 
 ## Key Features
 

@@ -883,7 +883,7 @@ def get_root_information_nodes(db_manager: AbstractDbManager, entity_id: str, re
         return []
 
 
-def get_root_folders_and_files_query() -> str:
+def get_root_path_query() -> str:
     """
     Returns a Cypher query for retrieving root-level folders and files.
 
@@ -893,16 +893,15 @@ def get_root_folders_and_files_query() -> str:
         str: The Cypher query string
     """
     return """
-    MATCH (code:NODE {entityId: $entity_id, repoId: $repo_id, level: 1})
+    MATCH (code:NODE {entityId: $entity_id, repoId: $repo_id, level: 0})
     WHERE (code:FILE OR code:FOLDER)
     RETURN code.node_path as path,
            code.name as name,
            labels(code) as labels
-    ORDER BY code.node_path
     """
 
 
-def get_root_folders_and_files(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[str]:
+def get_root_path(db_manager: AbstractDbManager) -> str:
     """
     Retrieves paths of all root-level folders and files.
 
@@ -915,23 +914,15 @@ def get_root_folders_and_files(db_manager: AbstractDbManager, entity_id: str, re
         List of root-level folder and file paths
     """
     try:
-        query = get_root_folders_and_files_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id}
+        query = get_root_path_query()
 
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+        query_result = db_manager.query(cypher_query=query, parameters={})
 
-        # Extract paths from the query result
-        root_paths = []
-        for record in query_result:
-            path = record.get("path", "")
-            if path:
-                root_paths.append(path)
-
-        return root_paths
+        return query_result[0].get("path", "") if query_result else ""
 
     except Exception as e:
         logger.exception(f"Error retrieving root folders and files: {e}")
-        return []
+        return ""
 
 
 # 4-Layer Architecture Queries for Spec Analysis
@@ -2312,10 +2303,8 @@ def get_function_cycle_detection_query() -> str:
         Cypher query string for cycle detection
     """
     return """
-    MATCH path = (start:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[:CALLS|USES*1..10]->
-    (start)
-    WHERE "FUNCTION" IN labels(start)
+    MATCH path = (start:FUNCTION {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+    -[:CALLS*1..10]->(start)
     WITH path, [n IN nodes(path) | n.name] as function_names
     RETURN DISTINCT function_names, length(path) as cycle_length
     ORDER BY cycle_length
@@ -2391,9 +2380,7 @@ def get_existing_documentation_for_node(
         return None
 
 
-def detect_function_cycles(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_id: str
-) -> List[List[str]]:
+def detect_function_cycles(db_manager: AbstractDbManager, node_id: str) -> List[List[str]]:
     """
     Detect if a function participates in call cycles.
 
@@ -2408,7 +2395,7 @@ def detect_function_cycles(
     """
     try:
         query = get_function_cycle_detection_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
+        parameters = {"node_id": node_id}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 

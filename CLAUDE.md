@@ -99,3 +99,5 @@ This ensures code quality and prevents over-engineering.
 - always follow pyright rules and run the pyright command after making changes on the code
 - always follow ruff rules and run the ruff command after making changes on the code
 - befoire macking any commit run pyright and ruff on the changed files
+- do not make test more 'flexible' to make them pass
+- Do not add printing or logging in the tests, unless you are debugging something in particular. Whith the assertions messages we should conclude enough

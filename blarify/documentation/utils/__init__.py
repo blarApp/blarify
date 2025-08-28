@@ -5,9 +5,6 @@ This package contains helper classes that are used by the LangGraph workflows
 but are not workflows themselves.
 """
 
-from .recursive_dfs_processor import RecursiveDFSProcessor, ProcessingResult
+from .bottom_up_batch_processor import BottomUpBatchProcessor, ProcessingResult
 
-__all__ = [
-    "RecursiveDFSProcessor",
-    "ProcessingResult"
-]
+__all__ = ["BottomUpBatchProcessor", "ProcessingResult"]

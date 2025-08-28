@@ -10,7 +10,6 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
-from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
@@ -263,17 +262,6 @@ class TestDocumentationCreation:
         """
         shared_docs = await graph_assertions.neo4j_instance.execute_cypher(shared_doc_query)
 
-        if shared_docs:
-            print("\n❌ BUG DETECTED: Found documentation nodes describing multiple source nodes:")
-            for shared in shared_docs:
-                print(f"\n  Documentation node (source_name: {shared['source_name']}):")
-                print(f"    - ID: {shared['doc_id']}")
-                print(f"    - Describes {shared['node_count']} different nodes:")
-                for node_desc in shared["described_nodes"]:
-                    print(f"      • {node_desc}")
-        else:
-            print("✓ No shared documentation nodes found (expected behavior)")
-
         # This assertion will fail if the bug exists
         assert len(shared_docs) == 0, (
             f"BUG: Found {len(shared_docs)} documentation nodes describing multiple source nodes. "
@@ -389,26 +377,16 @@ class TestDocumentationCreation:
         llm_provider = MockLLMProvider()
 
         # Mock the embedding service to return fake embeddings
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
 
-        with patch("blarify.documentation.documentation_creator.EmbeddingService") as MockEmbeddingService:
-            # Configure the mock to return fake embeddings
-            mock_embedding_service = MagicMock()
+        # Mock embed_batch method directly
+        def mock_embed_batch(texts: List[str]) -> List[List[float]]:
+            # Return unique embeddings for each text
+            return [[0.1 + i * 0.01] * 1536 for i in range(len(texts))]
 
-            # Mock embed_documentation_nodes to return a dict with node IDs and embeddings
-            def mock_embed_documentation_nodes(nodes: list[DocumentationNode]):
-                # Return embeddings for each node with proper Python lists
-                result = {}
-                for i, node in enumerate(nodes):
-                    # Use node.id if available, otherwise create a dummy ID
-                    node_id = getattr(node, "id", f"node_{i}")
-                    # Return actual Python list of floats (not MagicMock)
-                    result[node_id] = [0.1 + i * 0.01] * 1536
-                return result
-
-            mock_embedding_service.embed_documentation_nodes = MagicMock(side_effect=mock_embed_documentation_nodes)
-            MockEmbeddingService.return_value = mock_embedding_service
-
+        with patch(
+            "blarify.services.embedding_service.EmbeddingService.embed_batch", side_effect=mock_embed_batch
+        ) as mock_embed:
             # Create DocumentationCreator
             doc_creator = DocumentationCreator(
                 db_manager=db_manager,
@@ -428,10 +406,8 @@ class TestDocumentationCreation:
             assert result is not None
             assert result.error is None, f"Documentation creation failed: {result.error}"
 
-            # Verify embed_documentation_nodes was called
-            assert mock_embedding_service.embed_documentation_nodes.called, (
-                "EmbeddingService.embed_documentation_nodes should have been called"
-            )
+            # Verify embed_batch was called
+            assert mock_embed.called, "EmbeddingService.embed_batch should have been called"
 
         # Step 4: Verify embeddings are stored in Neo4j
         doc_nodes_with_embeddings = await graph_assertions.neo4j_instance.execute_cypher(
@@ -452,9 +428,6 @@ class TestDocumentationCreation:
             assert node["embedding_size"] == 1536, (
                 f"Expected embedding size 1536, got {node['embedding_size']} for node {node['id']}"
             )
-            print(f"✓ Documentation node {node['name'][:50]}... has embedding of size {node['embedding_size']}")
-
-        print(f"\\n✓ Successfully stored embeddings for {len(doc_nodes_with_embeddings)} documentation nodes")
 
         # Clean up
         db_manager.close()
@@ -493,8 +466,12 @@ class TestDocumentationCreation:
             repo_id="test-repo",
         )
 
+        code_nodes = graph.get_nodes_as_objects()
+        relationships = graph.get_relationships_as_objects()
+        code_nodes_amount = len(code_nodes)
+
         # Save the code graph
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        db_manager.save_graph(code_nodes, relationships)
 
         # Step 3: Create documentation WITHOUT embeddings first
         # Mock LLM provider
@@ -553,10 +530,22 @@ class TestDocumentationCreation:
             RETURN count(d) as count
             """
         )
+
+        nodes_without_documentation = await graph_assertions.neo4j_instance.execute_cypher(
+            """
+            MATCH (n:NODE)
+            WHERE NOT (n:DOCUMENTATION)
+                AND NOT (:DOCUMENTATION)-[:DESCRIBES]->(n)
+            RETURN count(n) AS count
+            """
+        )
+
         initial_nodes_without_embeddings = nodes_without_embeddings[0]["count"]
         assert initial_nodes_without_embeddings > 0, "Should have documentation nodes without embeddings initially"
-
-        print(f"\\n✓ Created {initial_nodes_without_embeddings} documentation nodes without embeddings")
+        assert nodes_without_documentation[0]["count"] == 0, "All code nodes should have documentation nodes"
+        assert initial_nodes_without_embeddings == code_nodes_amount, (
+            "Expected documentation nodes to match code nodes amount"
+        )
 
         # Step 4: Now run embed_existing_documentation to add embeddings
         from unittest.mock import patch
@@ -574,8 +563,8 @@ class TestDocumentationCreation:
 
             # Verify the method completed successfully
             assert embed_result is not None
-            assert embed_result["total_processed"] == 29
-            assert embed_result["total_embedded"] == 29
+            assert embed_result["total_processed"] == 30
+            assert embed_result["total_embedded"] == 30
 
             # Verify embed_batch was called
             assert mock_embed.called, "EmbeddingService.embed_batch should have been called"

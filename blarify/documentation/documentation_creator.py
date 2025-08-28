@@ -19,7 +19,7 @@ from ..repositories.graph_db_manager.db_manager import AbstractDbManager
 from ..repositories.graph_db_manager.queries import (
     find_all_entry_points,
     find_entry_points_for_node_path,
-    get_root_folders_and_files,
+    get_root_path,
     get_documentation_nodes_for_embedding_query,
     update_documentation_embeddings_query,
     create_vector_index_query,
@@ -28,7 +28,6 @@ from ..graph.graph_environment import GraphEnvironment
 from ..graph.relationship.relationship_creator import RelationshipCreator
 from ..services.embedding_service import EmbeddingService
 from .utils.bottom_up_batch_processor import BottomUpBatchProcessor
-from .root_file_folder_processing_workflow import RooFileFolderProcessingWorkflow
 from .result_models import DocumentationResult, FrameworkDetectionResult
 
 logger = logging.getLogger(__name__)
@@ -51,6 +50,7 @@ class DocumentationCreator:
         company_id: str,
         repo_id: str,
         max_workers: int = 5,
+        overwrite_documentation: bool = False,
     ) -> None:
         """
         Initialize the documentation creator.
@@ -69,16 +69,7 @@ class DocumentationCreator:
         self.company_id = company_id
         self.repo_id = repo_id
         self.max_workers = max_workers
-
-        # Initialize the recursive processor (the valuable component we're preserving)
-        self.recursive_processor = BottomUpBatchProcessor(
-            db_manager=db_manager,
-            agent_caller=agent_caller,
-            company_id=company_id,
-            repo_id=repo_id,
-            graph_environment=graph_environment,
-            max_workers=max_workers,
-        )
+        self.overwrite_documentation = overwrite_documentation
 
     def create_documentation(
         self,
@@ -104,22 +95,9 @@ class DocumentationCreator:
 
             # Create documentation based on mode
             if target_paths:
-                result = self._create_targeted_documentation(target_paths)
+                result = self._create_targeted_documentation(target_paths, generate_embeddings=generate_embeddings)
             else:
-                result = self._create_full_documentation()
-
-            # Generate embeddings if requested
-            if generate_embeddings and result.documentation_nodes:
-                logger.info("Generating embeddings for documentation nodes")
-                embedding_service = EmbeddingService()
-                node_embeddings = embedding_service.embed_documentation_nodes(result.documentation_nodes)
-
-                # Update nodes with embeddings
-                for node in result.documentation_nodes:
-                    if node.id in node_embeddings:
-                        node.content_embedding = node_embeddings[node.id]
-
-                logger.info(f"Generated embeddings for {len(node_embeddings)} nodes")
+                result = self._create_full_documentation(generate_embeddings=generate_embeddings)
 
             # Step 4: Save to database if requested
             if save_to_database and result.documentation_nodes:
@@ -240,6 +218,7 @@ class DocumentationCreator:
     def _create_targeted_documentation(
         self,
         target_paths: List[str],
+        generate_embeddings: bool = False,
     ) -> DocumentationResult:
         """
         Create documentation for specific paths - optimized for SWE benchmarks.
@@ -264,9 +243,19 @@ class DocumentationCreator:
                 try:
                     entry_points_paths = self._discover_entry_points(node_path=path)
 
-                    # Use RecursiveDFSProcessor for each target path
+                    # Use BottomUpBatchProcessor for each target path
                     for entry_point in entry_points_paths:
-                        processor_result = self.recursive_processor.process_node(entry_point)
+                        processor = BottomUpBatchProcessor(
+                            db_manager=self.db_manager,
+                            agent_caller=self.agent_caller,
+                            company_id=self.company_id,
+                            repo_id=self.repo_id,
+                            graph_environment=self.graph_environment,
+                            max_workers=self.max_workers,
+                            overwrite_documentation=self.overwrite_documentation,
+                            generate_embeddings=generate_embeddings,
+                        )
+                        processor_result = processor.process_node(entry_point)
 
                         if processor_result.error:
                             warnings.append(
@@ -307,7 +296,7 @@ class DocumentationCreator:
             logger.exception(f"Error in targeted documentation creation: {e}")
             return DocumentationResult(error=str(e))
 
-    def _create_full_documentation(self) -> DocumentationResult:
+    def _create_full_documentation(self, generate_embeddings: bool = False) -> DocumentationResult:
         """
         Create documentation for the entire codebase.
 
@@ -321,53 +310,40 @@ class DocumentationCreator:
             logger.info("Creating full codebase documentation")
 
             # Get all root folders and files from database
-            root_paths = get_root_folders_and_files(
-                db_manager=self.db_manager,
-                entity_id=self.company_id,
-                repo_id=self.repo_id,
-            )
+            root_path = get_root_path(db_manager=self.db_manager)
 
-            if not root_paths:
+            if not root_path:
                 logger.warning("No root folders and files found")
                 return DocumentationResult(warnings=["No root folders and files found for documentation"])
 
-            # Use the existing RooFileFolderProcessingWorkflow for parallel processing
-            # This preserves the existing functionality while removing LangGraph
-            parallel_workflow = RooFileFolderProcessingWorkflow(
+            total_processed = 0
+
+            processor = BottomUpBatchProcessor(
                 db_manager=self.db_manager,
                 agent_caller=self.agent_caller,
                 company_id=self.company_id,
                 repo_id=self.repo_id,
-                root_paths=root_paths,
                 graph_environment=self.graph_environment,
                 max_workers=self.max_workers,
+                overwrite_documentation=self.overwrite_documentation,
+                generate_embeddings=generate_embeddings,
             )
 
-            # Run the parallel workflow
-            workflow_result = parallel_workflow.run()
+            result = processor.process_node(root_path)
 
-            if workflow_result.error:
-                logger.exception(f"Error in parallel root processing workflow: {workflow_result.error}")
-                return DocumentationResult(error=workflow_result.error)
+            if result.error:
+                logger.warning(f"Error processing {root_path}: {result.error}")
+            else:
+                total_processed += result.total_nodes_processed
 
-            # Get all nodes from parallel processing
-            all_information_nodes = workflow_result.information_nodes or []
-            all_documentation_nodes = workflow_result.documentation_nodes or []
-            all_source_nodes = workflow_result.source_nodes or []
-
-            logger.info(
-                f"Full documentation completed: {len(all_information_nodes)} nodes from {len(root_paths)} root paths"
-            )
+            logger.info(f"Full documentation completed: {total_processed} nodes processed")
 
             return DocumentationResult(
-                information_nodes=all_information_nodes,
-                documentation_nodes=all_documentation_nodes,
-                source_nodes=all_source_nodes,
+                total_nodes_processed=total_processed,
                 analyzed_nodes=[
                     {
                         "type": "full_codebase",
-                        "root_paths_count": len(root_paths),
-                        "total_nodes": len(all_information_nodes),
+                        "total_nodes": total_processed,
                     }
                 ],
             )
@@ -455,8 +431,6 @@ class DocumentationCreator:
                 # Query batch of documentation nodes
                 query = get_documentation_nodes_for_embedding_query()
                 parameters = {
-                    "entity_id": self.company_id,
-                    "repo_id": self.repo_id,
                     "batch_size": batch_size,
                 }
 
@@ -490,13 +464,14 @@ class DocumentationCreator:
                     any_new_nodes = True
 
                     # Create DocumentationNode object
+                    # Use the database node_id as source_id to ensure uniqueness
                     node = DocumentationNode(
                         content=record.get("content", ""),
                         info_type=record.get("info_type", ""),
                         source_type=record.get("source_type", ""),
                         source_path=record.get("source_path", ""),
-                        source_name="",  # Not needed for embedding
-                        source_id=record.get("source_id", ""),
+                        source_name=record.get("source_name", ""),  # Include source_name if available
+                        source_id=node_id,  # Use the unique database node_id instead of source_id
                         source_labels=record.get("source_labels", []),
                         graph_environment=self.graph_environment,
                     )

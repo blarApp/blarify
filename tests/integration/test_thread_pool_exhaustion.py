@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from blarify.repositories.graph_db_manager import Neo4jManager
-from blarify.documentation.utils.recursive_dfs_processor import (
+from blarify.documentation.utils.bottom_up_batch_processor import (
     BottomUpBatchProcessor,
 )
 from blarify.graph.graph_environment import GraphEnvironment

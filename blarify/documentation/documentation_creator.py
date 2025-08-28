@@ -27,7 +27,7 @@ from ..repositories.graph_db_manager.queries import (
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.relationship.relationship_creator import RelationshipCreator
 from ..services.embedding_service import EmbeddingService
-from .utils.recursive_dfs_processor import BottomUpBatchProcessor
+from .utils.bottom_up_batch_processor import BottomUpBatchProcessor
 from .root_file_folder_processing_workflow import RooFileFolderProcessingWorkflow
 from .result_models import DocumentationResult, FrameworkDetectionResult
 

@@ -1,13 +1,13 @@
 """
-Recursive DFS processor for analyzing code hierarchies one branch at a time.
+Bottom-up batch processor for analyzing code hierarchies using query-based processing.
 
-This module implements a depth-first search traversal of the code graph, processing
-leaf nodes first and then building up understanding through parent nodes with
-skeleton comment replacement.
+This module implements a scalable approach to documentation generation that processes
+nodes in batches using database queries, avoiding memory exhaustion for large codebases.
 """
 
 import re
 import logging
+import uuid
 import concurrent.futures
 import threading
 from typing import Dict, List, Optional, Any, Set
@@ -34,6 +34,14 @@ from ...repositories.graph_db_manager.queries import (
     get_existing_documentation_for_node,
 )
 from ...graph.node.documentation_node import DocumentationNode
+from ...graph.relationship.relationship_creator import RelationshipCreator
+from ..queries import (
+    initialize_processing_status_query,
+    get_leaf_nodes_batch_query,
+    get_processable_nodes_with_descriptions_query,
+    mark_nodes_completed_query,
+    check_pending_nodes_query,
+)
 
 # Note: We don't import concrete Node classes as we work with DTOs in documentation layer
 from ...graph.graph_environment import GraphEnvironment
@@ -228,17 +236,18 @@ class BottomUpBatchProcessor:
             # Get children based on navigation strategy
             children = self._get_navigation_children(node)
             for child in children:
-                # Check for cycles
+                # Check if child has been visited (for BFS efficiency, not cycle detection)
                 if child.id not in visited:
                     queue.append(child)
                     node_children[node.id].append(child.id)
                     node_parents[child.id].append(node.id)
                 else:
-                    # Handle cycle - don't add to queue but track relationship
-                    logger.info(f"Detected cycle: {node.name} -> {child.name}")
+                    # Child already visited - skip to avoid duplicate processing
+                    # This is NOT necessarily a cycle, just means this node has been reached before
+                    logger.debug(f"Skipping already visited node: {child.name} (called by {node.name})")
                     if child.id != node.id:  # Not self-reference
                         node_children[node.id].append(child.id)
-                        # Don't add to parents to avoid circular dependency
+                        # Don't add to parents to avoid circular dependency in BFS traversal
 
         # Process nodes in bottom-up order using batch processing
         return self._process_batch_iterative(
@@ -622,11 +631,11 @@ class BottomUpBatchProcessor:
         if is_function_with_calls:
             # Check for cycles in function calls with error handling
             try:
-                cycles = detect_function_cycles(self.db_manager, self.company_id, self.repo_id, node.id)
+                cycles = detect_function_cycles(self.db_manager, node.id)
                 has_cycles = len(cycles) > 0
 
                 if has_cycles:
-                    logger.info(f"DEBUG: Detected {len(cycles)} cycles for function {node.name}")
+                    logger.info(f"Function {node.name} participates in {len(cycles)} actual call cycle(s)")
                     return self._prepare_function_with_cycle_analysis(node, child_descriptions, cycles)
                 else:
                     return self._prepare_function_with_calls_analysis(node, child_descriptions)
@@ -728,7 +737,7 @@ class BottomUpBatchProcessor:
             output_schema=None,
             input_prompt=input_prompt,
             config=runnable_config,
-            timeout=5,
+            timeout=10,
         )
 
         return response.content if hasattr(response, "content") else str(response)
@@ -1200,7 +1209,7 @@ class BottomUpBatchProcessor:
                 output_schema=None,
                 input_prompt=input_prompt,
                 config=runnable_config,
-                timeout=5,
+                timeout=10,
             )
 
             response_content = response.content if hasattr(response, "content") else str(response)

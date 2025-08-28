@@ -14,7 +14,7 @@ from langgraph.types import Command
 from ..agents.llm_provider import LLMProvider
 from ..repositories.graph_db_manager.db_manager import AbstractDbManager
 from ..graph.graph_environment import GraphEnvironment
-from .utils.recursive_dfs_processor import BottomUpBatchProcessor, ProcessingResult
+from .utils.bottom_up_batch_processor import BottomUpBatchProcessor, ProcessingResult
 
 logger = logging.getLogger(__name__)
 

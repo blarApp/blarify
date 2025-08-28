@@ -67,7 +67,7 @@ class EmbeddingService:
                 # Log error but continue processing
                 print(f"Error embedding batch {i // self.batch_size + 1}: {e}")
                 # Return None embeddings for failed texts
-                embeddings.extend([None] * len(batch))  # type: ignore
+                embeddings.extend([None] * len(batch))
 
         return embeddings
 

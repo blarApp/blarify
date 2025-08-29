@@ -244,14 +244,7 @@ class Neo4jManager(AbstractDbManager):
 
         return node_result
 
-    def get_node_by_name_and_type(
-        self,
-        name: str,
-        node_type: str,
-        company_id: str,
-        repo_id: str,
-        diff_identifier: str,
-    ) -> list[NodeFoundByNameTypeDto]:
+    def get_node_by_name_and_type(self, name: str, node_type: str) -> list[NodeFoundByNameTypeDto]:
         """
         Retrieve nodes by name and type from the database.
 
@@ -266,12 +259,7 @@ class Neo4jManager(AbstractDbManager):
             List of NodeFoundByNameTypeDto objects containing node information
         """
         # Query the database
-        params = {
-            "name": name,
-            "node_type": node_type,
-            "entity_id": company_id,
-            "repo_id": repo_id,
-        }
+        params = {"name": name, "node_type": node_type}
         records = self.query(cypher_query=get_node_by_name_and_type_query(), parameters=params)
 
         # Convert records to DTOs

@@ -4,6 +4,8 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+
 
 # Pydantic Response Models (replacement for blarify DTOs)
 class NodeFoundByNameTypeResponse(BaseModel):
@@ -34,10 +36,7 @@ class FindNodesByNameAndType(BaseTool):
     description: str = (
         "Find nodes by exact name and type in the Neo4j database. Precise and narrow search using exact matches."
     )
-    company_id: str = Field(description="Company ID to search for in the Neo4j database")
-    db_manager: Any = Field(description="Neo4jManager object to interact with the database")
-    repo_id: str = Field(description="Repository ID to search for in the Neo4j database")
-    diff_identifier: str = Field(description="Identifier for the PR on the graph, to search for in the Neo4j database")
+    db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
 
     args_schema: type[BaseModel] = Input  # type: ignore[assignment]
 
@@ -52,9 +51,6 @@ class FindNodesByNameAndType(BaseTool):
         dto_nodes = self.db_manager.get_node_by_name_and_type(
             name=name,
             node_type=type,
-            company_id=self.company_id,
-            repo_id=self.repo_id,
-            diff_identifier=self.diff_identifier,
         )
 
         # Convert DTOs to response models

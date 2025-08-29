@@ -57,9 +57,6 @@ class AbstractDbManager:
         self,
         name: str,
         node_type: str,
-        company_id: str,
-        repo_id: str,
-        diff_identifier: str,
     ):
         """
         Retrieve nodes by name and type from the database.

@@ -10,7 +10,11 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from ..repositories.graph_db_manager.db_manager import AbstractDbManager
-from ..repositories.graph_db_manager.queries import find_all_entry_points, find_code_workflows, find_entry_points_for_node_path
+from ..repositories.graph_db_manager.queries import (
+    find_all_entry_points,
+    find_code_workflows,
+    find_entry_points_for_node_path,
+)
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.node.workflow_node import WorkflowNode
 from ..graph.relationship.relationship_creator import RelationshipCreator
@@ -31,8 +35,6 @@ class WorkflowCreator:
         self,
         db_manager: AbstractDbManager,
         graph_environment: GraphEnvironment,
-        company_id: str,
-        repo_id: str,
     ) -> None:
         """
         Initialize the workflow creator.
@@ -45,8 +47,6 @@ class WorkflowCreator:
         """
         self.db_manager = db_manager
         self.graph_environment = graph_environment
-        self.company_id = company_id
-        self.repo_id = repo_id
 
     def discover_workflows(
         self,
@@ -150,9 +150,7 @@ class WorkflowCreator:
         try:
             if node_path is not None:
                 logger.info(f"Discovering entry points for node path: {node_path}")
-                entry_points = find_entry_points_for_node_path(
-                    db_manager=self.db_manager, entity_id=self.company_id, repo_id=self.repo_id, node_path=node_path
-                )
+                entry_points = find_entry_points_for_node_path(db_manager=self.db_manager, node_path=node_path)
 
                 # Convert to standard format (only id is returned from targeted search)
                 standardized_entry_points = []
@@ -173,9 +171,7 @@ class WorkflowCreator:
             else:
                 logger.info("Discovering entry points using hybrid approach")
 
-                entry_points = find_all_entry_points(
-                    db_manager=self.db_manager, entity_id=self.company_id, repo_id=self.repo_id
-                )
+                entry_points = find_all_entry_points(db_manager=self.db_manager)
 
                 # Convert to standard format
                 standardized_entry_points = []
@@ -250,8 +246,6 @@ class WorkflowCreator:
             # Use the new find_code_workflows function
             workflows = find_code_workflows(
                 db_manager=self.db_manager,
-                entity_id=self.company_id,
-                repo_id=self.repo_id,
                 entry_point_id=entry_point_id,
                 max_depth=max_depth,
             )
@@ -418,7 +412,7 @@ class WorkflowCreator:
         """
         Create relationships for a workflow.
 
-        This creates both WORKFLOW_STEP relationships and BELONGS_TO_WORKFLOW 
+        This creates both WORKFLOW_STEP relationships and BELONGS_TO_WORKFLOW
         relationships connecting all participant nodes to the workflow node.
 
         Args:
@@ -450,7 +444,7 @@ class WorkflowCreator:
                     )
                 )
                 relationships.extend(workflow_step_relationships)
-            
+
             # Create BELONGS_TO_WORKFLOW relationships for all participant nodes
             if workflow_result.workflow_nodes:
                 # Extract unique node IDs from workflow participants
@@ -459,13 +453,12 @@ class WorkflowCreator:
                     node_id = node.get("id")
                     if node_id and node_id not in node_ids:
                         node_ids.append(node_id)
-                
+
                 # Create BELONGS_TO_WORKFLOW relationships
                 if node_ids:
                     belongs_to_relationships = (
                         RelationshipCreator.create_belongs_to_workflow_relationships_for_workflow_nodes(
-                            workflow_node=workflow_node,
-                            workflow_node_ids=node_ids
+                            workflow_node=workflow_node, workflow_node_ids=node_ids
                         )
                     )
                     relationships.extend(belongs_to_relationships)

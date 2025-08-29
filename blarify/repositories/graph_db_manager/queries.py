@@ -1429,7 +1429,7 @@ def find_code_workflows_query() -> LiteralString:
 
 
 def find_code_workflows(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, entry_point_id: str, max_depth: int = 20
+    db_manager: AbstractDbManager, entry_point_id: str, max_depth: int = 20
 ) -> List[Dict[str, Any]]:
     """
     Finds workflow execution traces using direct code analysis with continuous path sequencing.
@@ -1483,8 +1483,6 @@ def find_code_workflows(
     try:
         query = find_code_workflows_query()
         parameters = {
-            "entity_id": entity_id,
-            "repo_id": repo_id,
             "entry_point_id": entry_point_id,
             "maxDepth": max_depth,
         }
@@ -1880,7 +1878,7 @@ def find_potential_entry_points_query() -> LiteralString:
     """
 
 
-def find_all_entry_points(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[Dict[str, Any]]:
+def find_all_entry_points(db_manager: AbstractDbManager) -> List[Dict[str, Any]]:
     """
     Finds all potential entry points using comprehensive relationship checking.
 
@@ -1897,9 +1895,8 @@ def find_all_entry_points(db_manager: AbstractDbManager, entity_id: str, repo_id
     """
     try:
         query = find_potential_entry_points_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id}
 
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+        query_result = db_manager.query(cypher_query=query, parameters={})
 
         if not query_result:
             return []
@@ -2442,9 +2439,7 @@ def find_entry_points_for_node_path_query() -> LiteralString:
     """
 
 
-def find_entry_points_for_node_path(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_path: str
-) -> List[Dict[str, Any]]:
+def find_entry_points_for_node_path(db_manager: AbstractDbManager, node_path: str) -> List[Dict[str, Any]]:
     """
     Find entry points that eventually reach a specific node path.
 
@@ -2459,7 +2454,7 @@ def find_entry_points_for_node_path(
     """
     try:
         query = find_entry_points_for_node_path_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_path": node_path}
+        parameters = {"node_path": node_path}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 

@@ -13,7 +13,6 @@ class EdgeDTO(BaseModel):
     node_id: str
     node_name: str
     node_type: List[str]
-    diff_identifier: str
 
     def __str__(self):
         return f"relationship_type: {self.relationship_type}, node_id: {self.node_id}, node_name: {self.node_name}, node_type: {self.node_type}"

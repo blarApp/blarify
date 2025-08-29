@@ -1,13 +1,16 @@
 import os
 import time
-from typing import Any, List, Dict
+from typing import Any, List, Dict, LiteralString, Optional
 
 from dotenv import load_dotenv
-from neo4j import Driver, GraphDatabase, exceptions
+from neo4j import Driver, GraphDatabase, ManagedTransaction, exceptions
 import logging
 
+from blarify.repositories.graph_db_manager.adapters.node_search_result_adapter import Neo4jNodeSearchResultAdapter
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
 from blarify.repositories.graph_db_manager.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
+from blarify.repositories.graph_db_manager.queries import get_node_by_id_query, get_node_by_name_and_type_query
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +28,19 @@ class Neo4jManager(AbstractDbManager):
 
     def __init__(
         self,
-        repo_id: str = None,
-        entity_id: str = None,
+        repo_id: Optional[str] = None,
+        entity_id: Optional[str] = None,
+        uri: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
         max_connections: int = 50,
-        uri: str = None,
-        user: str = None,
-        password: str = None,
     ):
         uri = uri or os.getenv("NEO4J_URI")
         user = user or os.getenv("NEO4J_USERNAME")
         password = password or os.getenv("NEO4J_PASSWORD")
+
+        if not uri or not user or not password:
+            raise ValueError("Missing required Neo4j connection parameters")
 
         retries = 3
         for attempt in range(retries):
@@ -75,7 +81,7 @@ class Neo4jManager(AbstractDbManager):
             session.execute_write(self._create_edges_txn, edgesList, 1000, entityId=self.entity_id, repoId=self.repo_id)
 
     @staticmethod
-    def _create_nodes_txn(tx, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
+    def _create_nodes_txn(tx: ManagedTransaction, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
         node_creation_query = """
         CALL apoc.periodic.iterate(
             "UNWIND $nodeList AS node RETURN node",
@@ -108,7 +114,7 @@ class Neo4jManager(AbstractDbManager):
             print(record)
 
     @staticmethod
-    def _create_edges_txn(tx, edgesList: List[Any], batch_size: int, entityId: str, repoId: str):
+    def _create_edges_txn(tx: ManagedTransaction, edgesList: List[Any], batch_size: int, entityId: str, repoId: str):
         # Cypher query using apoc.periodic.iterate for creating edges
         edge_creation_query = """
         CALL apoc.periodic.iterate(
@@ -154,7 +160,7 @@ class Neo4jManager(AbstractDbManager):
             )
             return result.data()
 
-    def query(self, cypher_query: str, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    def query(self, cypher_query: LiteralString, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return the results.
 
@@ -183,47 +189,101 @@ class Neo4jManager(AbstractDbManager):
             logger.exception(f"Parameters: {parameters}")
             raise
 
-    def get_node_by_name_and_type(
-        self, name: str, type: str, company_id: str, repo_id: str, diff_identifier: str
-    ) -> List[NodeFoundByNameTypeDto]:
-        query = """
-        MATCH (n:NODE {name: $name, entityId: $entity_id, repoId: $repo_id})
-        WHERE (n.diff_identifier = $diff_identifier OR n.diff_identifier = "0") AND $type IN labels(n)
-        AND NOT (n)-[:DELETED]->()
-        AND NOT ()-[:MODIFIED]->(n)
-        RETURN n.node_id as node_id, n.name as name, n.label as label,
-               n.diff_text as diff_text, n.diff_identifier as diff_identifier,
-               n.node_path as node_path, n.text as text
-
-        LIMIT 100;
+    def get_node_by_id(
+        self,
+        node_id: str,
+        company_id: str,
+    ) -> NodeSearchResultDTO:
         """
-        params = {
-            "name": str(name),
-            "entity_id": str(company_id),
-            "repo_id": str(repo_id),
-            "type": str(type),
-            "diff_identifier": str(diff_identifier),
+        Retrieve a node by its ID with related inbound and outbound relationships.
+
+        Args:
+            node_id: Unique identifier of the node to retrieve
+            company_id: Company identifier for data isolation
+            diff_identifier: Optional identifier for diff-specific nodes (unused)
+
+        Returns:
+            NodeSearchResultDTO: Data transfer object containing node information
+
+        Raises:
+            ValueError: If the node cannot be found
+        """
+
+        # Query the database
+        params = {"node_id": node_id, "entity_id": company_id, "repo_id": self.repo_id}
+        records = self.query(cypher_query=get_node_by_id_query(), parameters=params)
+
+        if not records:
+            raise ValueError(f"Node with id {node_id} not found")
+
+        # Process the query results
+        record = records[0]
+        node = record["n"]
+        labels = record["labels"]
+
+        # Filter relationships to ensure no null values
+        outbound_relations = record["outbound_relations"]
+        inbound_relations = record["inbound_relations"]
+        documentation_nodes = record.get("documentation_nodes", [])
+
+        node_info = {
+            "node_id": node.get("node_id"),
+            "node_name": node.get("name"),
+            "file_path": node.get("path"),
+            "node_path": node.get("node_path"),
+            "start_line": node.get("start_line"),
+            "end_line": node.get("end_line"),
+            "text": node.get("text"),
+            "file_node_id": node.get("file_node_id"),
+            "labels": labels,
+            "documentation_nodes": documentation_nodes,
         }
-        record = self.query(
-            query,
-            parameters=params,
-            result_format="data",
-        )
 
-        if record is None:
-            return []
+        # Convert to DTO
+        node_result = Neo4jNodeSearchResultAdapter.adapt(node_data=(node_info, outbound_relations, inbound_relations))
 
-        found_nodes = [
-            NodeFoundByNameTypeDto(
-                id=node.get("node_id"),
-                name=node.get("name"),
-                label=node.get("label"),
-                diff_text=node.get("diff_text"),
-                node_path=node.get("node_path"),
-                text=node.get("text"),
-                diff_identifier=node.get("diff_identifier"),
+        return node_result
+
+    def get_node_by_name_and_type(
+        self,
+        name: str,
+        node_type: str,
+        company_id: str,
+        repo_id: str,
+        diff_identifier: str,
+    ) -> list[NodeFoundByNameTypeDto]:
+        """
+        Retrieve nodes by name and type from the database.
+
+        Args:
+            name: Name of the node to search for
+            node_type: Type/label of the node to search for
+            company_id: Company identifier for data isolation
+            repo_id: Repository identifier
+            diff_identifier: Diff identifier for version control
+
+        Returns:
+            List of NodeFoundByNameTypeDto objects containing node information
+        """
+        # Query the database
+        params = {
+            "name": name,
+            "node_type": node_type,
+            "entity_id": company_id,
+            "repo_id": repo_id,
+        }
+        records = self.query(cypher_query=get_node_by_name_and_type_query(), parameters=params)
+
+        # Convert records to DTOs
+        nodes = []
+        for record in records:
+            node = NodeFoundByNameTypeDto(
+                node_id=record.get("node_id", ""),
+                node_name=record.get("node_name", ""),
+                node_type=record.get("node_type", []),
+                file_path=record.get("file_path", ""),
+                code=record.get("code"),
             )
-            for node in record
-        ]
+            nodes.append(node)
 
-        return found_nodes
+        return nodes

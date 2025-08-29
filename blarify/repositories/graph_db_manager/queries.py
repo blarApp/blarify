@@ -2737,3 +2737,17 @@ def get_node_by_id_query() -> LiteralString:
             documentation
         LIMIT 1
     """
+
+
+def get_node_by_name_and_type_query() -> LiteralString:
+    """Cypher query to retrieve nodes by name and type.
+
+    Returns:
+        Cypher query string for retrieving nodes by name and type
+    """
+    return """
+        MATCH (n:NODE {repoId: $repo_id, entityId: $entity_id})
+        WHERE n.name = $name AND $node_type IN labels(n)
+        RETURN n.node_id as node_id, n.name as node_name, labels(n) as node_type,
+               n.path as file_path, n.text as code
+    """

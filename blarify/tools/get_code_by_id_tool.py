@@ -118,7 +118,7 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
         return relation_str
 
     def _format_code_with_line_numbers(
-        self, code: str, start_line: Optional[int] = None, child_nodes: Optional[List[dict]] = None
+        self, code: str, start_line: Optional[int] = None, child_nodes: Optional[List[dict[str, Any]]] = None
     ) -> str:
         """Format code with line numbers, finding and replacing collapse placeholders with correct line numbers."""
         if not code:

@@ -5,7 +5,7 @@ This module contains pre-defined Cypher queries and helper functions for
 retrieving structured data from the graph database.
 """
 
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, LiteralString, Optional, Tuple
 import logging
 import json
 
@@ -16,7 +16,7 @@ from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import Nod
 logger = logging.getLogger(__name__)
 
 
-def get_codebase_skeleton_query() -> str:
+def get_codebase_skeleton_query() -> LiteralString:
     """
     Returns the Cypher query for retrieving the codebase skeleton structure.
 
@@ -97,7 +97,7 @@ def format_codebase_skeleton_result(query_result: List[Dict[str, Any]]) -> Dict[
         return {"nodes": [], "relationships": []}
 
 
-def get_node_details_query() -> str:
+def get_node_details_query() -> LiteralString:
     """
     Returns a query for retrieving detailed information about a specific node.
 
@@ -116,7 +116,7 @@ def get_node_details_query() -> str:
     """
 
 
-def get_node_relationships_query() -> str:
+def get_node_relationships_query() -> LiteralString:
     """
     Returns a query for retrieving relationships of a specific node.
 
@@ -372,7 +372,7 @@ def format_hierarchy_tree(hierarchy: Dict[str, Any]) -> List[str]:
     return output
 
 
-def get_code_nodes_by_ids_query() -> str:
+def get_code_nodes_by_ids_query() -> LiteralString:
     """Returns Cypher query to get code nodes by their IDs.
 
     Returns:
@@ -392,7 +392,7 @@ def get_code_nodes_by_ids_query() -> str:
     """
 
 
-def get_all_leaf_nodes_query() -> str:
+def get_all_leaf_nodes_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving all leaf nodes in the codebase hierarchy.
 
@@ -417,7 +417,7 @@ def get_all_leaf_nodes_query() -> str:
     """
 
 
-def get_folder_leaf_nodes_query() -> str:
+def get_folder_leaf_nodes_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving leaf nodes under a specific folder path.
 
@@ -537,7 +537,7 @@ def get_folder_leaf_nodes(
         return []
 
 
-def get_node_by_path_query() -> str:
+def get_node_by_path_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving a node (folder or file) by its path.
 
@@ -561,7 +561,7 @@ def get_node_by_path_query() -> str:
     """
 
 
-def get_direct_children_query() -> str:
+def get_direct_children_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving immediate children of a node.
 
@@ -730,7 +730,7 @@ def get_direct_children(
         return []
 
 
-def get_information_nodes_by_folder_query() -> str:
+def get_information_nodes_by_folder_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving the information node for a specific folder.
 
@@ -831,7 +831,7 @@ def get_information_nodes_by_folder(
         return []
 
 
-def get_root_information_nodes_query() -> str:
+def get_root_information_nodes_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving information nodes for root-level code nodes.
 
@@ -883,7 +883,7 @@ def get_root_information_nodes(db_manager: AbstractDbManager, entity_id: str, re
         return []
 
 
-def get_root_path_query() -> str:
+def get_root_path_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving root-level folders and files.
 
@@ -901,7 +901,7 @@ def get_root_path_query() -> str:
     """
 
 
-def get_root_path(db_manager: AbstractDbManager) -> str:
+def get_root_path(db_manager: AbstractDbManager) -> LiteralString:
     """
     Retrieves paths of all root-level folders and files.
 
@@ -928,7 +928,7 @@ def get_root_path(db_manager: AbstractDbManager) -> str:
 # 4-Layer Architecture Queries for Spec Analysis
 
 
-def find_independent_workflows_query() -> str:
+def find_independent_workflows_query() -> LiteralString:
     """
     Returns a Cypher query for finding workflow execution traces with documentation nodes.
 
@@ -1296,7 +1296,7 @@ def _create_bridge_edges(
     return all_edges
 
 
-def find_code_workflows_query() -> str:
+def find_code_workflows_query() -> LiteralString:
     """
     Returns a Cypher query for finding workflow execution traces using proper DFS traversal.
 
@@ -1535,7 +1535,7 @@ def find_code_workflows(
         return []
 
 
-def create_spec_node_query() -> str:
+def create_spec_node_query() -> LiteralString:
     """
     Returns a Cypher query for creating a spec node in the specifications layer.
 
@@ -1620,7 +1620,7 @@ def create_spec_node(
         return None
 
 
-def create_workflow_node_query() -> str:
+def create_workflow_node_query() -> LiteralString:
     """
     Returns a Cypher query for creating a workflow node in the workflows layer.
 
@@ -1643,7 +1643,7 @@ def create_workflow_node_query() -> str:
     """
 
 
-def create_workflow_belongs_to_spec_query() -> str:
+def create_workflow_belongs_to_spec_query() -> LiteralString:
     """
     Returns a Cypher query for creating BELONGS_TO_SPEC relationship.
 
@@ -1658,7 +1658,7 @@ def create_workflow_belongs_to_spec_query() -> str:
     """
 
 
-def create_documentation_belongs_to_workflow_query() -> str:
+def create_documentation_belongs_to_workflow_query() -> LiteralString:
     """
     Returns a Cypher query for creating BELONGS_TO_WORKFLOW relationships.
 
@@ -1674,7 +1674,7 @@ def create_documentation_belongs_to_workflow_query() -> str:
     """
 
 
-def create_workflow_steps_query() -> str:
+def create_workflow_steps_query() -> LiteralString:
     """
     Returns a Cypher query for creating WORKFLOW_STEP relationships between documentation nodes.
 
@@ -1776,7 +1776,7 @@ def create_workflow_with_relationships(
         return None
 
 
-def get_spec_with_layers_query() -> str:
+def get_spec_with_layers_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving a complete spec with all 4 layers.
 
@@ -1850,7 +1850,7 @@ def get_spec_with_layers(db_manager: AbstractDbManager, entity_id: str, repo_id:
 # Hybrid Entry Point Discovery Queries
 
 
-def find_potential_entry_points_query() -> str:
+def find_potential_entry_points_query() -> LiteralString:
     """
     Returns a Cypher query for finding potential entry points using comprehensive relationship checking.
 
@@ -1923,7 +1923,7 @@ def find_all_entry_points(db_manager: AbstractDbManager, entity_id: str, repo_id
         return []
 
 
-def find_nodes_by_text_query() -> str:
+def find_nodes_by_text_query() -> LiteralString:
     """
     Returns the Cypher query for finding nodes by text content.
 
@@ -1998,7 +1998,7 @@ def find_nodes_by_text_content(
         return []
 
 
-def get_file_context_by_id_query() -> str:
+def get_file_context_by_id_query() -> LiteralString:
     """
     Returns the Cypher query for getting file context by node ID.
 
@@ -2058,7 +2058,7 @@ def get_file_context_by_id(db_manager: AbstractDbManager, node_id: str, company_
         raise ValueError(f"Node {node_id} not found")
 
 
-def get_mermaid_graph_query() -> str:
+def get_mermaid_graph_query() -> LiteralString:
     """
     Returns the Cypher query for generating a mermaid diagram showing relationships.
 
@@ -2172,7 +2172,7 @@ def get_mermaid_graph(db_manager: AbstractDbManager, node_id: str, company_id: s
         return f"Error generating diagram for node {node_id}: {str(e)}"
 
 
-def get_code_by_id_query() -> str:
+def get_code_by_id_query() -> LiteralString:
     """
     Returns a simple Cypher query for getting node information by node ID.
 
@@ -2240,7 +2240,7 @@ def get_code_by_id(db_manager: AbstractDbManager, node_id: str, entity_id: str) 
 # Call Stack Navigation Queries
 
 
-def get_call_stack_children_query() -> str:
+def get_call_stack_children_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving functions/modules called or used by a function.
 
@@ -2295,7 +2295,7 @@ def get_call_stack_children(
         return []
 
 
-def get_function_cycle_detection_query() -> str:
+def get_function_cycle_detection_query() -> LiteralString:
     """
     Query to detect if a function participates in a call cycle.
 
@@ -2312,7 +2312,7 @@ def get_function_cycle_detection_query() -> str:
     """
 
 
-def get_existing_documentation_for_node_query() -> str:
+def get_existing_documentation_for_node_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving existing documentation for a specific code node.
 
@@ -2411,7 +2411,7 @@ def detect_function_cycles(db_manager: AbstractDbManager, node_id: str) -> List[
         return []
 
 
-def find_entry_points_for_node_path_query() -> str:
+def find_entry_points_for_node_path_query() -> LiteralString:
     """
     Find entry points that eventually reach a specific node path.
 
@@ -2482,7 +2482,7 @@ def find_entry_points_for_node_path(
         return []
 
 
-def get_documentation_nodes_for_embedding_query() -> str:
+def get_documentation_nodes_for_embedding_query() -> LiteralString:
     """Query to retrieve documentation nodes for embedding processing.
 
     Returns:
@@ -2502,7 +2502,7 @@ def get_documentation_nodes_for_embedding_query() -> str:
     """
 
 
-def update_documentation_embeddings_query() -> str:
+def update_documentation_embeddings_query() -> LiteralString:
     """Query to update embeddings for documentation nodes.
 
     Returns:
@@ -2516,7 +2516,7 @@ def update_documentation_embeddings_query() -> str:
     """
 
 
-def initialize_processing_query() -> str:
+def initialize_processing_query() -> LiteralString:
     """
     Initialize processing by marking all nodes as pending.
 
@@ -2536,7 +2536,7 @@ def initialize_processing_query() -> str:
     """
 
 
-def mark_processing_status_query() -> str:
+def mark_processing_status_query() -> LiteralString:
     """
     Update the processing status of a specific node.
 
@@ -2558,7 +2558,7 @@ def mark_processing_status_query() -> str:
     """
 
 
-def get_processable_nodes_query() -> str:
+def get_processable_nodes_query() -> LiteralString:
     """
     Get nodes that are ready for processing in bottom-up order.
 
@@ -2600,7 +2600,7 @@ def get_processable_nodes_query() -> str:
     """
 
 
-def cleanup_processing_query() -> str:
+def cleanup_processing_query() -> LiteralString:
     """
     Remove all processing status data from nodes.
 
@@ -2622,7 +2622,7 @@ def cleanup_processing_query() -> str:
 """
 
 
-def create_vector_index_query() -> str:
+def create_vector_index_query() -> LiteralString:
     """Create Neo4j vector index for documentation embeddings.
 
     Returns:
@@ -2639,7 +2639,7 @@ def create_vector_index_query() -> str:
     """
 
 
-def vector_similarity_search_query() -> str:
+def vector_similarity_search_query() -> LiteralString:
     """Cypher query for vector similarity search using Neo4j vector index.
 
     Returns:
@@ -2661,7 +2661,7 @@ def vector_similarity_search_query() -> str:
     """
 
 
-def hybrid_search_query() -> str:
+def hybrid_search_query() -> LiteralString:
     """Cypher query for hybrid search combining vector and keyword similarity.
 
     Returns:
@@ -2695,4 +2695,45 @@ def hybrid_search_query() -> str:
            node.enhanced_content as enhanced_content
     ORDER BY combined_score DESC
     LIMIT $limit
+    """
+
+
+def get_node_by_id_query() -> LiteralString:
+    """Cypher query to retrieve a node by its ID.
+
+    Returns:
+        Cypher query string for retrieving a node by its ID
+    """
+    return """
+        MATCH (n:NODE {node_id: $node_id, repoId: $repo_id, entityId: $entity_id})
+        CALL (n) {
+            MATCH (n)-[out_rel]->(out_node)
+            RETURN collect(DISTINCT {
+                node_id: out_node.node_id,
+                node_name: out_node.name,
+                node_type: labels(out_node),
+                relationship_type: type(out_rel)
+            })[0..100] AS outbound_relations
+        }
+        CALL (n) {
+            MATCH (in_node)-[in_rel]->(n)
+            RETURN collect(DISTINCT {
+                node_id: in_node.node_id,
+                node_name: in_node.name,
+                node_type: labels(in_node),
+                relationship_type: type(in_rel)
+            })[0..100] AS inbound_relations
+        }
+        CALL (n) {
+            OPTIONAL MATCH (doc_node)-[:DESCRIBES]->(n)
+            WHERE 'DOCUMENTATION' IN labels(doc_node)
+            RETURN doc_node.content as documentation
+            LIMIT 1
+        }
+        RETURN n,
+            labels(n) AS labels,
+            outbound_relations,
+            inbound_relations,
+            documentation
+        LIMIT 1
     """

@@ -122,7 +122,7 @@ class DirectoryExplorerTool:
             if result and len(result) > 0:
                 root_node = result[0]
                 logger.info(f"✅ Found repo root: {root_node['node_id']} at path: {root_node['path']}")
-                return root_node
+                return root_node["node_id"]
 
             return None
 

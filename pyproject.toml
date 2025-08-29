@@ -10,7 +10,7 @@ license = "MIT"
 packages = [{include = "blarify"}, {include = "neo4j_container_manager"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<=3.14"
+python = ">=3.11,<=3.14"
 asyncio = "^3.4.3"
 websockets = "^13.1"
 neo4j = "^5.25.0"

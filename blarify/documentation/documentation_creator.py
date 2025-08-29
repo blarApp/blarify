@@ -186,9 +186,7 @@ class DocumentationCreator:
         try:
             if node_path is not None:
                 logger.info(f"Discovering entry points for node path: {node_path}")
-                entry_points = find_entry_points_for_node_path(
-                    db_manager=self.db_manager, entity_id=self.company_id, repo_id=self.repo_id, node_path=node_path
-                )
+                entry_points = find_entry_points_for_node_path(db_manager=self.db_manager, node_path=node_path)
                 # Convert to standard format
                 standardized_entry_points = []
                 for ep in entry_points:
@@ -199,9 +197,7 @@ class DocumentationCreator:
             else:
                 logger.info("Discovering entry points using hybrid approach")
 
-                entry_points = find_all_entry_points(
-                    db_manager=self.db_manager, entity_id=self.company_id, repo_id=self.repo_id
-                )
+                entry_points = find_all_entry_points(db_manager=self.db_manager)
 
                 # Convert to standard format
                 standardized_entry_points = []

@@ -1,6 +1,6 @@
 """NodeSearchResultDTO for representing node search results."""
 
-from typing import List
+from typing import Optional
 from pydantic import BaseModel, ConfigDict
 
 from .edge_dto import EdgeDTO
@@ -13,11 +13,13 @@ class NodeSearchResultDTO(BaseModel):
 
     node_id: str
     node_name: str
-    node_labels: List[str]
-    path: str
-    node_path: str
+    node_labels: list[str]
     code: str
-    diff_text: str
-    outbound_relations: List[EdgeDTO]
-    inbound_relations: List[EdgeDTO]
-    modified_node: bool
+    start_line: Optional[int] = None
+    end_line: Optional[int] = None
+    file_path: Optional[str] = None
+    # Enhanced fields for relationships
+    inbound_relations: Optional[list[EdgeDTO]] = None
+    outbound_relations: Optional[list[EdgeDTO]] = None
+    # Documentation nodes that describe this code node
+    documentation: Optional[str] = None

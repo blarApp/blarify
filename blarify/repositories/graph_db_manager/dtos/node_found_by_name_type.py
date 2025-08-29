@@ -1,22 +1,15 @@
-from pydantic import BaseModel
+from dataclasses import dataclass, asdict
 
 
-class NodeFoundByNameTypeDto(BaseModel):
-    id: str
-    name: str
-    label: str
-    diff_text: str
-    node_path: str
-    text: str
-    diff_identifier: str
+@dataclass
+class NodeFoundByNameTypeDto:
+    """Node found by name and type data transfer object."""
 
-    def get_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "label": self.label,
-            "diff_text": self.diff_text,
-            "node_path": self.node_path,
-            "text": self.text,
-            "diff_identifier": self.diff_identifier,
-        }
+    node_id: str
+    node_name: str
+    node_type: list[str]
+    file_path: str
+    code: str | None = None
+
+    def as_dict(self):
+        return asdict(self)

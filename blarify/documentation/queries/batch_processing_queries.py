@@ -1,7 +1,9 @@
 """Cypher queries for batch processing documentation nodes."""
 
+from typing import LiteralString
 
-def get_leaf_nodes_batch_query() -> str:
+
+def get_leaf_nodes_batch_query() -> LiteralString:
     """
     Get batch of leaf nodes (FUNCTION nodes with no CALLS or FILE nodes with no children).
 
@@ -37,7 +39,7 @@ def get_leaf_nodes_batch_query() -> str:
     """
 
 
-def get_processable_nodes_with_descriptions_query() -> str:
+def get_processable_nodes_with_descriptions_query() -> LiteralString:
     """
     Get nodes ready for processing with their children's descriptions.
 
@@ -102,7 +104,7 @@ def get_processable_nodes_with_descriptions_query() -> str:
     """
 
 
-def mark_nodes_completed_query() -> str:
+def mark_nodes_completed_query() -> LiteralString:
     """
     Mark nodes as completed after documentation has been saved.
 
@@ -117,7 +119,7 @@ def mark_nodes_completed_query() -> str:
     """
 
 
-def check_pending_nodes_query() -> str:
+def check_pending_nodes_query() -> LiteralString:
     """
     Check if there are any pending nodes remaining.
 
@@ -131,7 +133,7 @@ def check_pending_nodes_query() -> str:
     """
 
 
-def get_leaf_nodes_under_node_query() -> str:
+def get_leaf_nodes_under_node_query() -> LiteralString:
     """
     Get all leaf nodes that are under a given root node (descendants only).
 
@@ -171,7 +173,7 @@ def get_leaf_nodes_under_node_query() -> str:
         """
 
 
-def get_child_descriptions_query() -> str:
+def get_child_descriptions_query() -> LiteralString:
     """
     Get descriptions for all child nodes of a given parent node.
 

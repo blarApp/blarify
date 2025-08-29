@@ -65,12 +65,7 @@ class TestWorkflowCreatorIntegration:
 
         # Step 3: Create WorkflowCreator and discover workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
-        workflow_creator = WorkflowCreator(
-            db_manager=db_manager,
-            graph_environment=graph_env,
-            company_id="test-entity",
-            repo_id="test-repo",
-        )
+        workflow_creator = WorkflowCreator(db_manager=db_manager, graph_environment=graph_env)
 
         # Find the main function ID to use as entry point
         main_query = """
@@ -174,12 +169,7 @@ class TestWorkflowCreatorIntegration:
 
         # Step 2: Create WorkflowCreator and discover workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
-        workflow_creator = WorkflowCreator(
-            db_manager=db_manager,
-            graph_environment=graph_env,
-            company_id="test-entity",
-            repo_id="test-repo",
-        )
+        workflow_creator = WorkflowCreator(db_manager=db_manager, graph_environment=graph_env)
 
         discovery_result = workflow_creator.discover_workflows(
             entry_points=None,
@@ -249,12 +239,7 @@ class TestWorkflowCreatorIntegration:
 
         # Step 2: Create WorkflowCreator and discover workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
-        workflow_creator = WorkflowCreator(
-            db_manager=db_manager,
-            graph_environment=graph_env,
-            company_id="test-entity",
-            repo_id="test-repo",
-        )
+        workflow_creator = WorkflowCreator(db_manager=db_manager, graph_environment=graph_env)
 
         # Find function IDs to use as entry points (factorial, is_even as examples)
         entry_query = """
@@ -365,12 +350,7 @@ def main():
 
         # Step 2: Create WorkflowCreator and discover workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(temp_project_dir))
-        workflow_creator = WorkflowCreator(
-            db_manager=db_manager,
-            graph_environment=graph_env,
-            company_id="test-entity",
-            repo_id="test-repo",
-        )
+        workflow_creator = WorkflowCreator(db_manager=db_manager, graph_environment=graph_env)
 
         _ = workflow_creator.discover_workflows(
             entry_points=None,
@@ -443,12 +423,7 @@ def main():
 
         # Step 2: Discover workflows (simplified - just use main entry point)
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
-        workflow_creator = WorkflowCreator(
-            db_manager=db_manager,
-            graph_environment=graph_env,
-            company_id="test-entity",
-            repo_id="test-repo",
-        )
+        workflow_creator = WorkflowCreator(db_manager=db_manager, graph_environment=graph_env)
 
         # Find the main function ID
         main_query = """
@@ -532,12 +507,7 @@ def main():
 
         # Step 2: Create workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
-        workflow_creator = WorkflowCreator(
-            db_manager=db_manager,
-            graph_environment=graph_env,
-            company_id="test-entity",
-            repo_id="test-repo",
-        )
+        workflow_creator = WorkflowCreator(db_manager=db_manager, graph_environment=graph_env)
 
         # Find the main function ID
         main_query = """

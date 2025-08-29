@@ -1,12 +1,16 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Optional
 
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
-from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+# Use SWE-agent logging system for consistency
+try:
+    from sweagent.utils.log import get_logger
 
-logger = logging.getLogger(__name__)
+    logger = get_logger("directory-explorer", emoji="📁")
+except ImportError:
+    logger = logging.getLogger(__name__)
 
 
 class DirectoryExplorerTool:
@@ -15,11 +19,17 @@ class DirectoryExplorerTool:
     Provides navigation through the hierarchical structure of the repository.
     """
 
-    def __init__(self, company_graph_manager: Neo4jManager, company_id: str, repo_id: str):
+    def __init__(self, company_graph_manager: Any, company_id: str, repo_id: str):
         self.company_graph_manager = company_graph_manager
         self.company_id = company_id
         self.repo_id = repo_id
         self._repo_root_cache = None
+
+        # Log initialization parameters for debugging
+        logger.info(f"DirectoryExplorerTool initialized with company_id='{company_id}', repo_id='{repo_id}'")
+        logger.info(f"Neo4j manager available: {company_graph_manager.is_available()}")
+        if hasattr(company_graph_manager, "neo4j_available"):
+            logger.info(f"Neo4j connection status: {company_graph_manager.neo4j_available}")
 
     def get_tool(self) -> BaseTool:
         @tool
@@ -35,7 +45,6 @@ class DirectoryExplorerTool:
             """
             try:
                 # If no node_id provided, find and use repo root
-                node_id = node_id.strip() if node_id else None
                 if node_id is None:
                     node_id = self._find_repo_root()
                     if not node_id:
@@ -51,7 +60,7 @@ class DirectoryExplorerTool:
                 return self._format_directory_listing(contents, node_id)
 
             except Exception as e:
-                logger.exception(f"Error listing directory contents: {e}")
+                logger.error(f"Error listing directory contents: {e}")
                 return f"Error listing directory: {str(e)}"
 
         return list_directory_contents
@@ -73,7 +82,7 @@ class DirectoryExplorerTool:
                 else:
                     return "Repository root not found"
             except Exception as e:
-                logger.exception(f"Error finding repo root: {e}")
+                logger.error(f"Error finding repo root: {e}")
                 return f"Error finding repository root: {str(e)}"
 
         return find_repo_root
@@ -83,8 +92,13 @@ class DirectoryExplorerTool:
         Find the root node of the repository using Neo4j query.
         The root is typically a node that has no incoming 'contains' relationships.
         """
-        if self._repo_root_cache:
-            return self._repo_root_cache
+
+        logger.info(f"Searching for repository root with entity_id='{self.company_id}', repo_id='{self.repo_id}'")
+
+        # Check if Neo4j is available
+        if not self.company_graph_manager.is_available():
+            logger.error("Neo4j manager is not available - cannot find repository root")
+            return None
 
         try:
             # Query to find root nodes (nodes with no incoming 'contains' relationships)
@@ -98,26 +112,37 @@ class DirectoryExplorerTool:
             LIMIT 1
             """
 
+            logger.debug(
+                f"Executing root query with parameters: entity_id='{self.company_id}', repoId='{self.repo_id}'"
+            )
             result = self.company_graph_manager.query(query, {"entity_id": self.company_id, "repoId": self.repo_id})
+
+            logger.debug(f"Root query returned {len(result) if result else 0} results")
+
             if result and len(result) > 0:
                 root_node = result[0]
-                self._repo_root_cache = root_node["node_id"]
-                logger.info(f"Found repo root: {root_node['node_id']} at path: {root_node['path']}")
-                return self._repo_root_cache
+                logger.info(f"✅ Found repo root: {root_node['node_id']} at path: {root_node['path']}")
+                return root_node["node_id"]
 
             return None
 
         except Exception as e:
-            logger.exception(f"Error finding repo root: {e}")
+            logger.error(f"❌ Error finding repo root: {e}")
+            logger.error(f"Query parameters: entity_id='{self.company_id}', repo_id='{self.repo_id}'")
+            import traceback
+
+            logger.debug(f"Full traceback: {traceback.format_exc()}")
             return None
 
-    def _list_directory_children(self, node_id: str) -> List[Dict]:
+    def _list_directory_children(self, node_id: str) -> list[dict]:
         """
         List all children of a directory node using the 'contains' relationship.
         """
         try:
             query = """
-            MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id})-[:CONTAINS]->(child:NODE)
+            MATCH (parent:NODE {node_id: $node_id})-[:CONTAINS]->(child:NODE)
+            WHERE parent.entityId = $entity_id
+            AND child.entityId = $entity_id
             RETURN child.node_id as node_id,
                    child.name as name,
                    child.node_path as path,
@@ -130,10 +155,10 @@ class DirectoryExplorerTool:
             return result if result else []
 
         except Exception as e:
-            logger.exception(f"Error listing directory children for {node_id}: {e}")
+            logger.error(f"Error listing directory children for {node_id}: {e}")
             return []
 
-    def _get_node_info(self, node_id: str) -> Dict:
+    def _get_node_info(self, node_id: str) -> dict:
         """Get basic information about a node."""
         try:
             query = """
@@ -148,10 +173,10 @@ class DirectoryExplorerTool:
             return result[0] if result and len(result) > 0 else {}
 
         except Exception as e:
-            logger.exception(f"Error getting node info for {node_id}: {e}")
+            logger.error(f"Error getting node info for {node_id}: {e}")
             return {}
 
-    def _format_directory_listing(self, contents: List[Dict], parent_node_id: str) -> str:
+    def _format_directory_listing(self, contents: list[dict], parent_node_id: str) -> str:
         """
         Format directory contents into a readable string representation.
         """
@@ -200,36 +225,8 @@ class DirectoryExplorerTool:
             return output
 
         except Exception as e:
-            logger.exception(f"Error formatting directory listing: {e}")
+            logger.error(f"Error formatting directory listing: {e}")
             return f"Error formatting directory listing: {str(e)}"
-
-    def get_navigation_tool(self) -> BaseTool:
-        @tool
-        def navigate_to_path(path: str) -> str:
-            """
-            Navigate to a specific path in the repository and list its contents.
-
-            Args:
-                path: The relative path from repository root (e.g., "src/components", "tests/")
-
-            Returns:
-                Directory listing for the specified path
-            """
-            try:
-                # Find node by path
-                node_id = self._find_node_by_path(path)
-                if not node_id:
-                    return f"Path '{path}' not found in repository"
-
-                # List contents of the found node
-                contents = self._list_directory_children(node_id)
-                return self._format_directory_listing(contents, node_id)
-
-            except Exception as e:
-                logger.exception(f"Error navigating to path {path}: {e}")
-                return f"Error navigating to path '{path}': {str(e)}"
-
-        return navigate_to_path
 
     def _find_node_by_path(self, path: str) -> Optional[str]:
         """Find a node by its path."""
@@ -238,7 +235,7 @@ class DirectoryExplorerTool:
             normalized_path = path.strip("/")
 
             query = """
-            MATCH (n:NODE {entityId: $entity_id, repoId: $repoId, environment: "main"})
+            MATCH (n:NODE {entityId: $entity_id, repoId: $repoId})
             WHERE n.node_path = $path
             RETURN n.node_id as node_id
             LIMIT 1
@@ -251,5 +248,5 @@ class DirectoryExplorerTool:
             return result[0]["node_id"] if result and len(result) > 0 else None
 
         except Exception as e:
-            logger.exception(f"Error finding node by path {path}: {e}")
+            logger.error(f"Error finding node by path {path}: {e}")
             return None

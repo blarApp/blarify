@@ -1,11 +1,18 @@
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Optional
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from blarify.repositories.graph_db_manager.dtos.node_found_by_path import NodeFoundByPathDto
-from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+
+# Pydantic Response Models (replacement for blarify DTOs)
+class NodeFoundByPathResponse(BaseModel):
+    """Node found by path response model."""
+    node_id: str
+    node_name: str
+    node_type: list[str]
+    file_path: str
+    code: Optional[str] = None
 
 
 class Input(BaseModel):
@@ -17,32 +24,29 @@ class FindNodesByPath(BaseTool):
     description: str = "Searches for nodes by path in the Neo4j database"
 
     company_id: str = Field(description="Company ID to search for in the Neo4j database")
-    db_manager: Neo4jManager = Field(description="Neo4jManager object to interact with the database")
+    db_manager: Any = Field(description="Neo4jManager object to interact with the database")
     repo_id: str = Field(description="Repository ID to search for in the Neo4j database")
     diff_identifier: str = Field(description="Identifier for the PR on the graph, to search for in the Neo4j database")
 
-    args_schema: Type[BaseModel] = Input
+    args_schema: type[BaseModel] = Input
 
     def _run(
         self,
         path: str,
         run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) -> Dict[str, Any] | str:
+    ) -> dict[str, Any] | str:
         """Retrivies all nodes that contain the given path."""
 
-        nodes: List[NodeFoundByPathDto] = self.db_manager.get_nodes_by_path(
+        nodes: list[NodeFoundByPathResponse] = self.db_manager.get_nodes_by_path(
             path=path,
-            company_id=self.company_id,
-            repo_id=self.repo_id,
-            diff_identifier=self.diff_identifier,
         )
 
-        nodes_as_dict = [node.as_dict() for node in nodes]
+        nodes_as_dict = [node.model_dump() for node in nodes]
 
-        if len(nodes) > 20:
+        if len(nodes) > 15:
             return "Too many nodes found. Please refine your query or use another tool"
 
-        nodes: List[NodeFoundByPathDto] = nodes_as_dict
+        nodes: list[NodeFoundByPathResponse] = nodes_as_dict
         return {
             "nodes": nodes,
             "too many nodes": False,

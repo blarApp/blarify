@@ -1,10 +1,11 @@
 """Unit tests for GetNodeWorkflowsTool auto-generation functionality."""
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, MagicMock, patch, create_autospec
 from typing import Any, Dict, List
 
 from blarify.tools.get_node_workflows import GetNodeWorkflowsTool
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
 
 class TestGetNodeWorkflowsToolAutoGenerate:
@@ -13,7 +14,7 @@ class TestGetNodeWorkflowsToolAutoGenerate:
     @pytest.fixture
     def mock_db_manager(self) -> Mock:
         """Create a mock database manager."""
-        mock = Mock()
+        mock = create_autospec(Neo4jManager, instance=True)
         return mock
 
     @pytest.fixture

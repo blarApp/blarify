@@ -59,19 +59,12 @@ class GetNodeWorkflowsTool(BaseTool):
             handle_validation_error=handle_validation_error,
             auto_generate=auto_generate,
         )
-        logger.info(f"GetNodeWorkflowsTool initialized with company_id='{company_id}'")
-        
+
         # Initialize WorkflowCreator if auto_generate is enabled
         if self.auto_generate:
             self._workflow_creator = WorkflowCreator(
                 db_manager=self.db_manager,
-                graph_environment=GraphEnvironment(
-                    environment="production",
-                    diff_identifier="main",
-                    root_path="/"
-                ),
-                company_id=self.company_id,
-                repo_id=self.company_id
+                graph_environment=GraphEnvironment(environment="main", diff_identifier="0", root_path="/"),
             )
         else:
             self._workflow_creator = None
@@ -81,23 +74,19 @@ class GetNodeWorkflowsTool(BaseTool):
         try:
             if not self.auto_generate or not self._workflow_creator:
                 return []
-                
+
             logger.debug(f"Auto-generating workflows for node {node_id}")
-            
+
             # Generate workflows targeting this specific node
-            result = self._workflow_creator.discover_workflows(
-                node_path=node_path,
-                max_depth=20,
-                save_to_database=True
-            )
-            
+            result = self._workflow_creator.discover_workflows(node_path=node_path, max_depth=20, save_to_database=True)
+
             if result.error:
                 logger.error(f"Workflow generation error: {result.error}")
                 return []
-                
+
             # Re-query for workflows after generation
             return self._get_workflows_with_chains(node_id)
-            
+
         except Exception as e:
             logger.error(f"Failed to auto-generate workflows: {e}")
             return []
@@ -135,10 +124,10 @@ class GetNodeWorkflowsTool(BaseTool):
 
             if not workflows and self.auto_generate:
                 # Try to generate workflows
-                node_path = node_info.get('path') or node_info.get('node_path', '')
+                node_path = node_info.get("path") or node_info.get("node_path", "")
                 if node_path:
                     workflows = self._generate_workflows_for_node(node_id, node_path)
-                
+
             if not workflows:
                 output += "\n" + "━" * 80 + "\n"
                 output += "⚠️ WARNING: No workflows found for this node!\n"

@@ -14,7 +14,7 @@ def get_leaf_nodes_batch_query() -> str:
     """
     return """
     MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.processing_status IS NULL AND NOT n:DOCUMENTATION
+    WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id) AND NOT n:DOCUMENTATION
       AND (
         // FUNCTION nodes with no calls
         ('FUNCTION' IN labels(n) AND NOT (n)-[:CALLS]->(:NODE))
@@ -45,9 +45,10 @@ def get_processable_nodes_with_descriptions_query() -> str:
     the descriptions of those children for context.
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.processing_status IS NULL AND NOT n:DOCUMENTATION
-    
+    MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
+    MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL*1..]->(n:NODE)
+    WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id) AND NOT n:DOCUMENTATION
+
     // Check hierarchy children are all processed
     OPTIONAL MATCH (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->(hier_child:NODE)
     WHERE hier_child.processing_run_id = $run_id
@@ -127,4 +128,68 @@ def check_pending_nodes_query() -> str:
     MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
     WHERE n.processing_status IS NULL AND NOT n:DOCUMENTATION
     RETURN count(n) as pending_count
+    """
+
+
+def get_leaf_nodes_under_node_query() -> str:
+    """
+    Get all leaf nodes that are under a given root node (descendants only).
+
+    Leaf definition mirrors get_leaf_nodes_batch_query:
+    - FUNCTION nodes with no outgoing CALLS relationships
+    - FILE nodes with no FUNCTION_DEFINITION, CLASS_DEFINITION children and no CALLS
+
+    Scope is limited to descendants of the provided root node within the same
+    entity/repo. This query does not update processing state.
+    Expected params: $entity_id, $repo_id, $root_node_id
+    """
+    return """
+        // Anchor to the specified root in this entity/repo
+        MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
+        // Traverse hierarchical relationships to find descendants
+        MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL*1..]->(n:NODE)
+        WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id) AND NOT n:DOCUMENTATION
+            AND (
+                // FUNCTION nodes with no calls
+                ('FUNCTION' IN labels(n) AND NOT (n)-[:CALLS]->(:NODE))
+                OR
+                // FILE nodes with no hierarchical children and no calls
+                ('FILE' IN labels(n)
+                 AND NOT (n)-[:FUNCTION_DEFINITION|CLASS_DEFINITION]->(:NODE)
+                 AND NOT (n)-[:CALLS]->(:NODE))
+            )
+        WITH n LIMIT $batch_size
+        SET n.processing_status = 'in_progress',
+            n.processing_run_id = $run_id
+        RETURN n.node_id as id,
+                     n.name as name,
+                     labels(n) as labels,
+                     n.path as path,
+                     n.start_line as start_line,
+                     n.end_line as end_line,
+                     coalesce(n.text, '') as content
+        """
+
+
+def get_child_descriptions_query() -> str:
+    """
+    Get descriptions for all child nodes of a given parent node.
+
+    This query collects descriptions from all child nodes (direct descendants)
+    of the specified parent node.
+
+    Expected params: $entity_id, $repo_id, $parent_node_id
+    """
+    return """
+    MATCH (parent:NODE {node_id: $parent_node_id, entityId: $entity_id, repoId: $repo_id})
+    // Find all direct children of the parent node
+    MATCH (parent)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL]->(child:NODE)
+    MATCH (child_doc)-[:DESCRIBES]->(child)
+    RETURN child.node_id as id,
+           child.name as name,
+           labels(child) as labels,
+           child.path as path,
+           child.start_line as start_line,
+           child.end_line as end_line,
+           child_doc.content as description
     """

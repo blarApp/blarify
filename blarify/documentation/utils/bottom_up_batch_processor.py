@@ -22,6 +22,10 @@ from blarify.agents.prompt_templates import (
     FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE,
 )
+from blarify.documentation.queries.batch_processing_queries import (
+    get_child_descriptions_query,
+    get_leaf_nodes_under_node_query,
+)
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 from blarify.repositories.graph_db_manager.queries import (
@@ -31,7 +35,6 @@ from blarify.repositories.graph_db_manager.queries import (
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.relationship.relationship_creator import RelationshipCreator
 from blarify.documentation.queries import (
-    get_leaf_nodes_batch_query,
     get_processable_nodes_with_descriptions_query,
     mark_nodes_completed_query,
     check_pending_nodes_query,
@@ -188,7 +191,7 @@ class BottomUpBatchProcessor:
             iteration += 1
 
             # Try to process leaf nodes first
-            leaf_count = self._process_leaf_batch()
+            leaf_count = self._process_leaf_batch(root_node)
             if leaf_count == 0:
                 break
             total_processed += leaf_count
@@ -200,7 +203,7 @@ class BottomUpBatchProcessor:
             iteration += 1
 
             # Then process parent nodes with descriptions
-            parent_count = self._process_parent_batch()
+            parent_count = self._process_parent_batch(root_node)
             if parent_count > 0:
                 total_processed += parent_count
                 continue
@@ -214,17 +217,23 @@ class BottomUpBatchProcessor:
             logger.warning(f"Iteration {iteration}: Pending nodes exist but none processable - checking for root node")
             break
 
+        # Process root node
+        root_count = self._process_root_node(root_node)
+        if root_count > 0:
+            total_processed += root_count
+
         return total_processed
 
-    def _process_leaf_batch(self) -> int:
+    def _process_leaf_batch(self, root_node: NodeWithContentDto) -> int:
         """Process a batch of leaf nodes."""
         # Get leaf nodes from database
-        query = get_leaf_nodes_batch_query()
+        query = get_leaf_nodes_under_node_query()
         params = {
             "entity_id": self.company_id,
             "repo_id": self.repo_id,
             "run_id": self.processing_run_id,
             "batch_size": self.batch_size,
+            "root_node_id": root_node.id,
         }
 
         batch_results = self.db_manager.query(query, params)
@@ -265,7 +274,7 @@ class BottomUpBatchProcessor:
 
         return len(batch_results)
 
-    def _process_parent_batch(self) -> int:
+    def _process_parent_batch(self, root_node: NodeWithContentDto) -> int:
         """Process a batch of parent nodes with child descriptions."""
         # Get parent nodes with descriptions from database
         query = get_processable_nodes_with_descriptions_query()
@@ -273,6 +282,7 @@ class BottomUpBatchProcessor:
             "entity_id": self.company_id,
             "repo_id": self.repo_id,
             "run_id": self.processing_run_id,
+            "root_node_id": root_node.id,
             "batch_size": self.batch_size,
         }
 
@@ -336,6 +346,52 @@ class BottomUpBatchProcessor:
 
         return len(batch_results)
 
+    def _process_root_node(self, root_node: NodeWithContentDto) -> int:
+        """
+        Process the root node and its children.
+
+        Args:
+            root_node: The root node DTO to process
+
+        Returns:
+            Number of processed nodes
+        """
+        try:
+            # Process the root node
+            child_query = get_child_descriptions_query()
+
+            result = self.db_manager.query(
+                child_query,
+                {
+                    "parent_node_id": root_node.id,
+                },
+            )
+
+            child_descriptions = []
+            for desc in result:
+                if desc and desc.get("description"):
+                    # Create minimal DocumentationNode for child context
+                    child_doc = DocumentationNode(
+                        content=desc["description"],
+                        info_type="child_description",
+                        source_path=desc.get("path", ""),
+                        source_name=desc.get("name", ""),
+                        source_id=desc.get("id", ""),
+                        source_labels=desc.get("labels", []),
+                        source_type="child",
+                        graph_environment=self.graph_environment,
+                    )
+                    child_descriptions.append(child_doc)
+
+            root_doc = self._process_parent_node(root_node, child_descriptions=child_descriptions)
+            if root_doc:
+                self._save_documentation_batch([root_doc])
+                return 1
+            return 0
+        except Exception as e:
+            logger.error(f"Error processing root node: {e}")
+            return 0
+
     def _save_documentation_batch(self, documentation_nodes: List[DocumentationNode]):
         """Save documentation to database using create_nodes and mark nodes completed."""
         if not documentation_nodes:
@@ -355,7 +411,10 @@ class BottomUpBatchProcessor:
         node_objects = [node.as_object() for node in documentation_nodes]
 
         # Create DOCUMENTATION nodes and DESCRIBES relationships
-        self.db_manager.create_nodes(node_objects)
+        try:
+            self.db_manager.create_nodes(node_objects)
+        except Exception as e:
+            logger.error(f"Error creating nodes: {e}")
 
         # Create DESCRIBES relationships
         relationships = RelationshipCreator.create_describes_relationships(documentation_nodes)

@@ -36,7 +36,7 @@ class GetNodeWorkflowsTool(BaseTool):
         "Shows how the node is called, what calls it, and its role in larger workflows."
     )
 
-    args_schema: type[BaseModel] = NodeWorkflowsInput
+    args_schema: type[BaseModel] = NodeWorkflowsInput  # type: ignore[assignment]
 
     db_manager: Neo4jManager = Field(description="Neo4jManager object to interact with the database")
     company_id: str = Field(description="Company ID to search for in the Neo4j database")
@@ -46,6 +46,7 @@ class GetNodeWorkflowsTool(BaseTool):
         db_manager: Neo4jManager,
         company_id: str,
         handle_validation_error: bool = False,
+        auto_generate: bool = True,
     ):
         """Initialize the tool with database connection."""
         super().__init__(
@@ -53,7 +54,52 @@ class GetNodeWorkflowsTool(BaseTool):
             company_id=company_id,
             handle_validation_error=handle_validation_error,
         )
+        self.auto_generate = auto_generate
         logger.info(f"GetNodeWorkflowsTool initialized with company_id='{company_id}'")
+        
+        # Initialize WorkflowCreator if auto_generate is enabled
+        if self.auto_generate:
+            from blarify.documentation.workflow_creator import WorkflowCreator
+            from blarify.graph.graph_environment import GraphEnvironment
+            
+            self._workflow_creator = WorkflowCreator(
+                db_manager=self.db_manager,
+                graph_environment=GraphEnvironment(
+                    environment="production",
+                    diff_identifier="main",
+                    root_path="/"
+                ),
+                company_id=self.company_id,
+                repo_id=self.company_id
+            )
+        else:
+            self._workflow_creator = None
+
+    def _generate_workflows_for_node(self, node_id: str, node_path: str) -> list[dict[str, Any]]:
+        """Generate workflows for a specific node."""
+        try:
+            if not self.auto_generate or not self._workflow_creator:
+                return []
+                
+            logger.debug(f"Auto-generating workflows for node {node_id}")
+            
+            # Generate workflows targeting this specific node
+            result = self._workflow_creator.discover_workflows(
+                node_path=node_path,
+                max_depth=20,
+                save_to_database=True
+            )
+            
+            if result.error:
+                logger.error(f"Workflow generation error: {result.error}")
+                return []
+                
+            # Re-query for workflows after generation
+            return self._get_workflows_with_chains(node_id)
+            
+        except Exception as e:
+            logger.error(f"Failed to auto-generate workflows: {e}")
+            return []
 
     def _run(
         self,
@@ -86,11 +132,20 @@ class GetNodeWorkflowsTool(BaseTool):
             # Get all workflows and their execution chains
             workflows = self._get_workflows_with_chains(node_id)
 
+            if not workflows and self.auto_generate:
+                # Try to generate workflows
+                node_path = node_info.get('path') or node_info.get('node_path', '')
+                if node_path:
+                    workflows = self._generate_workflows_for_node(node_id, node_path)
+                
             if not workflows:
                 output += "\n" + "━" * 80 + "\n"
                 output += "⚠️ WARNING: No workflows found for this node!\n"
                 output += "\n"
-                output += "This is likely a data issue. Every code node should belong to at least one workflow.\n"
+                if self.auto_generate:
+                    output += "Auto-generation was attempted but no workflows were discovered.\n"
+                else:
+                    output += "This is likely a data issue. Every code node should belong to at least one workflow.\n"
                 output += "Possible causes:\n"
                 output += "  • Workflow layer not properly generated for this repository\n"
                 output += "  • Missing BELONGS_TO_WORKFLOW relationships in the graph\n"

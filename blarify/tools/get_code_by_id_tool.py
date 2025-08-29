@@ -41,7 +41,6 @@ class GetCodeByIdTool(BaseTool):
     db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
     company_id: str = Field(description="Company ID to search for in the Neo4j database")
     auto_generate: bool = Field(default=True, description="Whether to auto-generate documentation when missing")
-    _documentation_creator: DocumentationCreator
 
     def __init__(
         self,
@@ -58,15 +57,18 @@ class GetCodeByIdTool(BaseTool):
         )
 
         # Initialize DocumentationCreator if auto_generate is enabled
-        self._documentation_creator = DocumentationCreator(
-            db_manager=self.db_manager,
-            agent_caller=LLMProvider(),
-            graph_environment=GraphEnvironment(environment="production", diff_identifier="main", root_path="/"),
-            company_id=self.company_id,
-            repo_id=self.company_id,
-            max_workers=1,
-            overwrite_documentation=False,
-        )
+        if auto_generate:
+            self._documentation_creator = DocumentationCreator(
+                db_manager=self.db_manager,
+                agent_caller=LLMProvider(),
+                graph_environment=GraphEnvironment(environment="production", diff_identifier="main", root_path="/"),
+                company_id=self.company_id,
+                repo_id=self.company_id,
+                max_workers=1,
+                overwrite_documentation=False,
+            )
+        else:
+            self._documentation_creator = None
 
     def _generate_documentation_for_node(self, node_id: str) -> Optional[str]:
         """Generate documentation for a specific node."""

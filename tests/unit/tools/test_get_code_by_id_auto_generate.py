@@ -3,7 +3,8 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
-from blarify.tools.get_code_by_id_tool import GetCodeByIdTool, NodeSearchResultResponse
+from blarify.tools.get_code_by_id_tool import GetCodeByIdTool, NodeSearchResultDTO
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 
 
 class TestGetCodeByIdToolAutoGenerate:
@@ -11,14 +12,18 @@ class TestGetCodeByIdToolAutoGenerate:
 
     @pytest.fixture
     def mock_db_manager(self) -> Mock:
-        """Create a mock database manager."""
-        mock = Mock()
+        """Create a mock database manager that properly inherits from AbstractDbManager."""
+        # Create a mock that properly inherits from AbstractDbManager
+        mock = Mock(spec=AbstractDbManager)
+        # Configure the mock to have the required methods with default return values
+        mock.get_node_by_id = Mock(return_value=None)  # Default to returning None
+        mock.query = Mock(return_value=[])  # Default to returning empty list
         return mock
 
     @pytest.fixture
-    def mock_node_result(self) -> NodeSearchResultResponse:
+    def mock_node_result(self) -> NodeSearchResultDTO:
         """Create a mock node result without documentation."""
-        return NodeSearchResultResponse(
+        return NodeSearchResultDTO(
             node_id="test_node_123",
             node_name="test_function.py",
             node_labels=["FILE", "PYTHON"],
@@ -26,13 +31,13 @@ class TestGetCodeByIdToolAutoGenerate:
             start_line=1,
             end_line=2,
             file_path="/test/test_function.py",
-            documentation_nodes=None,
+            documentation=None,
         )
 
     @pytest.fixture
-    def mock_node_result_with_docs(self) -> NodeSearchResultResponse:
+    def mock_node_result_with_docs(self) -> NodeSearchResultDTO:
         """Create a mock node result with existing documentation."""
-        return NodeSearchResultResponse(
+        return NodeSearchResultDTO(
             node_id="test_node_123",
             node_name="test_function.py",
             node_labels=["FILE", "PYTHON"],
@@ -40,13 +45,7 @@ class TestGetCodeByIdToolAutoGenerate:
             start_line=1,
             end_line=2,
             file_path="/test/test_function.py",
-            documentation_nodes=[
-                {
-                    "node_id": "doc_123",
-                    "node_name": "Documentation for test_function",
-                    "content": "This is a test function",
-                }
-            ],
+            documentation="This is a test function",
         )
 
     def test_auto_generate_default_enabled(self, mock_db_manager: Mock) -> None:
@@ -90,7 +89,7 @@ class TestGetCodeByIdToolAutoGenerate:
         assert tool._documentation_creator == mock_doc_creator_instance
 
     def test_no_generation_when_docs_exist(
-        self, mock_db_manager: Mock, mock_node_result_with_docs: NodeSearchResultResponse
+        self, mock_db_manager: Mock, mock_node_result_with_docs: NodeSearchResultDTO
     ) -> None:
         """Test that generation is not triggered when documentation already exists."""
         mock_db_manager.get_node_by_id.return_value = mock_node_result_with_docs
@@ -109,7 +108,7 @@ class TestGetCodeByIdToolAutoGenerate:
 
     @patch("blarify.tools.get_code_by_id_tool.DocumentationCreator")
     def test_generation_triggered_when_docs_missing(
-        self, mock_doc_creator_class: MagicMock, mock_db_manager: Mock, mock_node_result: NodeSearchResultResponse
+        self, mock_doc_creator_class: MagicMock, mock_db_manager: Mock, mock_node_result: NodeSearchResultDTO
     ) -> None:
         """Test that generation is triggered when documentation is missing."""
         # Setup mock DocumentationCreator
@@ -122,19 +121,12 @@ class TestGetCodeByIdToolAutoGenerate:
         mock_doc_creator_instance.create_documentation.return_value = mock_result
 
         # Setup database responses
-        updated_result = mock_node_result.model_dump()
-        updated_result["documentation_nodes"] = [
-            {
-                "node_id": "generated_doc_123",
-                "node_name": "Auto-generated doc",
-                "content": "Generated documentation content",
-            }
-        ]
+        updated_result = mock_node_result.model_copy(update={"documentation": "Generated documentation content"})
 
         mock_db_manager.get_node_by_id.side_effect = [
             mock_node_result,  # First call in _run
             mock_node_result,  # Second call in _generate_documentation_for_node
-            NodeSearchResultResponse(**updated_result),  # Third call after generation
+            updated_result,  # Third call after generation
         ]
 
         tool = GetCodeByIdTool(db_manager=mock_db_manager, company_id="test_company", auto_generate=True)
@@ -150,7 +142,7 @@ class TestGetCodeByIdToolAutoGenerate:
         assert "📚 DOCUMENTATION (auto-generated):" in result
         assert "Generated documentation content" in result
 
-    def test_generation_error_handling(self, mock_db_manager: Mock, mock_node_result: NodeSearchResultResponse) -> None:
+    def test_generation_error_handling(self, mock_db_manager: Mock, mock_node_result: NodeSearchResultDTO) -> None:
         """Test graceful handling of generation errors."""
         mock_db_manager.get_node_by_id.return_value = mock_node_result
 
@@ -168,9 +160,7 @@ class TestGetCodeByIdToolAutoGenerate:
             # Should handle error gracefully
             assert "📚 DOCUMENTATION: None found (generation attempted)" in result
 
-    def test_no_generation_when_disabled(
-        self, mock_db_manager: Mock, mock_node_result: NodeSearchResultResponse
-    ) -> None:
+    def test_no_generation_when_disabled(self, mock_db_manager: Mock, mock_node_result: NodeSearchResultDTO) -> None:
         """Test that generation is not attempted when auto_generate is False."""
         mock_db_manager.get_node_by_id.return_value = mock_node_result
 
@@ -183,9 +173,7 @@ class TestGetCodeByIdToolAutoGenerate:
         assert "(generation attempted)" not in result
         assert "(auto-generated)" not in result
 
-    def test_generation_with_empty_result(
-        self, mock_db_manager: Mock, mock_node_result: NodeSearchResultResponse
-    ) -> None:
+    def test_generation_with_empty_result(self, mock_db_manager: Mock, mock_node_result: NodeSearchResultDTO) -> None:
         """Test handling when generation returns empty documentation."""
         mock_db_manager.get_node_by_id.side_effect = [
             mock_node_result,  # First call in _run
@@ -209,7 +197,7 @@ class TestGetCodeByIdToolAutoGenerate:
             assert "📚 DOCUMENTATION: None found (generation attempted)" in result
 
     def test_node_not_found_during_generation(
-        self, mock_db_manager: Mock, mock_node_result: NodeSearchResultResponse
+        self, mock_db_manager: Mock, mock_node_result: NodeSearchResultDTO
     ) -> None:
         """Test handling when node is not found during generation."""
         mock_db_manager.get_node_by_id.side_effect = [

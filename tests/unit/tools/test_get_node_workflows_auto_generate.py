@@ -74,8 +74,8 @@ class TestGetNodeWorkflowsToolAutoGenerate:
         assert tool.auto_generate is False
         assert tool._workflow_creator is None
 
-    @patch("blarify.tools.get_node_workflows.WorkflowCreator")
-    @patch("blarify.tools.get_node_workflows.GraphEnvironment")
+    @patch("blarify.tools.get_node_workflows_tool.WorkflowCreator")
+    @patch("blarify.tools.get_node_workflows_tool.GraphEnvironment")
     def test_workflow_creator_initialization(
         self, mock_graph_env: MagicMock, mock_workflow_creator_class: MagicMock, mock_db_manager: Mock
     ) -> None:
@@ -89,8 +89,6 @@ class TestGetNodeWorkflowsToolAutoGenerate:
         mock_workflow_creator_class.assert_called_once_with(
             db_manager=mock_db_manager,
             graph_environment=mock_graph_env.return_value,
-            company_id="test_company",
-            repo_id="test_company",
         )
         assert tool._workflow_creator == mock_workflow_creator_instance
 
@@ -112,7 +110,7 @@ class TestGetNodeWorkflowsToolAutoGenerate:
                     assert "📊 WORKFLOW: Test Workflow" in result
                     assert "test_function" in result
 
-    @patch("blarify.tools.get_node_workflows.WorkflowCreator")
+    @patch("blarify.tools.get_node_workflows_tool.WorkflowCreator")
     def test_generation_triggered_when_workflows_missing(
         self,
         mock_workflow_creator_class: MagicMock,
@@ -150,7 +148,7 @@ class TestGetNodeWorkflowsToolAutoGenerate:
 
     def test_generation_error_handling(self, mock_db_manager: Mock, mock_node_info: Dict[str, Any]) -> None:
         """Test graceful handling of generation errors."""
-        with patch("blarify.tools.get_node_workflows.WorkflowCreator") as mock_workflow_creator_class:
+        with patch("blarify.tools.get_node_workflows_tool.WorkflowCreator") as mock_workflow_creator_class:
             mock_workflow_creator_instance = Mock()
             mock_workflow_creator_class.return_value = mock_workflow_creator_instance
 
@@ -182,7 +180,7 @@ class TestGetNodeWorkflowsToolAutoGenerate:
 
     def test_generation_with_error_result(self, mock_db_manager: Mock, mock_node_info: Dict[str, Any]) -> None:
         """Test handling when generation returns an error result."""
-        with patch("blarify.tools.get_node_workflows.WorkflowCreator") as mock_workflow_creator_class:
+        with patch("blarify.tools.get_node_workflows_tool.WorkflowCreator") as mock_workflow_creator_class:
             mock_workflow_creator_instance = Mock()
             mock_workflow_creator_class.return_value = mock_workflow_creator_instance
 
@@ -238,7 +236,7 @@ class TestGetNodeWorkflowsToolAutoGenerate:
         self, mock_db_manager: Mock, mock_workflows: List[Dict[str, Any]]
     ) -> None:
         """Test the _generate_workflows_for_node method directly."""
-        with patch("blarify.tools.get_node_workflows.WorkflowCreator") as mock_workflow_creator_class:
+        with patch("blarify.tools.get_node_workflows_tool.WorkflowCreator") as mock_workflow_creator_class:
             mock_workflow_creator_instance = Mock()
             mock_workflow_creator_class.return_value = mock_workflow_creator_instance
 

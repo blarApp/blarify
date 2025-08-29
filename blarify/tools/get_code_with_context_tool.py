@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 # Pydantic Response Models (replacement for blarify DTOs)
 class EdgeResponse(BaseModel):
     """Edge/relationship response model."""
+
     node_id: str
     node_name: str
     node_type: list[str]
@@ -18,6 +19,7 @@ class EdgeResponse(BaseModel):
 
 class NodeSearchResultResponse(BaseModel):
     """Node search result response model."""
+
     node_id: str
     node_name: str
     node_labels: list[str]
@@ -48,7 +50,7 @@ def recursively_inject_code(code: str, node_map: Dict[str, str], visited: Option
     """
     if code is None:
         return ""
-        
+
     if visited is None:
         visited = set()
 
@@ -262,7 +264,7 @@ class GetCodeWithContextTool(BaseTool):
     ) -> str:
         """Returns both node code details and file context with expanded child nodes."""
         try:
-            node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id_v2(
+            node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id(
                 node_id=node_id, company_id=self.company_id
             )
         except ValueError:

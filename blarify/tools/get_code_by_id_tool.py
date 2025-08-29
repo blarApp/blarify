@@ -1,9 +1,12 @@
+import logging
 import re
-from typing import Any, Optional
+from typing import Any, Optional, Dict, List
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 # Pydantic Response Models (replacement for blarify DTOs)
@@ -28,7 +31,7 @@ class NodeSearchResultResponse(BaseModel):
     inbound_relations: Optional[list[EdgeResponse]] = None
     outbound_relations: Optional[list[EdgeResponse]] = None
     # Documentation nodes that describe this code node
-    documentation_nodes: Optional[list[dict]] = None
+    documentation_nodes: Optional[List[Dict[str, Any]]] = None
 
 
 class NodeIdInput(BaseModel):
@@ -48,7 +51,7 @@ class GetCodeByIdTool(BaseTool):
     name: str = "get_code_by_id"
     description: str = "Searches for node by id in the Neo4j database"
 
-    args_schema: type[BaseModel] = NodeIdInput
+    args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
 
     db_manager: Any = Field(description="Neo4jManager object to interact with the database")
     company_id: str = Field(description="Company ID to search for in the Neo4j database")
@@ -58,12 +61,79 @@ class GetCodeByIdTool(BaseTool):
         db_manager: Any,
         company_id: str,
         handle_validation_error: bool = False,
+        auto_generate: bool = True,
     ):
         super().__init__(
             db_manager=db_manager,
             company_id=company_id,
             handle_validation_error=handle_validation_error,
         )
+        self.auto_generate = auto_generate
+        
+        # Initialize DocumentationCreator if auto_generate is enabled
+        if self.auto_generate:
+            from blarify.documentation.documentation_creator import DocumentationCreator
+            from blarify.agents.llm_provider import LLMProvider
+            from blarify.graph.graph_environment import GraphEnvironment
+            
+            self._documentation_creator = DocumentationCreator(
+                db_manager=self.db_manager,
+                agent_caller=LLMProvider(),
+                graph_environment=GraphEnvironment(
+                    environment="production",
+                    diff_identifier="main",
+                    root_path="/"
+                ),
+                company_id=self.company_id,
+                repo_id=self.company_id,
+                max_workers=1,
+                overwrite_documentation=False
+            )
+        else:
+            self._documentation_creator = None
+
+    def _generate_documentation_for_node(self, node_id: str) -> Optional[List[Dict[str, Any]]]:
+        """Generate documentation for a specific node."""
+        try:
+            if not self.auto_generate or not self._documentation_creator:
+                return None
+                
+            logger.debug(f"Auto-generating documentation for node {node_id}")
+            
+            # Get node info to extract the path
+            node_info = self.db_manager.get_node_by_id_v2(
+                node_id=node_id, 
+                company_id=self.company_id
+            )
+            
+            if not node_info:
+                return None
+            
+            # Use node_name as the target path
+            target_path = node_info.node_name
+            
+            # Generate documentation for this specific node
+            result = self._documentation_creator.create_documentation(
+                target_paths=[target_path],
+                save_to_database=True,
+                generate_embeddings=False
+            )
+            
+            if result.error:
+                logger.error(f"Documentation generation error: {result.error}")
+                return None
+            
+            # Re-query for the newly created documentation
+            node_result = self.db_manager.get_node_by_id_v2(
+                node_id=node_id,
+                company_id=self.company_id
+            )
+            
+            return node_result.documentation_nodes if node_result else None
+            
+        except Exception as e:
+            logger.error(f"Failed to auto-generate documentation: {e}")
+            return None
 
     def _get_relations_str(self, *, node_name: str, relations: list[EdgeResponse], direction: str) -> str:
         if direction == "outbound":
@@ -80,7 +150,7 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
         return relation_str
 
     def _format_code_with_line_numbers(
-        self, code: str, start_line: Optional[int] = None, child_nodes: Optional[list[dict]] = None
+        self, code: str, start_line: Optional[int] = None, child_nodes: Optional[List[Dict[str, Any]]] = None
     ) -> str:
         """Format code with line numbers, finding and replacing collapse placeholders with correct line numbers."""
         if not code:
@@ -251,7 +321,31 @@ CODE for {node_result.node_name}:
                     output += "\n"
                 output += "-" * 80 + "\n"
         else:
-            output += "📚 DOCUMENTATION: None found\n"
-            output += "-" * 80 + "\n"
+            # Try auto-generation if enabled
+            if self.auto_generate:
+                generated_docs = self._generate_documentation_for_node(node_id)
+                if generated_docs:
+                    output += "📚 DOCUMENTATION (auto-generated):\n"
+                    output += "-" * 80 + "\n"
+                    for doc in generated_docs:
+                        if doc.get('node_id'):
+                            output += f"📖 Doc ID: {doc.get('node_id', 'Unknown')}\n"
+                            output += f"📄 Name: {doc.get('node_name', 'Unknown')}\n"
+                            
+                            # Show content or description
+                            content = doc.get('content', '') or doc.get('description', '')
+                            if content:
+                                output += f"📝 Content:\n{content}\n"
+                            else:
+                                output += "📝 Content: (No content available)\n"
+                            
+                            output += "\n"
+                    output += "-" * 80 + "\n"
+                else:
+                    output += "📚 DOCUMENTATION: None found (generation attempted)\n"
+                    output += "-" * 80 + "\n"
+            else:
+                output += "📚 DOCUMENTATION: None found\n"
+                output += "-" * 80 + "\n"
 
         return output

@@ -1,37 +1,22 @@
 import logging
 import re
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, List
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
+from blarify.documentation.documentation_creator import DocumentationCreator
+from blarify.agents.llm_provider import LLMProvider
+from blarify.graph.graph_environment import GraphEnvironment
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
+from blarify.repositories.graph_db_manager.dtos.edge_dto import EdgeDTO
+
 logger = logging.getLogger(__name__)
 
 
-# Pydantic Response Models (replacement for blarify DTOs)
-class EdgeResponse(BaseModel):
-    """Edge/relationship response model."""
-    node_id: str
-    node_name: str
-    node_type: list[str]
-    relationship_type: str
-
-
-class NodeSearchResultResponse(BaseModel):
-    """Node search result response model."""
-    node_id: str
-    node_name: str
-    node_labels: list[str]
-    code: str
-    start_line: Optional[int] = None
-    end_line: Optional[int] = None
-    file_path: Optional[str] = None
-    # Enhanced fields for relationships
-    inbound_relations: Optional[list[EdgeResponse]] = None
-    outbound_relations: Optional[list[EdgeResponse]] = None
-    # Documentation nodes that describe this code node
-    documentation_nodes: Optional[List[Dict[str, Any]]] = None
+# We use DTOs directly from the database manager
 
 
 class NodeIdInput(BaseModel):
@@ -53,8 +38,10 @@ class GetCodeByIdTool(BaseTool):
 
     args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
 
-    db_manager: Any = Field(description="Neo4jManager object to interact with the database")
+    db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
     company_id: str = Field(description="Company ID to search for in the Neo4j database")
+    auto_generate: bool = Field(default=True, description="Whether to auto-generate documentation when missing")
+    _documentation_creator: DocumentationCreator
 
     def __init__(
         self,
@@ -67,75 +54,56 @@ class GetCodeByIdTool(BaseTool):
             db_manager=db_manager,
             company_id=company_id,
             handle_validation_error=handle_validation_error,
+            auto_generate=auto_generate,
         )
-        self.auto_generate = auto_generate
-        
-        # Initialize DocumentationCreator if auto_generate is enabled
-        if self.auto_generate:
-            from blarify.documentation.documentation_creator import DocumentationCreator
-            from blarify.agents.llm_provider import LLMProvider
-            from blarify.graph.graph_environment import GraphEnvironment
-            
-            self._documentation_creator = DocumentationCreator(
-                db_manager=self.db_manager,
-                agent_caller=LLMProvider(),
-                graph_environment=GraphEnvironment(
-                    environment="production",
-                    diff_identifier="main",
-                    root_path="/"
-                ),
-                company_id=self.company_id,
-                repo_id=self.company_id,
-                max_workers=1,
-                overwrite_documentation=False
-            )
-        else:
-            self._documentation_creator = None
 
-    def _generate_documentation_for_node(self, node_id: str) -> Optional[List[Dict[str, Any]]]:
+        # Initialize DocumentationCreator if auto_generate is enabled
+        self._documentation_creator = DocumentationCreator(
+            db_manager=self.db_manager,
+            agent_caller=LLMProvider(),
+            graph_environment=GraphEnvironment(environment="production", diff_identifier="main", root_path="/"),
+            company_id=self.company_id,
+            repo_id=self.company_id,
+            max_workers=1,
+            overwrite_documentation=False,
+        )
+
+    def _generate_documentation_for_node(self, node_id: str) -> Optional[str]:
         """Generate documentation for a specific node."""
         try:
             if not self.auto_generate or not self._documentation_creator:
                 return None
-                
+
             logger.debug(f"Auto-generating documentation for node {node_id}")
-            
+
             # Get node info to extract the path
-            node_info = self.db_manager.get_node_by_id_v2(
-                node_id=node_id, 
-                company_id=self.company_id
-            )
-            
+            node_info = self.db_manager.get_node_by_id(node_id=node_id, company_id=self.company_id)
+
             if not node_info:
                 return None
-            
+
             # Use node_name as the target path
             target_path = node_info.node_name
-            
+
             # Generate documentation for this specific node
             result = self._documentation_creator.create_documentation(
-                target_paths=[target_path],
-                save_to_database=True,
-                generate_embeddings=False
+                target_paths=[target_path], save_to_database=True, generate_embeddings=False
             )
-            
+
             if result.error:
                 logger.error(f"Documentation generation error: {result.error}")
                 return None
-            
+
             # Re-query for the newly created documentation
-            node_result = self.db_manager.get_node_by_id_v2(
-                node_id=node_id,
-                company_id=self.company_id
-            )
-            
-            return node_result.documentation_nodes if node_result else None
-            
+            node_result = self.db_manager.get_node_by_id(node_id=node_id, company_id=self.company_id)
+
+            return node_result.documentation
+
         except Exception as e:
             logger.error(f"Failed to auto-generate documentation: {e}")
             return None
 
-    def _get_relations_str(self, *, node_name: str, relations: list[EdgeResponse], direction: str) -> str:
+    def _get_relations_str(self, *, node_name: str, relations: list[EdgeDTO], direction: str) -> str:
         if direction == "outbound":
             relationship_str = "{node_name} -> {relation.relationship_type} -> {relation.node_name}"
         else:
@@ -150,7 +118,7 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
         return relation_str
 
     def _format_code_with_line_numbers(
-        self, code: str, start_line: Optional[int] = None, child_nodes: Optional[List[Dict[str, Any]]] = None
+        self, code: str, start_line: Optional[int] = None, child_nodes: Optional[List[dict]] = None
     ) -> str:
         """Format code with line numbers, finding and replacing collapse placeholders with correct line numbers."""
         if not code:
@@ -204,7 +172,7 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
 
         return "\n".join(formatted_lines)
 
-    def _get_result_prompt(self, node_result: NodeSearchResultResponse) -> str:
+    def _get_result_prompt(self, node_result: NodeSearchResultDTO) -> str:
         output = f"""
 NODE: ID: {node_result.node_id} | NAME: {node_result.node_name}
 LABELS: {" | ".join(node_result.node_labels)}
@@ -222,7 +190,7 @@ CODE for {node_result.node_name}:
     ) -> str:
         """Returns a function code given a node_id. returns the node text and the neighbors of the node."""
         try:
-            node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id_v2(
+            node_result: NodeSearchResultDTO = self.db_manager.get_node_by_id(
                 node_id=node_id, company_id=self.company_id
             )
         except ValueError:
@@ -236,30 +204,6 @@ CODE for {node_result.node_name}:
         output += f"🆔 Node ID: {node_id}\n"
         output += "-" * 80 + "\n"
         output += "📝 CODE:\n"
-        output += "-" * 80 + "\n"
-
-        # Print the code with line numbers
-        if node_result.code:
-            # Extract node IDs from "Code replaced for brevity" comments in the code
-            child_nodes = None
-            pattern = re.compile(r"# Code replaced for brevity, see node: ([a-f0-9]+)")
-            node_ids = pattern.findall(node_result.code)
-
-            if node_ids:
-                try:
-                    # Get the child nodes by their IDs
-                    child_nodes = self.db_manager.get_nodes_by_ids(node_ids)
-                except Exception:
-                    # If we can't get child nodes, continue without them
-                    pass
-
-            # Format code with line numbers and collapsed child nodes
-            formatted_code = self._format_code_with_line_numbers(
-                code=node_result.code, start_line=node_result.start_line, child_nodes=child_nodes
-            )
-            output += formatted_code + "\n"
-        else:
-            output += "(No code content available)\n"
         output += "-" * 80 + "\n"
 
         # Display relationships if available
@@ -302,24 +246,11 @@ CODE for {node_result.node_name}:
             output += "-" * 80 + "\n"
 
         # Display documentation if available
-        if node_result.documentation_nodes:
-            doc_nodes = [doc for doc in node_result.documentation_nodes if doc.get('node_id')]
-            if doc_nodes:
-                output += "📚 DOCUMENTATION:\n"
-                output += "-" * 80 + "\n"
-                for doc in doc_nodes:
-                    output += f"📖 Doc ID: {doc.get('node_id', 'Unknown')}\n"
-                    output += f"📄 Name: {doc.get('node_name', 'Unknown')}\n"
-                    
-                    # Show content or description
-                    content = doc.get('content', '') or doc.get('description', '')
-                    if content:
-                        output += f"📝 Content:\n{content}\n"
-                    else:
-                        output += "📝 Content: (No content available)\n"
-                    
-                    output += "\n"
-                output += "-" * 80 + "\n"
+        if node_result.documentation:
+            output += "📚 DOCUMENTATION:\n"
+            output += "-" * 80 + "\n"
+            output += f"📝 Content:\n{node_result.documentation}\n"
+            output += "-" * 80 + "\n"
         else:
             # Try auto-generation if enabled
             if self.auto_generate:
@@ -327,19 +258,7 @@ CODE for {node_result.node_name}:
                 if generated_docs:
                     output += "📚 DOCUMENTATION (auto-generated):\n"
                     output += "-" * 80 + "\n"
-                    for doc in generated_docs:
-                        if doc.get('node_id'):
-                            output += f"📖 Doc ID: {doc.get('node_id', 'Unknown')}\n"
-                            output += f"📄 Name: {doc.get('node_name', 'Unknown')}\n"
-                            
-                            # Show content or description
-                            content = doc.get('content', '') or doc.get('description', '')
-                            if content:
-                                output += f"📝 Content:\n{content}\n"
-                            else:
-                                output += "📝 Content: (No content available)\n"
-                            
-                            output += "\n"
+                    output += f"📝 Content:\n{generated_docs}\n"
                     output += "-" * 80 + "\n"
                 else:
                     output += "📚 DOCUMENTATION: None found (generation attempted)\n"

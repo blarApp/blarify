@@ -12,13 +12,10 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-# Use SWE-agent logging system for consistency
-try:
-    from sweagent.utils.log import get_logger
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.queries import vector_similarity_search_query
 
-    logger = get_logger("vector-search", emoji="🔍")
-except ImportError:
-    logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class VectorSearchInput(BaseModel):
@@ -41,9 +38,9 @@ class SearchDocumentationVectorTool(BaseTool):
         "Returns top-k most similar documentation nodes with relevance scores."
     )
 
-    args_schema: type[BaseModel] = VectorSearchInput
+    args_schema: type[BaseModel] = VectorSearchInput  # type: ignore[assignment]
 
-    db_manager: Any = Field(description="Neo4j manager for database queries")
+    db_manager: AbstractDbManager = Field(description="Neo4j manager for database queries")
     company_id: str = Field(description="Company/entity ID for data isolation")
     repo_id: str = Field(description="Repository ID for filtering results")
 
@@ -82,7 +79,9 @@ class SearchDocumentationVectorTool(BaseTool):
         """
         try:
             # Perform vector search using Neo4j manager
-            results = self.db_manager.search_documentation_vector(query_text=query, top_k=top_k)
+            vector_query = vector_similarity_search_query()
+            parameters = {"query": query, "top_k": top_k}
+            results = self.db_manager.query(vector_query, parameters)
 
             if not results:
                 return f"No documentation found matching: '{query}'"

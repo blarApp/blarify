@@ -8,7 +8,8 @@ with direct code (no functions or classes).
 
 import pytest
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Callable, Union, Type
+from unittest.mock import Mock
 
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
@@ -18,7 +19,35 @@ from blarify.agents.llm_provider import LLMProvider
 from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 from pydantic import BaseModel
-from langchain_core.tools import BaseTool
+
+
+def make_llm_mock(
+    dumb_response: Union[str, Callable[[Dict[str, Any]], str]],
+) -> Mock:
+    """Create a Mock that only mocks LLMProvider.call_dumb_agent.
+
+    - call_dumb_agent returns the provided static string or the result of the callable with input_dict.
+    """
+    m = Mock(spec=LLMProvider)
+
+    if callable(dumb_response):
+
+        def _side_effect(
+            system_prompt: str,
+            input_dict: Dict[str, Any],
+            output_schema: Optional[Type[BaseModel]] = None,
+            ai_model: Optional[str] = None,
+            input_prompt: str = "Start",
+            config: Optional[Dict[str, Any]] = None,
+            timeout: Optional[int] = None,
+        ) -> Any:
+            return dumb_response(input_dict)
+
+        m.call_dumb_agent.side_effect = _side_effect
+    else:
+        m.call_dumb_agent.return_value = dumb_response
+
+    return m
 
 
 @pytest.mark.asyncio
@@ -72,34 +101,12 @@ class TestDocumentationCreation:
 
         # Step 3: Create documentation using DocumentationCreator
         # Create a mock LLM provider for testing
-        class MockLLMProvider(LLMProvider):
-            def call_dumb_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                input_dict: Dict[str, Any],  # noqa: ARG002
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                ai_model: Optional[str] = None,  # noqa: ARG002
-                input_prompt: Optional[str] = "Start",  # noqa: ARG002
-                config: Optional[Dict[str, Any]] = None,  # noqa: ARG002
-                timeout: Optional[int] = None,  # noqa: ARG002
-            ) -> Any:
-                """Mock LLM response for testing."""
-                # Return a meaningful description that will trigger processing
-                return "This is a Django URL configuration file that defines URL patterns for the application. It contains direct variable assignments for urlpatterns, app_name, and configuration settings."
-
-            def call_react_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                tools: List[BaseTool],  # noqa: ARG002
-                input_dict: Dict[str, Any],  # noqa: ARG002
-                input_prompt: Optional[str],  # noqa: ARG002
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                main_model: Optional[str] = "gpt-4.1",  # noqa: ARG002
-            ) -> Any:
-                """Mock React agent response."""
-                return {"framework": "Django", "main_folders": [str(python_examples_path)]}
-
-        llm_provider = MockLLMProvider()
+        llm_provider = make_llm_mock(
+            dumb_response=(
+                "This is a Django URL configuration file that defines URL patterns for the application. "
+                "It contains direct variable assignments for urlpatterns, app_name, and configuration settings."
+            )
+        )
 
         # Create DocumentationCreator
         # Use the same GraphEnvironment that GraphBuilder created
@@ -196,41 +203,18 @@ class TestDocumentationCreation:
         print(f"Found {len(config_classes)} Config classes")
 
         # Step 3: Create documentation using DocumentationCreator with mock LLM
-        class MockLLMProvider(LLMProvider):
-            def call_dumb_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                input_dict: Dict[str, Any],
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                ai_model: Optional[str] = None,  # noqa: ARG002
-                input_prompt: Optional[str] = "Start",  # noqa: ARG002
-                config: Optional[Dict[str, Any]] = None,  # noqa: ARG002
-                timeout: Optional[int] = None,  # noqa: ARG002
-            ) -> Any:
-                """Mock LLM response that returns path-specific descriptions."""
-                path = input_dict.get("node_path", "")
+        def path_specific_desc(input_dict: Dict[str, Any]) -> str:
+            path = input_dict.get("node_path", "")
+            if "module1" in path:
+                return f"Module1 documentation for: {path}"
+            elif "module2" in path:
+                return f"Module2 documentation for: {path}"
+            else:
+                return f"Generic documentation for: {path}"
 
-                # Return different descriptions based on module path
-                if "module1" in path:
-                    return f"Module1 documentation for: {path}"
-                elif "module2" in path:
-                    return f"Module2 documentation for: {path}"
-                else:
-                    return f"Generic documentation for: {path}"
-
-            def call_react_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                tools: List[BaseTool],  # noqa: ARG002
-                input_dict: Dict[str, Any],  # noqa: ARG002
-                input_prompt: Optional[str],  # noqa: ARG002
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                main_model: Optional[str] = "gpt-4.1",  # noqa: ARG002
-            ) -> Any:
-                """Mock React agent response."""
-                return {"framework": "Python", "main_folders": [str(duplicate_names_path)]}
-
-        llm_provider = MockLLMProvider()
+        llm_provider = make_llm_mock(
+            dumb_response=path_specific_desc,
+        )
 
         # Create DocumentationCreator
         doc_creator = DocumentationCreator(
@@ -348,33 +332,9 @@ class TestDocumentationCreation:
 
         # Step 3: Create documentation with embeddings enabled
         # Mock LLM provider that returns meaningful documentation
-        class MockLLMProvider(LLMProvider):
-            def call_dumb_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                input_dict: Dict[str, Any],  # noqa: ARG002
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                ai_model: Optional[str] = None,  # noqa: ARG002
-                input_prompt: Optional[str] = "Start",  # noqa: ARG002
-                config: Optional[Dict[str, Any]] = None,  # noqa: ARG002
-                timeout: Optional[int] = None,  # noqa: ARG002
-            ) -> Any:
-                """Mock LLM response for testing."""
-                return "This is a test documentation content for embedding generation."
-
-            def call_react_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                tools: List[BaseTool],  # noqa: ARG002
-                input_dict: Dict[str, Any],  # noqa: ARG002
-                input_prompt: Optional[str],  # noqa: ARG002
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                main_model: Optional[str] = "gpt-4.1",  # noqa: ARG002
-            ) -> Any:
-                """Mock React agent response."""
-                return {"framework": "Python", "main_folders": [str(python_examples_path)]}
-
-        llm_provider = MockLLMProvider()
+        llm_provider = make_llm_mock(
+            dumb_response="This is a test documentation content for embedding generation.",
+        )
 
         # Mock the embedding service to return fake embeddings
         from unittest.mock import patch
@@ -475,33 +435,9 @@ class TestDocumentationCreation:
 
         # Step 3: Create documentation WITHOUT embeddings first
         # Mock LLM provider
-        class MockLLMProvider(LLMProvider):
-            def call_dumb_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                input_dict: Dict[str, Any],  # noqa: ARG002
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                ai_model: Optional[str] = None,  # noqa: ARG002
-                input_prompt: Optional[str] = "Start",  # noqa: ARG002
-                config: Optional[Dict[str, Any]] = None,  # noqa: ARG002
-                timeout: Optional[int] = None,  # noqa: ARG002
-            ) -> Any:
-                """Mock LLM response for testing."""
-                return "This is documentation content that will later receive embeddings."
-
-            def call_react_agent(
-                self,
-                system_prompt: str,  # noqa: ARG002
-                tools: List[BaseTool],  # noqa: ARG002
-                input_dict: Dict[str, Any],  # noqa: ARG002
-                input_prompt: Optional[str],  # noqa: ARG002
-                output_schema: Optional[BaseModel] = None,  # noqa: ARG002
-                main_model: Optional[str] = "gpt-4.1",  # noqa: ARG002
-            ) -> Any:
-                """Mock React agent response."""
-                return {"framework": "Python", "main_folders": [str(python_examples_path)]}
-
-        llm_provider = MockLLMProvider()
+        llm_provider = make_llm_mock(
+            dumb_response="This is documentation content that will later receive embeddings.",
+        )
 
         # Create DocumentationCreator
         doc_creator = DocumentationCreator(

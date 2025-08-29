@@ -56,7 +56,7 @@ class LLMProvider:
     reasoning_agent_order = ["o4-mini", "claude-sonnet-4-20250514", "gemini-2.5-pro-preview-06-05"]
     TIMEOUT = 80
     MAX_RETRIES = 3
-    
+
     # Mapping of providers to their rotating classes
     ROTATING_PROVIDER_MAP: Dict[str, Type[Any]] = {
         "openai": RotatingKeyChatOpenAI,
@@ -77,13 +77,13 @@ class LLMProvider:
         self._model_cache: Dict[Tuple[str, Optional[int], Optional[Type[BaseModel]]], Runnable[Any, Any]] = {}
         # Cache for API key managers
         self._api_key_managers: Dict[str, APIKeyManager] = {}
-    
+
     def _get_provider_from_model(self, model: str) -> Optional[str]:
         """Get provider name from MODEL_PROVIDER_DICT."""
         provider_class = MODEL_PROVIDER_DICT.get(model)
         if not provider_class:
             return None
-        
+
         # Extract provider from class name
         class_name = provider_class.__name__
         if "OpenAI" in class_name:
@@ -92,15 +92,15 @@ class LLMProvider:
             return "anthropic"
         elif "Google" in class_name or "Gemini" in class_name:
             return "google"
-        
+
         return None
-    
+
     def _get_or_create_api_key_manager(self, provider: str) -> APIKeyManager:
         """Get or create an APIKeyManager for the provider."""
         if provider not in self._api_key_managers:
             self._api_key_managers[provider] = APIKeyManager(provider, auto_discover=True)
         return self._api_key_managers[provider]
-    
+
     def _create_rotating_model(
         self, model: str, provider: str, timeout: Optional[int] = None, output_schema: Optional[Type[BaseModel]] = None
     ) -> Runnable[Any, Any]:
@@ -108,41 +108,41 @@ class LLMProvider:
         rotating_class = self.ROTATING_PROVIDER_MAP.get(provider)
         if not rotating_class:
             raise ValueError(f"No rotating provider available for {provider}")
-        
+
         # Get or create APIKeyManager
         key_manager = self._get_or_create_api_key_manager(provider)
-        
+
         # Get model kwargs based on provider
         model_kwargs: Dict[str, Any] = {
             "timeout": timeout or self.TIMEOUT,
         }
-        
+
         # Different providers use different parameter names
         if provider == "anthropic":
             model_kwargs["model_name"] = model
         else:  # OpenAI and Google use 'model'
             model_kwargs["model"] = model
-        
+
         # Create rotating provider instance
         chat_model = rotating_class(key_manager, **model_kwargs)
-        
+
         if output_schema:
             chat_model = chat_model.with_structured_output(output_schema)
-        
+
         return chat_model
-    
+
     def _create_standard_model(
         self, model: str, timeout: Optional[int] = None, output_schema: Optional[Type[BaseModel]] = None
     ) -> Runnable[Any, Any]:
         """Create a standard (non-rotating) model instance."""
         if model not in MODEL_PROVIDER_DICT:
             raise ValueError(f"Model {model} not found in MODEL_PROVIDER_DICT")
-        
+
         chat_model_class: Type[Union[ChatGoogleGenerativeAI, ChatAnthropic, ChatOpenAI]] = MODEL_PROVIDER_DICT[model]
-        
+
         # Use provided timeout or instance timeout
         model_timeout = timeout or self.TIMEOUT
-        
+
         chat_model: Any  # Will be one of the chat model types
         if issubclass(chat_model_class, ChatGoogleGenerativeAI):
             chat_model = (
@@ -159,27 +159,27 @@ class LLMProvider:
             chat_model = ChatOpenAI(model=model, timeout=model_timeout) if model_timeout else ChatOpenAI(model=model)
         else:
             raise ValueError(f"Unsupported chat model class for model {model}")
-        
+
         if output_schema:
             chat_model = chat_model.with_structured_output(output_schema)
-        
+
         return chat_model
-    
+
     def _get_or_create_model(
         self, model: str, timeout: Optional[int] = None, output_schema: Optional[Type[BaseModel]] = None
     ) -> Runnable[Any, Any]:
         """Get cached model or create new one with rotation if multiple keys exist."""
         # Create cache key
         cache_key = (model, timeout, output_schema)
-        
+
         # Return cached model if available
         if cache_key in self._model_cache:
             return self._model_cache[cache_key]
-        
+
         # Check if model exists
         if model not in MODEL_PROVIDER_DICT:
             raise ValueError(f"Model {model} not found in MODEL_PROVIDER_DICT")
-        
+
         # Determine provider and check for multiple keys
         provider = self._get_provider_from_model(model)
         if provider:
@@ -191,7 +191,7 @@ class LLMProvider:
                 model_instance = self._create_standard_model(model, timeout, output_schema)
         else:
             model_instance = self._create_standard_model(model, timeout, output_schema)
-        
+
         # Cache the model instance
         self._model_cache[cache_key] = model_instance
         return model_instance
@@ -220,17 +220,17 @@ class LLMProvider:
             # Convert BaseMessage objects to tuples
             for msg in messages:
                 # Use type to determine role
-                if hasattr(msg, '__class__'):
-                    role = msg.__class__.__name__.lower().replace('message', '')
-                    if role == 'human':
+                if hasattr(msg, "__class__"):
+                    role = msg.__class__.__name__.lower().replace("message", "")
+                    if role == "human":
                         prompt_list.append(("human", str(msg.content)))
-                    elif role == 'ai' or role == 'assistant':
+                    elif role == "ai" or role == "assistant":
                         prompt_list.append(("assistant", str(msg.content)))
-                    elif role == 'system':
+                    elif role == "system":
                         prompt_list.append(("system", str(msg.content)))
                     else:
                         prompt_list.append(("human", str(msg.content)))
-                elif hasattr(msg, 'content'):
+                elif hasattr(msg, "content"):
                     # Default to 'human' role if not specified
                     prompt_list.append(("human", str(msg.content)))
         else:
@@ -253,7 +253,7 @@ class LLMProvider:
         timeout: Optional[int] = None,
     ) -> Any:
         model_to_use = ai_model if ai_model else self.dumb_agent
-        return self._invoke_agent(
+        response = self._invoke_agent(
             input_prompt=input_prompt,
             input_dict=input_dict,
             ai_model=model_to_use,
@@ -262,6 +262,10 @@ class LLMProvider:
             config=config,
             timeout=timeout,
         )
+
+        if hasattr(response, "content"):
+            return response.content
+        return response
 
     def call_average_agent(
         self,
@@ -325,7 +329,6 @@ class LLMProvider:
         if output_schema:
             return self.parse_structured_output(response.content, output_schema)
         return response
-
 
     def _parse_structured_output(self, content: str, output_schema: Type[BaseModel]) -> Any:
         try:

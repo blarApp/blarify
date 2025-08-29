@@ -4,6 +4,9 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.queries import get_mermaid_graph
+
 
 class Input(BaseModel):
     node_id: str = Field(
@@ -23,14 +26,12 @@ class GetRelationshipFlowchart(BaseTool):
     description: str = "Get the mermaid relationship flowchart for a given node"
 
     company_id: str = Field(description="Company ID to search for in the Neo4j database")
-    db_manager: Any = Field(description="Neo4jManager object to interact with the database")
+    db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
     diff_identifier: str = Field(description="Identifier for the PR on the graph, to search for in the Neo4j database")
 
-    args_schema: type[BaseModel] = Input
+    args_schema: type[BaseModel] = Input  # type: ignore[assignment]
 
-    def __init__(
-        self, company_id: str, db_manager: Any, diff_identifier: str, handle_validation_error: bool = False
-    ):
+    def __init__(self, company_id: str, db_manager: Any, diff_identifier: str, handle_validation_error: bool = False):
         super().__init__(
             company_id=company_id,
             db_manager=db_manager,
@@ -45,6 +46,6 @@ class GetRelationshipFlowchart(BaseTool):
     ) -> str:
         """Retrieves the mermaid relationship flowchart for a given node."""
         try:
-            return self.db_manager.get_mermaid_graph(node_id, self.company_id, self.diff_identifier)
+            return get_mermaid_graph(self.db_manager, node_id)
         except ValueError as e:
             return str(e)

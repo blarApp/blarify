@@ -2109,7 +2109,7 @@ def get_mermaid_graph_query() -> LiteralString:
     """
 
 
-def get_mermaid_graph(db_manager: AbstractDbManager, node_id: str, company_id: str, diff_identifier: str) -> str:
+def get_mermaid_graph(db_manager: AbstractDbManager, node_id: str) -> str:
     """
     Generate a mermaid diagram showing relationships for a given node.
 
@@ -2129,8 +2129,6 @@ def get_mermaid_graph(db_manager: AbstractDbManager, node_id: str, company_id: s
 
         query_params = {
             "node_id": node_id,
-            "entity_id": company_id,
-            "environment": "production",  # Using default environment
         }
 
         result = db_manager.query(cypher_query=get_mermaid_graph_query(), parameters=query_params)

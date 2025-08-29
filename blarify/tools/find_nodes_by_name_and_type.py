@@ -39,7 +39,7 @@ class FindNodesByNameAndType(BaseTool):
     repo_id: str = Field(description="Repository ID to search for in the Neo4j database")
     diff_identifier: str = Field(description="Identifier for the PR on the graph, to search for in the Neo4j database")
 
-    args_schema: type[BaseModel] = Input
+    args_schema: type[BaseModel] = Input  # type: ignore[assignment]
 
     def _run(
         self,

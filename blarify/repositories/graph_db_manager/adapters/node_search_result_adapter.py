@@ -50,6 +50,7 @@ class Neo4jNodeSearchResultAdapter:
             node_id=node_info.get("node_id", ""),
             node_name=node_info.get("node_name", ""),
             node_labels=node_info.get("labels", []),
+            node_path=node_info.get("node_path", ""),
             code=node_info.get("text", ""),
             start_line=node_info.get("start_line"),
             end_line=node_info.get("end_line"),

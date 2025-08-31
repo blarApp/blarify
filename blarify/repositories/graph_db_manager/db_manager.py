@@ -40,7 +40,6 @@ class AbstractDbManager:
     def get_node_by_id(
         self,
         node_id: str,
-        company_id: str,
     ) -> NodeSearchResultDTO:
         """
         Retrieve a node from the database by its ID.

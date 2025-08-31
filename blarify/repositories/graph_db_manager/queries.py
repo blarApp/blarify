@@ -7,7 +7,6 @@ retrieving structured data from the graph database.
 
 from typing import Dict, List, Any, LiteralString, Optional, Tuple
 import logging
-import json
 
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.dtos.leaf_node_dto import LeafNodeDto
@@ -649,9 +648,7 @@ def format_children_with_content_result(query_result: List[Dict[str, Any]]) -> L
         return []
 
 
-def get_node_by_path(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_path: str
-) -> Optional[NodeWithContentDto]:
+def get_node_by_path(db_manager: AbstractDbManager, node_path: str) -> Optional[NodeWithContentDto]:
     """
     Retrieves a node (folder or file) by its path.
 
@@ -670,7 +667,7 @@ def get_node_by_path(
         normalized_path = node_path.rstrip("/")
 
         query = get_node_by_path_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_path": normalized_path}
+        parameters = {"node_path": normalized_path}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -682,9 +679,7 @@ def get_node_by_path(
 
 
 # Keep the old function name for backward compatibility
-def get_folder_node_by_path(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, folder_path: str
-) -> Optional[NodeWithContentDto]:
+def get_folder_node_by_path(db_manager: AbstractDbManager, folder_path: str) -> Optional[NodeWithContentDto]:
     """
     Retrieves a folder node by its path.
 
@@ -699,12 +694,10 @@ def get_folder_node_by_path(
     Returns:
         NodeWithContentDto object or None if not found
     """
-    return get_node_by_path(db_manager, entity_id, repo_id, folder_path)
+    return get_node_by_path(db_manager, folder_path)
 
 
-def get_direct_children(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_id: str
-) -> List[NodeWithContentDto]:
+def get_direct_children(db_manager: AbstractDbManager, node_id: str) -> List[NodeWithContentDto]:
     """
     Retrieves immediate children of a node.
 
@@ -719,7 +712,7 @@ def get_direct_children(
     """
     try:
         query = get_direct_children_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
+        parameters = {"node_id": node_id}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -798,9 +791,7 @@ def format_information_nodes_result(query_result: List[Dict[str, Any]]) -> List[
         return []
 
 
-def get_information_nodes_by_folder(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, folder_path: str
-) -> List[Dict[str, Any]]:
+def get_information_nodes_by_folder(db_manager: AbstractDbManager, folder_path: str) -> List[Dict[str, Any]]:
     """
     Retrieves information nodes from a specific folder path.
 
@@ -820,7 +811,7 @@ def get_information_nodes_by_folder(
         folder_path_match = f"/{normalized_path}"
 
         query = get_information_nodes_by_folder_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "folder_path": folder_path_match}
+        parameters = {"folder_path": folder_path_match}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -858,7 +849,7 @@ def get_root_information_nodes_query() -> LiteralString:
     """
 
 
-def get_root_information_nodes(db_manager: AbstractDbManager, entity_id: str, repo_id: str) -> List[Dict[str, Any]]:
+def get_root_information_nodes(db_manager: AbstractDbManager) -> List[Dict[str, Any]]:
     """
     Retrieves information nodes for all root-level code nodes.
 
@@ -872,7 +863,7 @@ def get_root_information_nodes(db_manager: AbstractDbManager, entity_id: str, re
     """
     try:
         query = get_root_information_nodes_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id}
+        parameters = {}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -1057,9 +1048,7 @@ def find_independent_workflows_query() -> LiteralString:
     """
 
 
-def find_independent_workflows(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, entry_point_id: str
-) -> List[Dict[str, Any]]:
+def find_independent_workflows(db_manager: AbstractDbManager, entry_point_id: str) -> List[Dict[str, Any]]:
     """
     Finds workflow execution traces with documentation node relationships.
 
@@ -1087,7 +1076,7 @@ def find_independent_workflows(
     """
     try:
         query = find_independent_workflows_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "entry_point_id": entry_point_id}
+        parameters = {"entry_point_id": entry_point_id}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -1558,66 +1547,6 @@ def create_spec_node_query() -> LiteralString:
     """
 
 
-def create_spec_node(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, spec_data: Dict[str, Any]
-) -> Optional[str]:
-    """
-    Creates a spec node in the specifications layer.
-
-    Args:
-        db_manager: Database manager instance
-        entity_id: The entity ID
-        repo_id: The repository ID
-        spec_data: Dictionary containing spec information
-
-    Returns:
-        The created spec node ID or None if creation failed
-    """
-    try:
-        import uuid
-
-        spec_id = f"spec_{uuid.uuid4().hex[:8]}"
-
-        # Convert entry points to a simple list for storage
-        entry_points_data = []
-        for ep in spec_data.get("entry_points", []):
-            if isinstance(ep, dict):
-                entry_points_data.append(
-                    {
-                        "node_id": ep.get("node_id", ""),
-                        "name": ep.get("name", ""),
-                        "source_node_id": ep.get("source_node_id", ""),
-                    }
-                )
-            else:
-                # Handle legacy string format
-                entry_points_data.append({"name": str(ep), "node_id": "", "source_node_id": ""})
-
-        query = create_spec_node_query()
-        parameters = {
-            "entity_id": entity_id,
-            "repo_id": repo_id,
-            "spec_id": spec_id,
-            "spec_name": spec_data.get("name", ""),
-            "spec_description": spec_data.get("description", ""),
-            "entry_points": json.dumps(entry_points_data),  # Store as JSON string
-            "spec_scope": spec_data.get("scope", ""),
-            "framework_context": spec_data.get("framework_context", ""),
-        }
-
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
-
-        if query_result and len(query_result) > 0:
-            logger.info(f"Created spec node: {spec_id}")
-            return spec_id
-
-        return None
-
-    except Exception as e:
-        logger.exception(f"Error creating spec node: {e}")
-        return None
-
-
 def create_workflow_node_query() -> LiteralString:
     """
     Returns a Cypher query for creating a workflow node in the workflows layer.
@@ -1690,159 +1619,6 @@ def create_workflow_steps_query() -> LiteralString:
     CREATE (currentDoc)-[:WORKFLOW_STEP {order: idx, workflow_id: workflow.node_id}]->(nextDoc)
     RETURN count(*) AS created_steps
     """
-
-
-def create_workflow_with_relationships(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, spec_id: str, workflow_data: Dict[str, Any]
-) -> Optional[str]:
-    """
-    Creates a workflow node and all its relationships in the 4-layer architecture.
-    This function executes multiple queries in sequence for better error handling.
-
-    Args:
-        db_manager: Database manager instance
-        entity_id: The entity ID
-        repo_id: The repository ID
-        spec_id: The spec node ID this workflow belongs to
-        workflow_data: Dictionary containing workflow information including:
-            - entryPointId: The entry point code node ID
-            - entryPointName: Name of the entry point
-            - workflowNodes: List of nodes in the workflow execution path
-
-    Returns:
-        The created workflow node ID or None if creation failed
-    """
-    try:
-        import uuid
-
-        workflow_id = f"workflow_{uuid.uuid4().hex[:8]}"
-
-        # Extract code node IDs in execution order
-        workflow_nodes = workflow_data.get("workflowNodes", [])
-        workflow_code_node_ids = [node["id"] for node in workflow_nodes]
-
-        # Create workflow title and description
-        entry_name = workflow_data.get("entryPointName", "Unknown")
-        workflow_title = f"Workflow: {entry_name}"
-        workflow_description = f"Business workflow starting from {entry_name} with {len(workflow_nodes)} steps"
-
-        # Step 1: Create workflow node
-        create_node_params = {
-            "entity_id": entity_id,
-            "repo_id": repo_id,
-            "workflow_id": workflow_id,
-            "workflow_title": workflow_title,
-            "workflow_description": workflow_description,
-            "entry_point_id": workflow_data.get("entryPointId"),
-        }
-
-        result = db_manager.query(cypher_query=create_workflow_node_query(), parameters=create_node_params)
-
-        if not result or not result[0].get("workflow_id"):
-            logger.error("Failed to create workflow node")
-            return None
-
-        # Step 2: Connect workflow to spec
-        spec_rel_params = {"workflow_id": workflow_id, "spec_id": spec_id}
-
-        db_manager.query(cypher_query=create_workflow_belongs_to_spec_query(), parameters=spec_rel_params)
-
-        # Step 3: Connect documentation nodes to workflow
-        doc_rel_params = {"workflow_id": workflow_id, "workflow_code_node_ids": workflow_code_node_ids}
-
-        result = db_manager.query(
-            cypher_query=create_documentation_belongs_to_workflow_query(), parameters=doc_rel_params
-        )
-
-        connected_docs = result[0].get("connected_docs", 0) if result else 0
-        logger.info(f"Connected {connected_docs} documentation nodes to workflow {workflow_id}")
-
-        # Step 4: Create workflow steps
-        if len(workflow_code_node_ids) > 1:
-            steps_params = {"workflow_id": workflow_id, "workflow_code_node_ids": workflow_code_node_ids}
-
-            result = db_manager.query(cypher_query=create_workflow_steps_query(), parameters=steps_params)
-
-            created_steps = result[0].get("created_steps", 0) if result else 0
-            logger.info(f"Created {created_steps} workflow steps for workflow {workflow_id}")
-
-        logger.info(f"Successfully created workflow {workflow_id} for entry point {entry_name}")
-        return workflow_id
-
-    except Exception as e:
-        logger.exception(f"Error creating workflow with relationships: {e}")
-        return None
-
-
-def get_spec_with_layers_query() -> LiteralString:
-    """
-    Returns a Cypher query for retrieving a complete spec with all 4 layers.
-
-    Returns:
-        str: The Cypher query string
-    """
-    return """
-    // Get spec node
-    MATCH (spec:DOCUMENTATION {layer: 'specifications', node_id: $spec_id})
-    
-    // Get workflows belonging to this spec
-    OPTIONAL MATCH (workflow:WORKFLOW {layer: 'workflows'})-[:BELONGS_TO_SPEC]->(spec)
-    
-    // Get documentation nodes belonging to workflows
-    OPTIONAL MATCH (doc:DOCUMENTATION {layer: 'documentation'})-[:BELONGS_TO_WORKFLOW]->(workflow)
-    
-    // Get code nodes described by documentation
-    OPTIONAL MATCH (doc)-[:DESCRIBES]->(code:NODE {layer: 'code'})
-    
-    // Get workflow steps
-    OPTIONAL MATCH (doc)-[step:WORKFLOW_STEP]->(nextDoc:DOCUMENTATION)
-    WHERE step.workflow_id = workflow.node_id
-    
-    RETURN spec,
-           collect(DISTINCT workflow) AS workflows,
-           collect(DISTINCT {
-               doc: doc,
-               code: code,
-               workflow_id: workflow.node_id,
-               next_doc: nextDoc,
-               step_order: step.order
-           }) AS documentation_details
-    """
-
-
-def get_spec_with_layers(db_manager: AbstractDbManager, entity_id: str, repo_id: str, spec_id: str) -> Dict[str, Any]:
-    """
-    Retrieves a complete spec with all 4 layers of the architecture.
-
-    Args:
-        db_manager: Database manager instance
-        entity_id: The entity ID
-        repo_id: The repository ID
-        spec_id: The spec node ID to retrieve
-
-    Returns:
-        Dictionary containing the spec and all its layers
-    """
-    try:
-        query = get_spec_with_layers_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "spec_id": spec_id}
-
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
-
-        if not query_result:
-            return {}
-
-        # Format the result
-        result = query_result[0]
-        return {
-            "spec": result.get("spec"),
-            "workflows": result.get("workflows", []),
-            "documentation_details": result.get("documentation_details", []),
-        }
-
-    except Exception as e:
-        logger.exception(f"Error retrieving spec with layers: {e}")
-        return {}
 
 
 # Hybrid Entry Point Discovery Queries
@@ -1946,9 +1722,7 @@ def find_nodes_by_text_query() -> LiteralString:
     """
 
 
-def find_nodes_by_text_content(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, diff_identifier: str, search_text: str
-) -> List[Dict[str, Any]]:
+def find_nodes_by_text_content(db_manager: AbstractDbManager, search_text: str) -> List[Dict[str, Any]]:
     """
     Find nodes by searching for text content in their text attribute.
 
@@ -1966,9 +1740,6 @@ def find_nodes_by_text_content(
         logger.info(f"Searching for nodes containing text: '{search_text}'")
 
         query_params = {
-            "entity_id": entity_id,
-            "repo_id": repo_id,
-            "diff_identifier": diff_identifier,
             "search_text": search_text,
         }
 
@@ -2016,7 +1787,7 @@ def get_file_context_by_id_query() -> LiteralString:
     """
 
 
-def get_file_context_by_id(db_manager: AbstractDbManager, node_id: str, company_id: str) -> List[tuple[str, str]]:
+def get_file_context_by_id(db_manager: AbstractDbManager, node_id: str) -> List[tuple[str, str]]:
     """
     Get file context by node ID, returning a chain of (node_id, text) tuples.
 
@@ -2035,8 +1806,7 @@ def get_file_context_by_id(db_manager: AbstractDbManager, node_id: str, company_
 
         query_params = {
             "node_id": node_id,
-            "entity_id": company_id,
-            "environment": "production",  # Using default environment
+            "environment": "main",
         }
 
         result = db_manager.query(cypher_query=get_file_context_by_id_query(), parameters=query_params)
@@ -2184,7 +1954,7 @@ def get_code_by_id_query() -> LiteralString:
     """
 
 
-def get_code_by_id(db_manager: AbstractDbManager, node_id: str, entity_id: str) -> Optional[Dict[str, Any]]:
+def get_code_by_id(db_manager: AbstractDbManager, node_id: str) -> Optional[Dict[str, Any]]:
     """
     Get node information by node ID, returning basic node data.
 
@@ -2200,7 +1970,7 @@ def get_code_by_id(db_manager: AbstractDbManager, node_id: str, entity_id: str) 
         logger.info(f"Getting code by node ID: {node_id}")
 
         node_id = node_id.strip()
-        query_params = {"node_id": node_id, "entity_id": entity_id}
+        query_params = {"node_id": node_id}
 
         result = db_manager.query(cypher_query=get_code_by_id_query(), parameters=query_params)
 
@@ -2262,9 +2032,7 @@ def get_call_stack_children_query() -> LiteralString:
     """
 
 
-def get_call_stack_children(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_id: str
-) -> List[NodeWithContentDto]:
+def get_call_stack_children(db_manager: AbstractDbManager, node_id: str) -> List[NodeWithContentDto]:
     """
     Retrieves functions/modules called or used by a function.
 
@@ -2279,7 +2047,7 @@ def get_call_stack_children(
     """
     try:
         query = get_call_stack_children_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
+        parameters = {"node_id": node_id}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -2332,9 +2100,7 @@ def get_existing_documentation_for_node_query() -> LiteralString:
     """
 
 
-def get_existing_documentation_for_node(
-    db_manager: AbstractDbManager, entity_id: str, repo_id: str, node_id: str
-) -> Optional[Dict[str, Any]]:
+def get_existing_documentation_for_node(db_manager: AbstractDbManager, node_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieves existing documentation for a specific code node.
 
@@ -2349,7 +2115,7 @@ def get_existing_documentation_for_node(
     """
     try:
         query = get_existing_documentation_for_node_query()
-        parameters = {"entity_id": entity_id, "repo_id": repo_id, "node_id": node_id}
+        parameters = {"node_id": node_id}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 

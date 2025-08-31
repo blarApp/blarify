@@ -14,6 +14,7 @@ class NodeSearchResultDTO(BaseModel):
     node_id: str
     node_name: str
     node_labels: list[str]
+    node_path: str
     code: str
     start_line: Optional[int] = None
     end_line: Optional[int] = None

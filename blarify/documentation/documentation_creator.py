@@ -47,8 +47,6 @@ class DocumentationCreator:
         db_manager: AbstractDbManager,
         agent_caller: LLMProvider,
         graph_environment: GraphEnvironment,
-        company_id: str,
-        repo_id: str,
         max_workers: int = 5,
         overwrite_documentation: bool = False,
     ) -> None:
@@ -66,8 +64,6 @@ class DocumentationCreator:
         self.db_manager = db_manager
         self.agent_caller = agent_caller
         self.graph_environment = graph_environment
-        self.company_id = company_id
-        self.repo_id = repo_id
         self.max_workers = max_workers
         self.overwrite_documentation = overwrite_documentation
 
@@ -244,8 +240,6 @@ class DocumentationCreator:
                         processor = BottomUpBatchProcessor(
                             db_manager=self.db_manager,
                             agent_caller=self.agent_caller,
-                            company_id=self.company_id,
-                            repo_id=self.repo_id,
                             graph_environment=self.graph_environment,
                             max_workers=self.max_workers,
                             overwrite_documentation=self.overwrite_documentation,
@@ -317,8 +311,6 @@ class DocumentationCreator:
             processor = BottomUpBatchProcessor(
                 db_manager=self.db_manager,
                 agent_caller=self.agent_caller,
-                company_id=self.company_id,
-                repo_id=self.repo_id,
                 graph_environment=self.graph_environment,
                 max_workers=self.max_workers,
                 overwrite_documentation=self.overwrite_documentation,
@@ -499,7 +491,7 @@ class DocumentationCreator:
                 # Update database with embeddings
                 if updates:
                     update_query = update_documentation_embeddings_query()
-                    update_parameters = {"entity_id": self.company_id, "repo_id": self.repo_id, "updates": updates}
+                    update_parameters = {"updates": updates}
 
                     self.db_manager.query(cypher_query=update_query, parameters=update_parameters)
                     logger.info(f"Updated {len(updates)} nodes with embeddings")

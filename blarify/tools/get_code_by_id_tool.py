@@ -1,12 +1,14 @@
 import logging
 import re
 from typing import Any, Optional, List
+from concurrent.futures import ThreadPoolExecutor, Future
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
 from blarify.documentation.documentation_creator import DocumentationCreator
+from blarify.documentation.workflow_creator import WorkflowCreator
 from blarify.agents.llm_provider import LLMProvider
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
@@ -39,53 +41,44 @@ class GetCodeByIdTool(BaseTool):
     args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
-    company_id: str = Field(description="Company ID to search for in the Neo4j database")
-    auto_generate: bool = Field(default=True, description="Whether to auto-generate documentation when missing")
+    auto_generate_documentation: bool = Field(
+        default=True, description="Whether to auto-generate documentation when missing"
+    )
+    auto_generate_workflows: bool = Field(default=True, description="Whether to auto-generate workflows when missing")
 
     def __init__(
         self,
         db_manager: Any,
-        company_id: str,
         handle_validation_error: bool = False,
-        auto_generate: bool = True,
+        auto_generate_documentation: bool = True,
+        auto_generate_workflows: bool = True,
     ):
         super().__init__(
             db_manager=db_manager,
-            company_id=company_id,
             handle_validation_error=handle_validation_error,
-            auto_generate=auto_generate,
+            auto_generate_documentation=auto_generate_documentation,
+            auto_generate_workflows=auto_generate_workflows,
+        )
+        self._graph_environment = GraphEnvironment(environment="production", diff_identifier="main", root_path="/")
+        self._documentation_creator = DocumentationCreator(
+            db_manager=self.db_manager,
+            agent_caller=LLMProvider(),
+            graph_environment=self._graph_environment,
+            max_workers=1,
+            overwrite_documentation=False,
+        )
+        self._workflow_creator = WorkflowCreator(
+            db_manager=self.db_manager,
+            graph_environment=self._graph_environment,
         )
 
-        # Initialize DocumentationCreator if auto_generate is enabled
-        if auto_generate:
-            self._documentation_creator = DocumentationCreator(
-                db_manager=self.db_manager,
-                agent_caller=LLMProvider(),
-                graph_environment=GraphEnvironment(environment="production", diff_identifier="main", root_path="/"),
-                company_id=self.company_id,
-                repo_id=self.company_id,
-                max_workers=1,
-                overwrite_documentation=False,
-            )
-        else:
-            self._documentation_creator = None
-
-    def _generate_documentation_for_node(self, node_id: str) -> Optional[str]:
+    def _generate_documentation_for_node(self, node: NodeSearchResultDTO) -> Optional[str]:
         """Generate documentation for a specific node."""
         try:
-            if not self.auto_generate or not self._documentation_creator:
-                return None
-
-            logger.debug(f"Auto-generating documentation for node {node_id}")
-
-            # Get node info to extract the path
-            node_info = self.db_manager.get_node_by_id(node_id=node_id, company_id=self.company_id)
-
-            if not node_info:
-                return None
+            logger.info(f"Auto-generating documentation for node {node.node_id}")
 
             # Use node_name as the target path
-            target_path = node_info.node_name
+            target_path = node.node_path
 
             # Generate documentation for this specific node
             result = self._documentation_creator.create_documentation(
@@ -97,13 +90,71 @@ class GetCodeByIdTool(BaseTool):
                 return None
 
             # Re-query for the newly created documentation
-            node_result = self.db_manager.get_node_by_id(node_id=node_id, company_id=self.company_id)
+            node_result = self.db_manager.get_node_by_id(node_id=node.node_id)
 
             return node_result.documentation
 
         except Exception as e:
             logger.error(f"Failed to auto-generate documentation: {e}")
             return None
+
+    def _generate_workflows_for_node(self, node: NodeSearchResultDTO) -> Optional[list[dict[str, Any]]]:
+        """Generate workflows for a specific node."""
+        try:
+            logger.info(f"Auto-generating workflows for node {node.node_id}")
+
+            # Use node_path for targeted workflow discovery
+            target_path = node.node_path
+
+            # Generate workflows for this specific node
+            result = self._workflow_creator.discover_workflows(
+                node_path=target_path, max_depth=20, save_to_database=True
+            )
+
+            if result.error:
+                logger.error(f"Workflow generation error: {result.error}")
+                return None
+
+            # Re-query for the newly created workflows
+            node_result = self.db_manager.get_node_by_id(node_id=node.node_id)
+
+            return node_result.workflows
+
+        except Exception as e:
+            logger.error(f"Failed to auto-generate workflows: {e}")
+            return None
+
+    def _parallel_generate_missing_data(
+        self, node: NodeSearchResultDTO
+    ) -> tuple[Optional[str], Optional[list[dict[str, Any]]]]:
+        """Generate documentation and workflows in parallel if missing."""
+        doc_result = node.documentation
+        workflow_result = node.workflows
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures: list[tuple[str, Future[Any]]] = []
+
+            # Submit documentation generation if needed
+            if not doc_result and self.auto_generate_documentation:
+                doc_future = executor.submit(self._generate_documentation_for_node, node)
+                futures.append(("doc", doc_future))
+
+            # Submit workflow generation if needed
+            if not workflow_result and self.auto_generate_workflows:
+                workflow_future = executor.submit(self._generate_workflows_for_node, node)
+                futures.append(("workflow", workflow_future))
+
+            # Collect results
+            for task_type, future in futures:
+                try:
+                    if task_type == "doc":
+                        doc_result = future.result(timeout=150)
+                    elif task_type == "workflow":
+                        workflow_result = future.result(timeout=150)
+                except Exception as e:
+                    logger.error(f"Error in parallel generation ({task_type}): {e}")
+
+        return doc_result, workflow_result
 
     def _get_relations_str(self, *, node_name: str, relations: list[EdgeDTO], direction: str) -> str:
         if direction == "outbound":
@@ -174,6 +225,59 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
 
         return "\n".join(formatted_lines)
 
+    def _format_workflow_chains(self, workflows: list[dict[str, Any]], target_node_id: str) -> str:
+        """Format workflow chains for display."""
+        if not workflows:
+            return ""
+
+        output = "📊 WORKFLOWS:\n"
+        output += "━" * 80 + "\n"
+
+        for i, workflow in enumerate(workflows, 1):
+            # Get workflow metadata
+            workflow_name = workflow.get("workflow_name", "Unnamed Workflow")
+            entry_point = workflow.get("entry_point_name", "Unknown")
+            exit_point = workflow.get("exit_point_name", "Unknown")
+
+            output += f"\nWorkflow {i}: {workflow_name}\n"
+            output += f"Entry: {entry_point}() → Exit: {exit_point}()\n"
+
+            # Build the execution chain
+            chain = workflow.get("execution_chain", [])
+            if chain:
+                output += "Chain: "
+
+                # Build a list of unique nodes in order
+                seen_nodes = set()
+                chain_parts = []
+
+                for step in sorted(chain, key=lambda x: (x.get("step_order", 0), x.get("depth", 0))):
+                    # Add from node
+                    from_id = step.get("from_id")
+                    from_name = step.get("from_name", "Unknown")
+                    if from_id and from_id not in seen_nodes:
+                        if from_id == target_node_id:
+                            chain_parts.append(f"【{from_name}[{from_id}]】")
+                        else:
+                            chain_parts.append(f"{from_name}[{from_id}]")
+                        seen_nodes.add(from_id)
+
+                    # Add to node
+                    to_id = step.get("to_id")
+                    to_name = step.get("to_name", "Unknown")
+                    if to_id and to_id not in seen_nodes:
+                        if to_id == target_node_id:
+                            chain_parts.append(f"【{to_name}[{to_id}]】")
+                        else:
+                            chain_parts.append(f"{to_name}[{to_id}]")
+                        seen_nodes.add(to_id)
+
+                output += " -> ".join(chain_parts) + "\n"
+            else:
+                output += f"Chain: {entry_point}() -> {exit_point}()\n"
+
+        return output
+
     def _get_result_prompt(self, node_result: NodeSearchResultDTO) -> str:
         output = f"""
 NODE: ID: {node_result.node_id} | NAME: {node_result.node_name}
@@ -192,9 +296,7 @@ CODE for {node_result.node_name}:
     ) -> str:
         """Returns a function code given a node_id. returns the node text and the neighbors of the node."""
         try:
-            node_result: NodeSearchResultDTO = self.db_manager.get_node_by_id(
-                node_id=node_id, company_id=self.company_id
-            )
+            node_result: NodeSearchResultDTO = self.db_manager.get_node_by_id(node_id=node_id)
         except ValueError:
             return f"No code found for the given query: {node_id}"
 
@@ -247,26 +349,37 @@ CODE for {node_result.node_name}:
             output += "🔗 RELATIONSHIPS: None found\n"
             output += "-" * 80 + "\n"
 
-        # Display documentation if available
-        if node_result.documentation:
+        # Generate missing data in parallel if needed
+        doc_content = node_result.documentation
+        workflows = node_result.workflows
+
+        if (not doc_content and self.auto_generate_documentation) or (not workflows and self.auto_generate_workflows):
+            doc_content, workflows = self._parallel_generate_missing_data(node_result)
+
+        # Display documentation
+        if doc_content:
             output += "📚 DOCUMENTATION:\n"
             output += "-" * 80 + "\n"
-            output += f"📝 Content:\n{node_result.documentation}\n"
+            output += f"📝 Content:\n{doc_content}\n"
             output += "-" * 80 + "\n"
         else:
-            # Try auto-generation if enabled
-            if self.auto_generate:
-                generated_docs = self._generate_documentation_for_node(node_id)
-                if generated_docs:
-                    output += "📚 DOCUMENTATION (auto-generated):\n"
-                    output += "-" * 80 + "\n"
-                    output += f"📝 Content:\n{generated_docs}\n"
-                    output += "-" * 80 + "\n"
-                else:
-                    output += "📚 DOCUMENTATION: None found (generation attempted)\n"
-                    output += "-" * 80 + "\n"
+            if self.auto_generate_documentation:
+                output += "📚 DOCUMENTATION: None found (generation attempted)\n"
             else:
                 output += "📚 DOCUMENTATION: None found\n"
+            output += "-" * 80 + "\n"
+
+        # Display workflows
+        if workflows:
+            workflow_output = self._format_workflow_chains(workflows, node_id)
+            if workflow_output:
+                output += workflow_output
                 output += "-" * 80 + "\n"
+        else:
+            if self.auto_generate_workflows:
+                output += "📊 WORKFLOWS: None found (generation attempted)\n"
+            else:
+                output += "📊 WORKFLOWS: None found\n"
+            output += "-" * 80 + "\n"
 
         return output

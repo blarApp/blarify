@@ -142,8 +142,6 @@ def test_documentation_only(root_path: str = None):
         db_manager=graph_manager,
         agent_caller=llm_provider,
         graph_environment=graph_environment,
-        company_id=entity_id,
-        repo_id=repoId,
         max_workers=50,
     )
 

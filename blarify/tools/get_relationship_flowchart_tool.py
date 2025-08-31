@@ -25,17 +25,13 @@ class GetRelationshipFlowchart(BaseTool):
     name: str = "get_relationship_flowchart"
     description: str = "Get the mermaid relationship flowchart for a given node"
 
-    company_id: str = Field(description="Company ID to search for in the Neo4j database")
     db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
-    diff_identifier: str = Field(description="Identifier for the PR on the graph, to search for in the Neo4j database")
 
     args_schema: type[BaseModel] = Input  # type: ignore[assignment]
 
-    def __init__(self, company_id: str, db_manager: Any, diff_identifier: str, handle_validation_error: bool = False):
+    def __init__(self, db_manager: Any, handle_validation_error: bool = False):
         super().__init__(
-            company_id=company_id,
             db_manager=db_manager,
-            diff_identifier=diff_identifier,
             handle_validation_error=handle_validation_error,
         )
 

@@ -138,8 +138,6 @@ async def test_thread_reuse_in_deep_hierarchy(neo4j_instance: Neo4jContainerInst
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
-        company_id="test-entity",  # Changed to match entityId
-        repo_id="test-repo",
         graph_environment=graph_env,
         max_workers=10,
     )
@@ -227,8 +225,6 @@ async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInst
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
-        company_id="test-entity",
-        repo_id="test-repo",
         graph_environment=graph_env,
         max_workers=5,  # Limited workers to force thread reuse
     )
@@ -575,7 +571,7 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
         assert thread_tracker.max_concurrent_threads <= 3, "Should not exceed max workers"
         # Note: With the batch processor, errors in individual nodes are handled gracefully
         # and don't prevent other nodes from being processed
-        
+
         # Verify processing happened
         assert result.total_nodes_processed >= 3, "Should process good nodes despite failures"
 

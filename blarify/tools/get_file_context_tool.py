@@ -6,6 +6,9 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
+from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.repositories.graph_db_manager.queries import get_file_context_by_id
+
 
 class NodeIdInput(BaseModel):
     """
@@ -35,10 +38,9 @@ class GetFileContextByIdTool(BaseTool):
     name: str = "see_node_in_file_context"
     description: str = "Searches for node by id in the Neo4j database and returns node code in the file context"
 
-    args_schema: type[BaseModel] = NodeIdInput
+    args_schema: type[BaseModel] = NodeIdInput  # type: ignore
 
-    db_manager: Any = Field(description="Neo4jManager object to interact with the database")
-    company_id: str = Field(description="Company ID to search for in the Neo4j database")
+    db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
 
     def _recursively_inject_code(self, code: str, node_map: dict[str, str], visited: Optional[set] = None) -> str:
         """
@@ -120,20 +122,6 @@ class GetFileContextByIdTool(BaseTool):
 
         return self._recursively_inject_code(parent_code, node_map)
 
-    def __init__(
-        self,
-        db_manager: Any,
-        company_id: str,
-        diff_identifier: Optional[str] = None,
-        handle_validation_error: bool = False,
-    ):
-        super().__init__(
-            db_manager=db_manager,
-            company_id=company_id,
-            diff_identifier=diff_identifier,
-            handle_validation_error=handle_validation_error,
-        )
-
     def _run(
         self,
         node_id: str,
@@ -150,10 +138,10 @@ class GetFileContextByIdTool(BaseTool):
             Dict[str, str]: Dictionary with the assembled code under the 'text' key.
         """
         try:
-            node_result = self.db_manager.get_file_context_by_id(node_id=node_id, company_id=self.company_id)
+            node_result = get_file_context_by_id(db_manager=self.db_manager, node_id=node_id)
             result = self._assemble_source_from_chain(node_result)
         except ValueError:
-            return f"No code found for the given query: {node_id}"
+            return {"message": f"No code found for the given query: {node_id}"}
 
         return_dict = {"text": result}
 

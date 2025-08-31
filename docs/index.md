@@ -13,6 +13,7 @@ Welcome to the comprehensive documentation for Blarify - a tool that transforms 
 - **[User Guide](user-guide.md)** - Comprehensive usage guide with advanced patterns
 - **[Examples](examples.md)** - Practical examples for different use cases
 - **[API Reference](api-reference.md)** - Complete API documentation
+- **[Tools Documentation](tools.md)** - Langchain-compatible tools for AI agent integration
 
 ### Advanced Features
 - **[DocumentationCreator](documentation-creator.md)** - Main documentation generation system with recursive DFS processing
@@ -36,6 +37,8 @@ Welcome to the comprehensive documentation for Blarify - a tool that transforms 
 **Understand the API** → [API Reference](api-reference.md)
 
 **See real examples** → [Examples](examples.md)
+
+**Integrate with AI agents** → [Tools Documentation](tools.md)
 
 **Troubleshoot issues** → [FAQ](faq.md)
 

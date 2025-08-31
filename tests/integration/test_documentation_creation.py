@@ -114,8 +114,6 @@ class TestDocumentationCreation:
             db_manager=db_manager,
             agent_caller=llm_provider,
             graph_environment=builder.graph_environment,
-            company_id="test-entity",
-            repo_id="test-repo",
         )
 
         # Don't specify target_paths so it processes all files in the graph
@@ -221,8 +219,6 @@ class TestDocumentationCreation:
             db_manager=db_manager,
             agent_caller=llm_provider,
             graph_environment=builder.graph_environment,
-            company_id="test-entity",
-            repo_id="test-repo",
         )
 
         # Generate documentation for all files
@@ -352,8 +348,6 @@ class TestDocumentationCreation:
                 db_manager=db_manager,
                 agent_caller=llm_provider,
                 graph_environment=builder.graph_environment,
-                company_id="test-entity",
-                repo_id="test-repo",
             )
 
             # Create documentation with embeddings enabled
@@ -444,8 +438,6 @@ class TestDocumentationCreation:
             db_manager=db_manager,
             agent_caller=llm_provider,
             graph_environment=builder.graph_environment,
-            company_id="test-entity",
-            repo_id="test-repo",
         )
 
         # Create documentation WITHOUT embeddings

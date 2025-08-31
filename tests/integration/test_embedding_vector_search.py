@@ -291,8 +291,6 @@ class TestEmbeddingVectorSearch:
             db_manager=db_manager,
             agent_caller=llm_provider,
             graph_environment=test_graph_environment,
-            company_id="test-entity",
-            repo_id="test-repo",
         )
 
         # Run retroactive embedding
@@ -393,8 +391,6 @@ class TestEmbeddingVectorSearch:
             db_manager=db_manager,
             agent_caller=llm_provider,
             graph_environment=test_graph_environment,
-            company_id="test-entity",
-            repo_id="test_skip_existing_embeddings",
         )
 
         # Run retroactive embedding with skip_existing=True

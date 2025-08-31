@@ -192,15 +192,12 @@ class Neo4jManager(AbstractDbManager):
     def get_node_by_id(
         self,
         node_id: str,
-        company_id: str,
     ) -> NodeSearchResultDTO:
         """
         Retrieve a node by its ID with related inbound and outbound relationships.
 
         Args:
             node_id: Unique identifier of the node to retrieve
-            company_id: Company identifier for data isolation
-            diff_identifier: Optional identifier for diff-specific nodes (unused)
 
         Returns:
             NodeSearchResultDTO: Data transfer object containing node information
@@ -210,7 +207,7 @@ class Neo4jManager(AbstractDbManager):
         """
 
         # Query the database
-        params = {"node_id": node_id, "entity_id": company_id, "repo_id": self.repo_id}
+        params = {"node_id": node_id}
         records = self.query(cypher_query=get_node_by_id_query(), parameters=params)
 
         if not records:
@@ -224,7 +221,8 @@ class Neo4jManager(AbstractDbManager):
         # Filter relationships to ensure no null values
         outbound_relations = record["outbound_relations"]
         inbound_relations = record["inbound_relations"]
-        documentation_nodes = record.get("documentation_nodes", [])
+        documentation = record.get("documentation", [])
+        workflows = record.get("workflows", [])
 
         node_info = {
             "node_id": node.get("node_id"),
@@ -236,11 +234,11 @@ class Neo4jManager(AbstractDbManager):
             "text": node.get("text"),
             "file_node_id": node.get("file_node_id"),
             "labels": labels,
-            "documentation_nodes": documentation_nodes,
+            "documentation": documentation,
         }
 
         # Convert to DTO
-        node_result = Neo4jNodeSearchResultAdapter.adapt(node_data=(node_info, outbound_relations, inbound_relations))
+        node_result = Neo4jNodeSearchResultAdapter.adapt(node_data=(node_info, outbound_relations, inbound_relations, workflows))
 
         return node_result
 

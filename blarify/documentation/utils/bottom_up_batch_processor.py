@@ -97,8 +97,6 @@ class BottomUpBatchProcessor:
         self,
         db_manager: AbstractDbManager,
         agent_caller: LLMProvider,
-        company_id: str,
-        repo_id: str,
         graph_environment: GraphEnvironment,
         max_workers: int = 5,
         root_node: Optional[NodeWithContentDto] = None,
@@ -122,8 +120,6 @@ class BottomUpBatchProcessor:
         """
         self.db_manager = db_manager
         self.agent_caller = agent_caller
-        self.company_id = company_id
-        self.repo_id = repo_id
         self.graph_environment = graph_environment
         self.max_workers = max_workers
         self.root_node = root_node
@@ -157,7 +153,7 @@ class BottomUpBatchProcessor:
             # Get root node
             root_node = self.root_node
             if not root_node:
-                root_node = get_node_by_path(self.db_manager, self.company_id, self.repo_id, node_path)
+                root_node = get_node_by_path(self.db_manager, node_path)
                 if not root_node:
                     return ProcessingResult(node_path=node_path, error=f"Node not found: {node_path}")
 
@@ -229,8 +225,6 @@ class BottomUpBatchProcessor:
         # Get leaf nodes from database
         query = get_leaf_nodes_under_node_query()
         params = {
-            "entity_id": self.company_id,
-            "repo_id": self.repo_id,
             "run_id": self.processing_run_id,
             "batch_size": self.batch_size,
             "root_node_id": root_node.id,
@@ -279,8 +273,6 @@ class BottomUpBatchProcessor:
         # Get parent nodes with descriptions from database
         query = get_processable_nodes_with_descriptions_query()
         params = {
-            "entity_id": self.company_id,
-            "repo_id": self.repo_id,
             "run_id": self.processing_run_id,
             "root_node_id": root_node.id,
             "batch_size": self.batch_size,
@@ -431,8 +423,6 @@ class BottomUpBatchProcessor:
             query = mark_nodes_completed_query()
             params = {
                 "node_ids": node_ids,
-                "entity_id": self.company_id,
-                "repo_id": self.repo_id,
                 "run_id": self.processing_run_id,
             }
             result = self.db_manager.query(query, params)
@@ -445,7 +435,7 @@ class BottomUpBatchProcessor:
     def _has_pending_nodes(self) -> bool:
         """Check if there are still pending nodes."""
         query = check_pending_nodes_query()
-        params = {"entity_id": self.company_id, "repo_id": self.repo_id}
+        params = {}
 
         result = self.db_manager.query(query, params)
         if result:

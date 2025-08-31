@@ -39,53 +39,36 @@ class GetCodeByIdTool(BaseTool):
     args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
-    company_id: str = Field(description="Company ID to search for in the Neo4j database")
-    auto_generate: bool = Field(default=True, description="Whether to auto-generate documentation when missing")
+    auto_generate_documentation: bool = Field(
+        default=True, description="Whether to auto-generate documentation when missing"
+    )
 
     def __init__(
         self,
         db_manager: Any,
-        company_id: str,
         handle_validation_error: bool = False,
-        auto_generate: bool = True,
+        auto_generate_documentation: bool = True,
     ):
         super().__init__(
             db_manager=db_manager,
-            company_id=company_id,
             handle_validation_error=handle_validation_error,
-            auto_generate=auto_generate,
+            auto_generate_documentation=auto_generate_documentation,
+        )
+        self._documentation_creator = DocumentationCreator(
+            db_manager=self.db_manager,
+            agent_caller=LLMProvider(),
+            graph_environment=GraphEnvironment(environment="production", diff_identifier="main", root_path="/"),
+            max_workers=1,
+            overwrite_documentation=False,
         )
 
-        # Initialize DocumentationCreator if auto_generate is enabled
-        if auto_generate:
-            self._documentation_creator = DocumentationCreator(
-                db_manager=self.db_manager,
-                agent_caller=LLMProvider(),
-                graph_environment=GraphEnvironment(environment="production", diff_identifier="main", root_path="/"),
-                company_id=self.company_id,
-                repo_id=self.company_id,
-                max_workers=1,
-                overwrite_documentation=False,
-            )
-        else:
-            self._documentation_creator = None
-
-    def _generate_documentation_for_node(self, node_id: str) -> Optional[str]:
+    def _generate_documentation_for_node(self, node: NodeSearchResultDTO) -> Optional[str]:
         """Generate documentation for a specific node."""
         try:
-            if not self.auto_generate or not self._documentation_creator:
-                return None
-
-            logger.debug(f"Auto-generating documentation for node {node_id}")
-
-            # Get node info to extract the path
-            node_info = self.db_manager.get_node_by_id(node_id=node_id, company_id=self.company_id)
-
-            if not node_info:
-                return None
+            logger.info(f"Auto-generating documentation for node {node.node_id}")
 
             # Use node_name as the target path
-            target_path = node_info.node_name
+            target_path = node.node_path
 
             # Generate documentation for this specific node
             result = self._documentation_creator.create_documentation(
@@ -97,7 +80,7 @@ class GetCodeByIdTool(BaseTool):
                 return None
 
             # Re-query for the newly created documentation
-            node_result = self.db_manager.get_node_by_id(node_id=node_id, company_id=self.company_id)
+            node_result = self.db_manager.get_node_by_id(node_id=node.node_id)
 
             return node_result.documentation
 
@@ -192,9 +175,7 @@ CODE for {node_result.node_name}:
     ) -> str:
         """Returns a function code given a node_id. returns the node text and the neighbors of the node."""
         try:
-            node_result: NodeSearchResultDTO = self.db_manager.get_node_by_id(
-                node_id=node_id, company_id=self.company_id
-            )
+            node_result: NodeSearchResultDTO = self.db_manager.get_node_by_id(node_id=node_id)
         except ValueError:
             return f"No code found for the given query: {node_id}"
 
@@ -255,8 +236,8 @@ CODE for {node_result.node_name}:
             output += "-" * 80 + "\n"
         else:
             # Try auto-generation if enabled
-            if self.auto_generate:
-                generated_docs = self._generate_documentation_for_node(node_id)
+            if self.auto_generate_documentation:
+                generated_docs = self._generate_documentation_for_node(node_result)
                 if generated_docs:
                     output += "📚 DOCUMENTATION (auto-generated):\n"
                     output += "-" * 80 + "\n"

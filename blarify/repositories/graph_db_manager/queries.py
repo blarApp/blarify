@@ -2489,11 +2489,39 @@ def get_node_by_id_query() -> LiteralString:
             RETURN doc_node.content as documentation
             LIMIT 1
         }
+        CALL (n) {
+            OPTIONAL MATCH (n)-[:BELONGS_TO_WORKFLOW]->(w:NODE)
+            WHERE w.layer = 'workflows'
+            WITH w, n
+            WHERE w IS NOT NULL
+            OPTIONAL MATCH (n1:NODE)-[r:WORKFLOW_STEP]->(n2:NODE)
+            WHERE r.scopeText CONTAINS ('workflow_id:' + w.node_id)
+            WITH w, n, collect(DISTINCT {
+                from_id: n1.node_id,
+                from_name: n1.name,
+                to_id: n2.node_id,
+                to_name: n2.name,
+                step_order: r.step_order,
+                depth: r.depth,
+                call_line: r.call_line
+            }) as steps
+            RETURN collect(DISTINCT {
+                workflow_id: w.node_id,
+                workflow_name: w.title,
+                entry_point_name: w.entry_point_name,
+                exit_point_name: w.end_point_name,
+                entry_point_path: w.entry_point_path,
+                exit_point_path: w.end_point_path,
+                total_steps: w.steps,
+                execution_chain: steps
+            }) as workflows
+        }
         RETURN n,
             labels(n) AS labels,
             outbound_relations,
             inbound_relations,
-            documentation
+            documentation,
+            workflows
         LIMIT 1
     """
 

@@ -222,6 +222,7 @@ class Neo4jManager(AbstractDbManager):
         outbound_relations = record["outbound_relations"]
         inbound_relations = record["inbound_relations"]
         documentation = record.get("documentation", [])
+        workflows = record.get("workflows", [])
 
         node_info = {
             "node_id": node.get("node_id"),
@@ -237,7 +238,7 @@ class Neo4jManager(AbstractDbManager):
         }
 
         # Convert to DTO
-        node_result = Neo4jNodeSearchResultAdapter.adapt(node_data=(node_info, outbound_relations, inbound_relations))
+        node_result = Neo4jNodeSearchResultAdapter.adapt(node_data=(node_info, outbound_relations, inbound_relations, workflows))
 
         return node_result
 

@@ -2,6 +2,8 @@
 
 This document provides a comprehensive reference for the Blarify API, covering all major classes and methods available for building and manipulating code graphs.
 
+> **Note**: For AI agent integration using Langchain-compatible tools, see the [Tools Documentation](tools.md).
+
 ## Workflow Analysis
 
 ### find_independent_workflows

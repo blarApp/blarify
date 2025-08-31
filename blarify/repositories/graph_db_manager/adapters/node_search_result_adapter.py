@@ -1,23 +1,28 @@
 from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import EdgeDTO, NodeSearchResultDTO
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 
 class Neo4jNodeSearchResultAdapter:
     """Adapter to convert Neo4j query results to NodeSearchResultDTO."""
 
     @staticmethod
-    def adapt(node_data: Tuple[Dict[str, Any], List[Any], List[Dict[str, Any]]]) -> NodeSearchResultDTO:
+    def adapt(node_data: Union[Tuple[Dict[str, Any], List[Any], List[Dict[str, Any]]], Tuple[Dict[str, Any], List[Any], List[Dict[str, Any]], List[Dict[str, Any]]]]) -> NodeSearchResultDTO:
         """
         Adapt Neo4j query results to NodeSearchResultDTO.
 
         Args:
-            node_data: Tuple of (node_info, outbound_relations, inbound_relations)
+            node_data: Tuple of (node_info, outbound_relations, inbound_relations, workflows)
 
         Returns:
             NodeSearchResultDTO: Adapted data transfer object
         """
 
-        node_info, outbound_relations, inbound_relations = node_data
+        # Handle both 3-tuple (legacy) and 4-tuple (with workflows) formats
+        if len(node_data) == 3:
+            node_info, outbound_relations, inbound_relations = node_data
+            workflows = []
+        else:
+            node_info, outbound_relations, inbound_relations, workflows = node_data
 
         # Convert relationship data to EdgeDTO objects
         inbound_edges = []
@@ -58,4 +63,5 @@ class Neo4jNodeSearchResultAdapter:
             inbound_relations=inbound_edges if inbound_edges else None,
             outbound_relations=outbound_edges if outbound_edges else None,
             documentation=node_info.get("documentation"),
+            workflows=workflows if workflows else None,
         )

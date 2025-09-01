@@ -70,6 +70,41 @@ class GitHub(AbstractVersionController):
         """Get the repository API URL."""
         return f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}"
 
+    def _normalize_file_path(self, file_path: str) -> str:
+        """Normalize file path to be relative to repository root.
+
+        Args:
+            file_path: File path that may contain file:// prefix and absolute path
+
+        Returns:
+            File path relative to repository root, including repo_name as prefix
+        """
+        import os
+
+        # Remove file:// prefix if present
+        clean_path = file_path
+        if clean_path.startswith("file://"):
+            clean_path = clean_path[7:]
+
+        # Make path relative to repository root
+        if os.path.isabs(clean_path):
+            # If we have repo_name, look for /{repo_name}/ pattern in the path
+            if self.repo_name:
+                repo_pattern = f"/{self.repo_name}/"
+                repo_index = clean_path.find(repo_pattern)
+                if repo_index != -1:
+                    # Extract path starting from /{repo_name}/ (including repo_name)
+                    start_index = repo_index + 1  # Skip the leading slash but keep repo_name
+                    clean_path = clean_path[start_index:]
+                else:
+                    # Fallback to current working directory method
+                    clean_path = os.path.relpath(clean_path, os.getcwd())
+            else:
+                # Fallback to current working directory method
+                clean_path = os.path.relpath(clean_path, os.getcwd())
+
+        return clean_path
+
     def _make_request(
         self,
         method: str,
@@ -454,9 +489,7 @@ class GitHub(AbstractVersionController):
             logger.error(f"GraphQL query failed: {e}")
             raise
 
-    def _build_blame_query(
-        self, file_path: str, start_line: int, end_line: int, ref: str = "HEAD"
-    ) -> Tuple[str, Dict[str, Any]]:
+    def _build_blame_query(self, file_path: str, ref: str = "HEAD") -> Tuple[str, Dict[str, Any]]:
         """Build GraphQL query for blame information.
 
         Args:
@@ -518,8 +551,8 @@ class GitHub(AbstractVersionController):
         }
         """
 
-        # Clean up file path - remove leading slash if present
-        clean_path = file_path.lstrip("/")
+        # Clean up file path - normalize and remove leading slash if present
+        clean_path = self._normalize_file_path(file_path).lstrip("/")
 
         # Handle ref - if it's a commit SHA, we need to use object instead of ref
         # For now, let's use the branch name
@@ -643,7 +676,7 @@ class GitHub(AbstractVersionController):
         logger.info(f"Fetching blame for {file_path} lines {start_line}-{end_line} at {ref}")
 
         # Build and execute GraphQL query
-        query, variables = self._build_blame_query(file_path, start_line, end_line, ref)
+        query, variables = self._build_blame_query(file_path, ref)
         response = self._execute_graphql_query(query, variables)
 
         # Parse response
@@ -669,16 +702,7 @@ class GitHub(AbstractVersionController):
         # Group nodes by file to optimize queries
         nodes_by_file: Dict[str, List[CodeNodeDto]] = {}
         for node in nodes:
-            file_path = node.path
-            # Clean file path - remove file:// prefix and make relative
-            if file_path.startswith("file://"):
-                file_path = file_path[7:]  # Remove file://
-            # Make path relative to repository root
-            import os
-
-            if os.path.isabs(file_path):
-                # Assuming the repo root is the current directory
-                file_path = os.path.relpath(file_path, os.getcwd())
+            file_path = self._normalize_file_path(node.path)
 
             if file_path not in nodes_by_file:
                 nodes_by_file[file_path] = []
@@ -770,81 +794,78 @@ class GitHub(AbstractVersionController):
                 return True
 
         return False
-    
+
     def extract_relevant_patch(self, full_patch: str, file_path: str, start_line: int, end_line: int) -> str:
         """Extract only the patch sections relevant to a specific line range.
-        
+
         Args:
             full_patch: The complete patch/diff text
             file_path: Path to the file to extract changes for
             start_line: Starting line number of the node
             end_line: Ending line number of the node
-            
+
         Returns:
             A patch string containing only the relevant hunks for the specified line range
         """
         if not full_patch or not file_path:
             return ""
-            
+
         relevant_hunks = []
         current_hunk = []
         in_relevant_file = False
         file_header = []
-        
+
         # Clean the file path for comparison
-        clean_path = file_path.replace("file://", "")
-        if clean_path.startswith("/"):
-            # Make it relative for comparison with patch paths
-            import os
-            clean_path = os.path.relpath(clean_path, "/")
-        
-        lines = full_patch.split('\n')
+        clean_path = self._normalize_file_path(file_path)
+
+        lines = full_patch.split("\n")
         i = 0
-        
+
         while i < len(lines):
             line = lines[i]
-            
+
             # Check for file header (diff --git a/path b/path)
-            if line.startswith('diff --git'):
+            if line.startswith("diff --git"):
                 # Save previous file's relevant hunks if any
                 if in_relevant_file and current_hunk:
-                    relevant_hunks.append('\n'.join(current_hunk))
-                    
+                    relevant_hunks.append("\n".join(current_hunk))
+
                 # Parse file paths from the diff header
                 parts = line.split()
                 if len(parts) >= 4:
                     # Extract the file path (remove a/ or b/ prefix)
-                    file_a = parts[2][2:] if parts[2].startswith('a/') else parts[2]
-                    file_b = parts[3][2:] if parts[3].startswith('b/') else parts[3]
-                    
+                    file_a = parts[2][2:] if parts[2].startswith("a/") else parts[2]
+                    file_b = parts[3][2:] if parts[3].startswith("b/") else parts[3]
+
                     # Check if this is our target file
                     if clean_path in file_a or clean_path in file_b or file_a in clean_path or file_b in clean_path:
                         in_relevant_file = True
                         file_header = [line]
                         # Include the index and mode lines
                         j = i + 1
-                        while j < len(lines) and not lines[j].startswith('@@'):
-                            if lines[j].startswith(('index ', '---', '+++', 'new file', 'deleted file')):
+                        while j < len(lines) and not lines[j].startswith("@@"):
+                            if lines[j].startswith(("index ", "---", "+++", "new file", "deleted file")):
                                 file_header.append(lines[j])
                             j += 1
                         i = j - 1
                     else:
                         in_relevant_file = False
-                        
+
                 current_hunk = []
-                
+
             # Check for hunk header (@@ -start,count +start,count @@)
-            elif line.startswith('@@') and in_relevant_file:
+            elif line.startswith("@@") and in_relevant_file:
                 # Parse the line numbers from the hunk header
                 import re
-                match = re.match(r'@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@', line)
+
+                match = re.match(r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@", line)
                 if match:
                     # old_start = int(match.group(1))
                     # old_count = int(match.group(2)) if match.group(2) else 1
                     new_start = int(match.group(3))
                     new_count = int(match.group(4)) if match.group(4) else 1
                     new_end = new_start + new_count - 1
-                    
+
                     # Check if this hunk affects our line range
                     # A hunk is relevant if it overlaps with our node's line range
                     if not (new_end < start_line or new_start > end_line):
@@ -854,28 +875,28 @@ class GitHub(AbstractVersionController):
                             current_hunk.extend(file_header)
                             file_header = []  # Only add header once
                         current_hunk.append(line)
-                        
+
                         # Collect the hunk content
                         j = i + 1
-                        while j < len(lines) and not lines[j].startswith(('@@', 'diff --git')):
+                        while j < len(lines) and not lines[j].startswith(("@@", "diff --git")):
                             current_hunk.append(lines[j])
                             j += 1
                         i = j - 1
                     else:
                         # Skip this irrelevant hunk
                         j = i + 1
-                        while j < len(lines) and not lines[j].startswith(('@@', 'diff --git')):
+                        while j < len(lines) and not lines[j].startswith(("@@", "diff --git")):
                             j += 1
                         i = j - 1
-                        
+
             i += 1
-        
+
         # Add the last hunk if relevant
         if in_relevant_file and current_hunk:
-            relevant_hunks.append('\n'.join(current_hunk))
-        
+            relevant_hunks.append("\n".join(current_hunk))
+
         # Combine all relevant hunks
         if relevant_hunks:
-            return '\n'.join(relevant_hunks)
-        
+            return "\n".join(relevant_hunks)
+
         return ""

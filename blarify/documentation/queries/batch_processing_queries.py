@@ -121,13 +121,16 @@ def mark_nodes_completed_query() -> LiteralString:
 
 def check_pending_nodes_query() -> LiteralString:
     """
-    Check if there are any pending nodes remaining.
+    Check if there are any pending nodes remaining under the root node.
 
-    Used to determine if processing is complete.
-    Counts nodes without processing_status as pending.
+    Used to determine if processing is complete for a specific root node.
+    Counts nodes without processing_status as pending that are descendants of the root.
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
+    // First match the root node
+    MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
+    // Then find all descendants under this root
+    MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL*0..]->(n:NODE)
     WHERE n.processing_status IS NULL AND NOT n:DOCUMENTATION
     RETURN count(n) as pending_count
     """

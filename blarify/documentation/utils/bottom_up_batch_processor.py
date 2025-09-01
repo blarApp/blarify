@@ -205,7 +205,7 @@ class BottomUpBatchProcessor:
                 continue
 
             # Check if any nodes remain
-            if not self._has_pending_nodes():
+            if not self._has_pending_nodes(root_node):
                 break
 
             # If we have pending nodes but can't process them, there might be a cycle issue
@@ -432,10 +432,12 @@ class BottomUpBatchProcessor:
 
         logger.debug(f"Saved {len(documentation_nodes)} documentation nodes to database")
 
-    def _has_pending_nodes(self) -> bool:
-        """Check if there are still pending nodes."""
+    def _has_pending_nodes(self, root_node: NodeWithContentDto) -> bool:
+        """Check if there are still pending nodes under the root node."""
         query = check_pending_nodes_query()
-        params = {}
+        params = {
+            "root_node_id": root_node.id
+        }
 
         result = self.db_manager.query(query, params)
         if result:

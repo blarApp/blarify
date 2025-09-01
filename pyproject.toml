@@ -39,6 +39,7 @@ json-repair = "^0.47.7"
 langchain-google-genai = "^2.1.7"
 docker = "^7.1.0"
 filelock = "^3.16.1"
+rich = "^14.1.0"
 
 
 

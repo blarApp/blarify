@@ -39,6 +39,7 @@ class GetBlameByIdTool(BaseTool):
     repo_owner: str = Field(description="GitHub repository owner")
     repo_name: str = Field(description="GitHub repository name")
     github_token: Optional[str] = Field(default=None, description="GitHub personal access token")
+    ref: str = Field(default="HEAD", description="Git ref (branch, tag, commit SHA) to blame at")
     auto_create_integration: bool = Field(
         default=True, description="Whether to create integration nodes if they don't exist"
     )
@@ -49,6 +50,7 @@ class GetBlameByIdTool(BaseTool):
         repo_owner: str,
         repo_name: str,
         github_token: Optional[str] = None,
+        ref: str = "HEAD",
         auto_create_integration: bool = True,
         handle_validation_error: bool = False,
     ):
@@ -59,6 +61,7 @@ class GetBlameByIdTool(BaseTool):
             repo_owner: GitHub repository owner
             repo_name: GitHub repository name
             github_token: GitHub personal access token (uses GITHUB_TOKEN env var if not provided)
+            ref: Git ref (branch, tag, commit SHA) to blame at
             auto_create_integration: Whether to create integration nodes if they don't exist
             handle_validation_error: Whether to handle validation errors
         """
@@ -71,6 +74,7 @@ class GetBlameByIdTool(BaseTool):
             repo_owner=repo_owner,
             repo_name=repo_name,
             github_token=github_token,
+            ref=ref,
             auto_create_integration=auto_create_integration,
             handle_validation_error=handle_validation_error,
         )
@@ -104,7 +108,7 @@ class GetBlameByIdTool(BaseTool):
             # If no blame data exists and auto-create is enabled
             if not blame_data and self.auto_create_integration:
                 logger.info(f"No existing blame data for node {node_id}, creating integration nodes...")
-                created = self._create_integration_if_needed(node_id)
+                created = self._create_integration_if_needed(node_id, self.ref)
                 if created:
                     # Re-query for newly created blame data
                     blame_data = self._get_existing_blame(node_id)
@@ -173,11 +177,12 @@ class GetBlameByIdTool(BaseTool):
         results = self.db_manager.query(query, {"node_id": node_id})
         return results if results else []
 
-    def _create_integration_if_needed(self, node_id: str) -> bool:
+    def _create_integration_if_needed(self, node_id: str, ref: str = "HEAD") -> bool:
         """Create integration nodes using GitHubCreator if they don't exist.
 
         Args:
             node_id: The node ID
+            ref: Git ref (branch, tag, commit SHA) to blame at
 
         Returns:
             True if integration nodes were created successfully
@@ -191,6 +196,7 @@ class GetBlameByIdTool(BaseTool):
                     repo_owner=self.repo_owner,
                     repo_name=self.repo_name,
                     github_token=self.github_token,
+                    ref=self.ref,
                 )
 
             # Create integration nodes for this specific node

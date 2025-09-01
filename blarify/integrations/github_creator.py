@@ -48,6 +48,7 @@ class GitHubCreator:
         repo_owner: str,
         repo_name: str,
         github_token: Optional[str] = None,
+        ref: str = "HEAD",
     ):
         """Initialize GitHubCreator.
 
@@ -57,10 +58,12 @@ class GitHubCreator:
             github_token: GitHub personal access token
             repo_owner: Repository owner/organization
             repo_name: Repository name
+            ref: Git ref (branch, tag, commit SHA) to blame at
         """
         self.db_manager = db_manager
         self.graph_environment = graph_environment
-        self.github_repo = GitHub(token=github_token, repo_owner=repo_owner, repo_name=repo_name)
+        self.ref = ref
+        self.github_repo = GitHub(token=github_token, repo_owner=repo_owner, repo_name=repo_name, ref=ref)
 
     def create_github_integration(
         self,

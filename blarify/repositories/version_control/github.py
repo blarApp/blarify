@@ -30,6 +30,7 @@ class GitHub(AbstractVersionController):
         repo_owner: Optional[str] = None,
         repo_name: Optional[str] = None,
         base_url: str = "https://api.github.com",
+        ref: str = "HEAD",
     ):
         """Initialize GitHub client.
 
@@ -38,11 +39,13 @@ class GitHub(AbstractVersionController):
             repo_owner: Repository owner/organization
             repo_name: Repository name
             base_url: GitHub API base URL (for GitHub Enterprise)
+            ref: Git ref (branch, tag, commit SHA) to blame at
         """
         self.token = token or os.getenv("GITHUB_TOKEN")
         self.repo_owner = repo_owner
         self.repo_name = repo_name
         self.base_url = base_url.rstrip("/")
+        self.ref = ref
 
         # Initialize blame cache
         self._blame_cache: Dict[str, List[BlameCommitDto]] = {}
@@ -653,30 +656,27 @@ class GitHub(AbstractVersionController):
 
         return commits
 
-    def blame_commits_for_range(
-        self, file_path: str, start_line: int, end_line: int, ref: str = "HEAD"
-    ) -> List[BlameCommitDto]:
+    def blame_commits_for_range(self, file_path: str, start_line: int, end_line: int) -> List[BlameCommitDto]:
         """Get all commits that modified specific line range using blame.
 
         Args:
             file_path: Path to file in repository
             start_line: Starting line number (1-indexed)
             end_line: Ending line number (inclusive)
-            ref: Git ref (branch, tag, commit SHA) to blame at
 
         Returns:
             List of BlameCommitDto objects with line attribution
         """
         # Check cache first
-        cache_key = f"{file_path}:{start_line}-{end_line}@{ref}"
+        cache_key = f"{file_path}:{start_line}-{end_line}@{self.ref}"
         if cache_key in self._blame_cache:
             logger.debug(f"Using cached blame for {cache_key}")
             return self._blame_cache[cache_key]
 
-        logger.info(f"Fetching blame for {file_path} lines {start_line}-{end_line} at {ref}")
+        logger.info(f"Fetching blame for {file_path} lines {start_line}-{end_line} at {self.ref}")
 
         # Build and execute GraphQL query
-        query, variables = self._build_blame_query(file_path, ref)
+        query, variables = self._build_blame_query(file_path, self.ref)
         response = self._execute_graphql_query(query, variables)
 
         # Parse response

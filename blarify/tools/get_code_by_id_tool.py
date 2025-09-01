@@ -48,7 +48,7 @@ class GetCodeByIdTool(BaseTool):
 
     def __init__(
         self,
-        db_manager: Any,
+        db_manager: AbstractDbManager,
         handle_validation_error: bool = False,
         auto_generate_documentation: bool = True,
         auto_generate_workflows: bool = True,
@@ -59,7 +59,7 @@ class GetCodeByIdTool(BaseTool):
             auto_generate_documentation=auto_generate_documentation,
             auto_generate_workflows=auto_generate_workflows,
         )
-        self._graph_environment = GraphEnvironment(environment="production", diff_identifier="main", root_path="/")
+        self._graph_environment = GraphEnvironment(environment="main", diff_identifier="0", root_path="/")
         self._documentation_creator = DocumentationCreator(
             db_manager=self.db_manager,
             agent_caller=LLMProvider(),

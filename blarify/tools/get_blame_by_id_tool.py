@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.integrations.github_creator import GitHubCreator
@@ -20,22 +20,12 @@ logger = logging.getLogger(__name__)
 class NodeIdInput(BaseModel):
     """Input schema for GetBlameByIdTool."""
 
-    node_id: str = Field(
-        description="The node id (an UUID like hash id) of the node to get blame information for."
-    )
-
-    @field_validator("node_id", mode="before")
-    @classmethod
-    def format_node_id(cls, value: Any) -> Any:
-        """Validate node ID format."""
-        if isinstance(value, str) and len(value) == 32:
-            return value
-        raise ValueError("Node id must be a 32 character string UUID like hash id")
+    node_id: str = Field(description="The node id (an UUID like hash id) of the node to get blame information for.")
 
 
 class GetBlameByIdTool(BaseTool):
     """Tool for retrieving GitHub-style blame information for a code node.
-    
+
     This tool displays blame information in a format similar to GitHub's blame view,
     showing each line of code with commit information beside it. It can create
     integration nodes on-demand if they don't exist.
@@ -43,7 +33,7 @@ class GetBlameByIdTool(BaseTool):
 
     name: str = "get_blame_by_id"
     description: str = "Get GitHub-style blame information for a code node, showing commit info for each line"
-    args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
+    args_schema: type[BaseModel] = NodeIdInput
 
     db_manager: AbstractDbManager = Field(description="Database manager for graph operations")
     repo_owner: str = Field(description="GitHub repository owner")
@@ -63,7 +53,7 @@ class GetBlameByIdTool(BaseTool):
         handle_validation_error: bool = False,
     ):
         """Initialize GetBlameByIdTool.
-        
+
         Args:
             db_manager: Database manager for graph operations
             repo_owner: GitHub repository owner
@@ -75,7 +65,7 @@ class GetBlameByIdTool(BaseTool):
         # Get GitHub token from environment if not provided
         if github_token is None:
             github_token = os.getenv("GITHUB_TOKEN")
-            
+
         super().__init__(
             db_manager=db_manager,
             repo_owner=repo_owner,
@@ -84,12 +74,8 @@ class GetBlameByIdTool(BaseTool):
             auto_create_integration=auto_create_integration,
             handle_validation_error=handle_validation_error,
         )
-        
-        self._graph_environment = GraphEnvironment(
-            environment="production", 
-            diff_identifier="main", 
-            root_path="/"
-        )
+
+        self._graph_environment = GraphEnvironment(environment="production", diff_identifier="main", root_path="/")
         self._github_creator: Optional[GitHubCreator] = None
 
     def _run(
@@ -98,11 +84,11 @@ class GetBlameByIdTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool to get blame information.
-        
+
         Args:
             node_id: The ID of the node to get blame for
             run_manager: Optional callback manager
-            
+
         Returns:
             GitHub-style formatted blame information as a string
         """
@@ -111,10 +97,10 @@ class GetBlameByIdTool(BaseTool):
             node_info = self._get_node_info(node_id)
             if not node_info:
                 return f"Error: Node with ID {node_id} not found"
-            
+
             # Check for existing blame data
             blame_data = self._get_existing_blame(node_id)
-            
+
             # If no blame data exists and auto-create is enabled
             if not blame_data and self.auto_create_integration:
                 logger.info(f"No existing blame data for node {node_id}, creating integration nodes...")
@@ -124,34 +110,33 @@ class GetBlameByIdTool(BaseTool):
                     blame_data = self._get_existing_blame(node_id)
                 else:
                     logger.warning(f"Failed to create integration nodes for node {node_id}")
-            
+
             # Format and return GitHub-style blame output
             return self._format_github_style_blame(node_info, blame_data)
-            
+
         except Exception as e:
             logger.error(f"Error getting blame for node {node_id}: {e}")
             return f"Error: Failed to get blame information - {str(e)}"
 
     def _get_node_info(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Get basic information about the node.
-        
+
         Args:
             node_id: The node ID
-            
+
         Returns:
             Dictionary with node information or None if not found
         """
         query = """
         MATCH (n:NODE {node_id: $node_id})
-        WHERE n.layer = 'code'
         RETURN n.name as node_name,
                n.path as node_path,
                n.start_line as start_line,
                n.end_line as end_line,
-               n.code as code,
+               n.text as code,
                n.label as node_type
         """
-        
+
         results = self.db_manager.query(query, {"node_id": node_id})
         if results and len(results) > 0:
             return results[0]
@@ -159,10 +144,10 @@ class GetBlameByIdTool(BaseTool):
 
     def _get_existing_blame(self, node_id: str) -> List[Dict[str, Any]]:
         """Get existing MODIFIED_BY relationships with blame attribution.
-        
+
         Args:
             node_id: The node ID
-            
+
         Returns:
             List of blame data dictionaries
         """
@@ -184,16 +169,16 @@ class GetBlameByIdTool(BaseTool):
                pr.url as pr_url
         ORDER BY c.timestamp DESC
         """
-        
+
         results = self.db_manager.query(query, {"node_id": node_id})
         return results if results else []
 
     def _create_integration_if_needed(self, node_id: str) -> bool:
         """Create integration nodes using GitHubCreator if they don't exist.
-        
+
         Args:
             node_id: The node ID
-            
+
         Returns:
             True if integration nodes were created successfully
         """
@@ -207,101 +192,95 @@ class GetBlameByIdTool(BaseTool):
                     repo_name=self.repo_name,
                     github_token=self.github_token,
                 )
-            
+
             # Create integration nodes for this specific node
             result = self._github_creator.create_github_integration_from_nodes(
-                node_ids=[node_id],
-                save_to_database=True
+                node_ids=[node_id], save_to_database=True
             )
-            
+
             return result.total_commits > 0
-            
+
         except Exception as e:
             logger.error(f"Failed to create integration nodes: {e}")
             return False
 
-    def _format_github_style_blame(
-        self, 
-        node_info: Dict[str, Any], 
-        blame_data: List[Dict[str, Any]]
-    ) -> str:
+    def _format_github_style_blame(self, node_info: Dict[str, Any], blame_data: List[Dict[str, Any]]) -> str:
         """Format blame data in GitHub-style output.
-        
+
         Args:
             node_info: Node information dictionary
             blame_data: List of blame data dictionaries
-            
+
         Returns:
             Formatted GitHub-style blame string
         """
         output = []
-        
+
         # Header
-        node_name = node_info.get('node_name', 'Unknown')
-        node_path = node_info.get('node_path', 'Unknown')
-        node_type = node_info.get('node_type', 'Unknown')
-        
+        node_name = node_info.get("node_name", "Unknown")
+        node_path = node_info.get("node_path", "Unknown")
+        node_type = node_info.get("node_type", "Unknown")
+
         output.append(f"Git Blame for: {node_name} ({node_type})")
         output.append(f"File: {node_path}")
         output.append("=" * 80)
         output.append("")
-        
+
         # Get code and parse into lines
-        code = node_info.get('code', '')
+        code = node_info.get("code", "")
         if not code:
             output.append("No code available for this node")
-            return '\n'.join(output)
-        
-        code_lines = code.split('\n')
-        start_line = node_info.get('start_line', 1)
-        
+            return "\n".join(output)
+
+        code_lines = code.split("\n")
+        start_line = node_info.get("start_line", 1)
+
         # Build line-to-blame mapping
         line_blame_map = self._build_line_blame_map(blame_data, start_line, len(code_lines))
-        
+
         # Format each line with blame info
         for i, code_line in enumerate(code_lines):
             line_num = start_line + i
             blame_info = line_blame_map.get(line_num, {})
-            
+
             if blame_info:
                 # Format blame info
-                time_ago = self._format_time_ago(blame_info.get('timestamp', ''))
-                author = (blame_info.get('author', 'Unknown')[:10]).ljust(10)
-                sha = blame_info.get('sha', '       ')[:7]
-                msg = (blame_info.get('message', '')[:30]).ljust(30)
-                
+                time_ago = self._format_time_ago(blame_info.get("timestamp", ""))
+                author = (blame_info.get("author", "Unknown")[:10]).ljust(10)
+                sha = blame_info.get("sha", "       ")[:7]
+                msg = (blame_info.get("message", "")[:30]).ljust(30)
+
                 blame_str = f"{time_ago.ljust(13)} {author} {sha}  {msg}"
             else:
                 # No blame info for this line
                 blame_str = " " * 65
-            
+
             # Format line: "blame_info  line_num | code"
             output.append(f"{blame_str} {str(line_num).rjust(4)} | {code_line}")
-        
+
         # Add summary section
         output.extend(["", "", "Summary:", "-" * 40])
-        
+
         # Total commits
-        unique_commits = set(b.get('commit_sha') for b in blame_data if b.get('commit_sha'))
+        unique_commits = set(b.get("commit_sha") for b in blame_data if b.get("commit_sha"))
         output.append(f"Total commits: {len(unique_commits)}")
-        
+
         # Calculate primary author (author with most lines)
         if blame_data:
             author_lines = self._calculate_author_lines(blame_data)
             if author_lines:
                 primary_author = max(author_lines.items(), key=lambda x: x[1])
                 output.append(f"Primary author: {primary_author[0]} ({primary_author[1]} lines)")
-            
+
             # Last modified
             latest_commit = self._find_latest_commit(blame_data)
             if latest_commit:
-                time_ago = self._format_time_ago(latest_commit.get('commit_timestamp', ''))
-                author = latest_commit.get('commit_author', 'Unknown')
+                time_ago = self._format_time_ago(latest_commit.get("commit_timestamp", ""))
+                author = latest_commit.get("commit_author", "Unknown")
                 output.append(f"Last modified: {time_ago} by {author}")
-            
+
             # Associated PRs
-            prs = set((b.get('pr_number'), b.get('pr_title')) 
-                     for b in blame_data if b.get('pr_number'))
+            prs = set((b.get("pr_number"), b.get("pr_title")) for b in blame_data if b.get("pr_number"))
             if prs:
                 output.append("")
                 output.append("Associated Pull Requests:")
@@ -310,30 +289,27 @@ class GetBlameByIdTool(BaseTool):
                         output.append(f"  PR #{pr_num}: {pr_title[:60]}")
         else:
             output.append("No blame information available")
-        
-        return '\n'.join(output)
+
+        return "\n".join(output)
 
     def _build_line_blame_map(
-        self, 
-        blame_data: List[Dict[str, Any]], 
-        start_line: int,
-        num_lines: int
+        self, blame_data: List[Dict[str, Any]], start_line: int, num_lines: int
     ) -> Dict[int, Dict[str, Any]]:
         """Build a mapping of line numbers to blame information.
-        
+
         Args:
             blame_data: List of blame data dictionaries
             start_line: Starting line number of the node
             num_lines: Number of lines in the node
-            
+
         Returns:
             Dictionary mapping line numbers to blame info
         """
         line_blame_map: Dict[int, Dict[str, Any]] = {}
-        
+
         for blame in blame_data:
             # Parse line ranges from blamed_lines JSON string
-            line_ranges_str = blame.get('line_ranges', '[]')
+            line_ranges_str = blame.get("line_ranges", "[]")
             if isinstance(line_ranges_str, str):
                 try:
                     line_ranges = json.loads(line_ranges_str)
@@ -341,50 +317,50 @@ class GetBlameByIdTool(BaseTool):
                     line_ranges = []
             else:
                 line_ranges = line_ranges_str or []
-            
+
             # Map each line in the ranges to this commit
             for line_range in line_ranges:
                 if isinstance(line_range, dict):
-                    start = line_range.get('start', 0)
-                    end = line_range.get('end', 0)
-                    
+                    start = line_range.get("start", 0)
+                    end = line_range.get("end", 0)
+
                     for line_num in range(start, end + 1):
                         # Only map lines within the node's range
                         if start_line <= line_num < start_line + num_lines:
                             line_blame_map[line_num] = {
-                                'sha': blame.get('commit_sha', ''),
-                                'message': blame.get('commit_message', ''),
-                                'author': blame.get('commit_author', ''),
-                                'timestamp': blame.get('commit_timestamp', ''),
-                                'pr_number': blame.get('pr_number'),
-                                'pr_title': blame.get('pr_title'),
+                                "sha": blame.get("commit_sha", ""),
+                                "message": blame.get("commit_message", ""),
+                                "author": blame.get("commit_author", ""),
+                                "timestamp": blame.get("commit_timestamp", ""),
+                                "pr_number": blame.get("pr_number"),
+                                "pr_title": blame.get("pr_title"),
                             }
-        
+
         return line_blame_map
 
     def _format_time_ago(self, timestamp: str) -> str:
         """Convert ISO timestamp to human-readable 'X time ago' format.
-        
+
         Args:
             timestamp: ISO format timestamp string
-            
+
         Returns:
             Human-readable time string (e.g., "2 months ago")
         """
         if not timestamp:
             return "Unknown"
-        
+
         try:
             # Parse ISO timestamp
-            if timestamp.endswith('Z'):
-                timestamp = timestamp[:-1] + '+00:00'
-            
+            if timestamp.endswith("Z"):
+                timestamp = timestamp[:-1] + "+00:00"
+
             commit_time = datetime.fromisoformat(timestamp)
             now = datetime.now(commit_time.tzinfo)
-            
+
             # Calculate difference
             diff = now - commit_time
-            
+
             # Format as human-readable
             if diff.days > 365:
                 years = diff.days // 365
@@ -402,27 +378,27 @@ class GetBlameByIdTool(BaseTool):
                 return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
             else:
                 return "Just now"
-                
+
         except (ValueError, AttributeError) as e:
             logger.debug(f"Failed to parse timestamp {timestamp}: {e}")
             return "Unknown"
 
     def _calculate_author_lines(self, blame_data: List[Dict[str, Any]]) -> Dict[str, int]:
         """Calculate number of lines attributed to each author.
-        
+
         Args:
             blame_data: List of blame data dictionaries
-            
+
         Returns:
             Dictionary mapping author names to line counts
         """
         author_lines: Dict[str, int] = {}
-        
+
         for blame in blame_data:
-            author = blame.get('commit_author', 'Unknown')
-            
+            author = blame.get("commit_author", "Unknown")
+
             # Parse line ranges
-            line_ranges_str = blame.get('line_ranges', '[]')
+            line_ranges_str = blame.get("line_ranges", "[]")
             if isinstance(line_ranges_str, str):
                 try:
                     line_ranges = json.loads(line_ranges_str)
@@ -430,39 +406,39 @@ class GetBlameByIdTool(BaseTool):
                     line_ranges = []
             else:
                 line_ranges = line_ranges_str or []
-            
+
             # Count lines for this author
             total_lines = 0
             for line_range in line_ranges:
                 if isinstance(line_range, dict):
-                    start = line_range.get('start', 0)
-                    end = line_range.get('end', 0)
+                    start = line_range.get("start", 0)
+                    end = line_range.get("end", 0)
                     total_lines += max(0, end - start + 1)
-            
+
             author_lines[author] = author_lines.get(author, 0) + total_lines
-        
+
         return author_lines
 
     def _find_latest_commit(self, blame_data: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Find the most recent commit from blame data.
-        
+
         Args:
             blame_data: List of blame data dictionaries
-            
+
         Returns:
             Dictionary of the latest commit or None
         """
         if not blame_data:
             return None
-        
+
         # Filter out entries without timestamps
-        valid_commits = [b for b in blame_data if b.get('commit_timestamp')]
-        
+        valid_commits = [b for b in blame_data if b.get("commit_timestamp")]
+
         if not valid_commits:
             return None
-        
+
         # Sort by timestamp and return the latest
         try:
-            return max(valid_commits, key=lambda x: x['commit_timestamp'])
+            return max(valid_commits, key=lambda x: x["commit_timestamp"])
         except (KeyError, TypeError):
             return valid_commits[0] if valid_commits else None

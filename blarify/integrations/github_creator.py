@@ -514,22 +514,19 @@ class GitHubCreator:
                     commit_node = next((c for c in commit_nodes if c.external_id == commit_data.sha), None)
                     if not commit_node:
                         continue
-                    
+
                     # Extract relevant patch for this specific node
                     relevant_patch = ""
                     if commit_node.content:  # diff_text is stored as content
                         relevant_patch = self.github_repo.extract_relevant_patch(
-                            commit_node.content,
-                            node.path,
-                            node.start_line,
-                            node.end_line
+                            commit_node.content, node.path, node.start_line, node.end_line
                         )
 
                     rel = RelationshipCreator.create_modified_by_with_blame(
-                        commit_node=commit_node, 
-                        code_node=node, 
+                        commit_node=commit_node,
+                        code_node=node,
                         line_ranges=commit_data.line_ranges,
-                        relevant_patch=relevant_patch
+                        relevant_patch=relevant_patch,
                     )
                     relationships.append(rel)
 
@@ -593,7 +590,7 @@ class GitHubCreator:
                         "author_login": commit_data.author_login,
                         "additions": commit_data.additions,
                         "deletions": commit_data.deletions,
-                        "commit_message": commit_data.message,  # Store full message
+                        "commit_message": commit_data.message,
                         "has_patch": bool(patch_text),
                     }
                     if commit_data.pr_info:

@@ -287,8 +287,10 @@ class RelationshipCreator:
                 "node_specificity_level": specificity_level,
                 "commit_sha": commit_node.external_id if hasattr(commit_node, "external_id") else "",
                 "commit_timestamp": commit_node.timestamp if hasattr(commit_node, "timestamp") else "",
-                "pr_number": commit_node.metadata.get("pr_number") if hasattr(commit_node, "metadata") else None,
             }
+            # Only add pr_number if it's not None
+            if hasattr(commit_node, "metadata") and commit_node.metadata.get("pr_number") is not None:
+                attributes["pr_number"] = commit_node.metadata.get("pr_number")
 
             # Add line ranges if available
             if "line_ranges" in file_change:
@@ -358,11 +360,13 @@ class RelationshipCreator:
             # Attribution metadata
             "attribution_method": "blame",
             "attribution_accuracy": "exact",
-            # PR information if available
-            "pr_number": commit_node.metadata.get("pr_number"),
-            # Relevant patch for this specific node
-            "relevant_patch": relevant_patch if relevant_patch else None,
         }
+        # Only add pr_number if it's not None
+        if commit_node.metadata.get("pr_number") is not None:
+            attributes["pr_number"] = commit_node.metadata.get("pr_number")
+        # Only add relevant_patch if it's not None or empty
+        if relevant_patch:
+            attributes["relevant_patch"] = relevant_patch
 
         # Return as dictionary format for database
         # Use sourceId/targetId to match Neo4j manager expectations

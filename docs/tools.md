@@ -135,6 +135,15 @@ Generate Mermaid diagrams of node relationships.
 - Understand call chains
 - Document architecture
 
+### 9. GetBlameByIdTool
+Get GitHub-style blame information for code nodes, showing commit info for each line.
+
+**Use Cases:**
+- Track code authorship line-by-line
+- Understand when and why code was changed
+- Find associated pull requests
+- Identify primary code contributors
+
 ## Usage Examples
 
 ### Example 1: Exploring Repository Structure
@@ -239,6 +248,57 @@ print(mermaid_diagram)
 #     nodeA --> nodeD[FunctionD]
 ```
 
+### Example 5: Getting GitHub-Style Blame Information
+
+```python
+from blarify.tools import GetBlameByIdTool
+
+# Initialize the tool
+blame_tool = GetBlameByIdTool(
+    db_manager=db_manager,
+    repo_owner="blarApp",
+    repo_name="blarify",
+    github_token=os.getenv("GITHUB_TOKEN"),
+    auto_create_integration=True  # Creates integration nodes if needed
+)
+
+# Get blame for a function node
+node_id = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+blame_output = blame_tool._run(node_id=node_id)
+
+print(blame_output)
+# Output:
+# Git Blame for: get_reference_type (FUNCTION)
+# File: blarify/code_hierarchy/python/lsp_query_utils.py
+# ================================================================================
+# 
+# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   50 | def get_reference_type(
+# 9 months ago  bob        def456g  refactor: map lsp reference to...  51 |     self, original_node: "DefinitionNode", reference: "Reference", node_referenced: "DefinitionNode"
+# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   52 | ) -> FoundRelationshipScope:
+# 9 months ago  charlie    ghi789j  refactor: replace CodeRange...     53 |     node_in_point_reference = self._get_node_in_point_reference(node=node_referenced, reference=reference)
+# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   54 |     found_relationship_scope = self.language_definitions.get_relationship_type(
+# 9 months ago  bob        def456g  refactor: add get_relationship...  55 |         node=original_node, node_in_point_reference=node_in_point_reference
+# 9 months ago  charlie    ghi789j  refactor: replace CodeRange...     56 |     )
+#                                                                        57 |
+# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   58 |     if not found_relationship_scope:
+#                                                                        59 |         found_relationship_scope = FoundRelationshipScope(
+#                                                                        60 |             node_in_scope=None, relationship_type=RelationshipType.USES
+#                                                                        61 |         )
+#                                                                        62 |
+#                                                                        63 |     return found_relationship_scope
+# 
+# 
+# Summary:
+# ----------------------------------------
+# Total commits: 4
+# Primary author: alice (6 lines)
+# Last modified: 8 months ago by alice
+# 
+# Associated Pull Requests:
+#   PR #42: Add relationship scope feature
+#   PR #38: Refactor LSP reference handling
+```
+
 ## Tool Reference
 
 ### DirectoryExplorerTool
@@ -308,6 +368,27 @@ class NodeIdInput(BaseModel):
 - Includes node names and types
 - Directional flow representation
 
+### GetBlameByIdTool
+
+#### Input Schema
+```python
+class NodeIdInput(BaseModel):
+    node_id: str  # 32-character UUID-like hash ID
+```
+
+#### Features
+- GitHub-style blame display with commit info for each line
+- On-demand integration node creation if blame data doesn't exist
+- Shows associated pull requests
+- Calculates primary author and last modification info
+- Supports configurable GitHub token and repository settings
+
+#### Output Format
+- Plain text formatted like GitHub's blame view
+- Each line shows: time ago, author, commit SHA, message, line number, and code
+- Summary section with statistics and PR information
+- Human-readable time formatting ("8 months ago", etc.)
+
 ## Integration with AI Agents
 
 ### Langchain Integration
@@ -321,7 +402,8 @@ tools = [
     directory_explorer.get_tool(),
     code_finder,
     context_tool,
-    flowchart_tool
+    flowchart_tool,
+    blame_tool
 ]
 
 # Create agent

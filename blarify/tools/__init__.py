@@ -5,10 +5,12 @@ from .find_nodes_by_path import FindNodesByPath
 from .get_relationship_flowchart_tool import GetRelationshipFlowchart
 from .get_code_by_id_tool import GetCodeByIdTool
 from .get_file_context_tool import GetFileContextByIdTool
+from .get_blame_by_id_tool import GetBlameByIdTool
 
 __all__ = [
     "GetCodeByIdTool",
     "GetFileContextByIdTool",
+    "GetBlameByIdTool",
     "DirectoryExplorerTool",
     "FindNodesByCode",
     "FindNodesByNameAndType",

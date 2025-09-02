@@ -123,7 +123,7 @@ class AbstractVersionController(ABC):
         pass
 
     @abstractmethod
-    def blame_commits_for_range(self, file_path: str, start_line: int, end_line: int, ref: str = "HEAD") -> List[Any]:
+    def blame_commits_for_range(self, file_path: str, start_line: int, end_line: int) -> List[Any]:
         """Get all commits that modified specific line range using blame.
 
         Args:
@@ -138,7 +138,7 @@ class AbstractVersionController(ABC):
         pass
 
     @abstractmethod
-    def blame_commits_for_nodes(self, nodes: List[Any], ref: str = "HEAD") -> Dict[str, List[Any]]:
+    def blame_commits_for_nodes(self, nodes: List[Any]) -> Dict[str, List[Any]]:
         """Get commits for multiple code nodes efficiently.
 
         Args:

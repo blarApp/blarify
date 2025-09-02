@@ -1,5 +1,6 @@
 """Tool for getting detailed commit information including diffs."""
 
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -31,7 +32,9 @@ class GetCommitByIdTool(BaseTool):
     """
 
     name: str = "get_commit_by_id"
-    description: str = "Get detailed commit information including the full diff/patch, showing all changes made in a specific commit"
+    description: str = (
+        "Get detailed commit information including the full diff/patch, showing all changes made in a specific commit"
+    )
     args_schema: type[BaseModel] = CommitIdInput
 
     db_manager: AbstractDbManager = Field(description="Database manager for graph operations")
@@ -170,30 +173,30 @@ class GetCommitByIdTool(BaseTool):
             output.append("")
             output.append("Affected Code Nodes:")
             output.append("-" * 40)
-            
+
             # Group by file
             files = {}
             for node in affected_nodes:
                 if not node.get("node_id"):
                     continue
-                    
+
                 path = node.get("node_path", "Unknown")
                 if path not in files:
                     files[path] = []
-                
+
                 node_info = f"  - {node.get('node_type', 'UNKNOWN')}: {node.get('node_name', 'Unknown')}"
                 if node.get("node_id"):
                     node_info += f" (ID: {node.get('node_id')})"
                 if node.get("blamed_lines"):
                     node_info += f" [Lines: {node.get('blamed_lines')}]"
                 files[path].append(node_info)
-            
+
             for path, nodes in sorted(files.items()):
                 output.append(f"\n{path}:")
                 output.extend(nodes)
 
         # Commit metadata if available
-        metadata = commit_info.get("commit_metadata", {})
+        metadata: Dict[str, str | int] = json.loads(commit_info.get("commit_metadata", "{}"))
         if metadata:
             additions = metadata.get("additions")
             deletions = metadata.get("deletions")

@@ -456,6 +456,104 @@ class GitHub(AbstractVersionController):
             logger.error(f"GitHub connection test failed: {e}")
             return False
 
+    def get_ref_commit_info(self, ref: str = "HEAD") -> Optional[Dict[str, Any]]:
+        """Get commit information for a specific ref (branch, tag, or commit SHA).
+
+        Args:
+            ref: Git ref (branch, tag, commit SHA) to get commit info for
+
+        Returns:
+            Dictionary with commit information or None if not found:
+                - sha: Commit SHA
+                - message: Commit message
+                - timestamp: Commit timestamp
+                - author: Author name
+                - author_email: Author email
+        """
+        try:
+            # Default to 'main' if HEAD is specified
+            ref_name = ref if ref != "HEAD" else "main"
+            
+            # Check if ref is likely a commit SHA
+            is_commit_sha = bool(re.match(r'^[a-fA-F0-9]{7,40}$', ref_name))
+            
+            if is_commit_sha:
+                # Use object query for commit SHAs
+                query = """
+                query ($owner: String!, $name: String!, $oid: GitObjectID!) {
+                    repository(owner: $owner, name: $name) {
+                        object(oid: $oid) {
+                            ... on Commit {
+                                oid
+                                committedDate
+                                message
+                                author {
+                                    name
+                                    email
+                                }
+                            }
+                        }
+                    }
+                }
+                """
+                variables = {"owner": self.repo_owner, "name": self.repo_name, "oid": ref_name}
+            else:
+                # Use ref query for branch/tag names
+                query = """
+                query ($owner: String!, $name: String!, $ref: String!) {
+                    repository(owner: $owner, name: $name) {
+                        ref(qualifiedName: $ref) {
+                            target {
+                                ... on Commit {
+                                    oid
+                                    committedDate
+                                    message
+                                    author {
+                                        name
+                                        email
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                """
+                variables = {"owner": self.repo_owner, "name": self.repo_name, "ref": ref_name}
+            
+            # Execute GraphQL query
+            response = self._execute_graphql_query(query, variables)
+            
+            # Parse response
+            repo_data = response.get("data", {}).get("repository", {})
+            
+            if is_commit_sha:
+                commit_data = repo_data.get("object")
+            else:
+                ref_data = repo_data.get("ref")
+                if not ref_data:
+                    logger.warning(f"Ref {ref_name} not found")
+                    return None
+                commit_data = ref_data.get("target")
+            
+            if not commit_data:
+                logger.warning(f"No commit data found for ref {ref_name}")
+                return None
+            
+            # Extract commit information
+            author_data = commit_data.get("author", {})
+            
+            return {
+                "sha": commit_data.get("oid"),
+                "message": commit_data.get("message", ""),
+                "timestamp": commit_data.get("committedDate"),
+                "author": author_data.get("name", "Unknown"),
+                "author_email": author_data.get("email"),
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting ref commit info for {ref}: {e}")
+            return None
+
     # GraphQL API Methods
 
     def _execute_graphql_query(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:

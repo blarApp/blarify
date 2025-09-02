@@ -231,6 +231,8 @@ class GetBlameByIdTool(BaseTool):
         output.append(f"File: {node_path}")
         output.append("=" * 80)
         output.append("")
+        output.append("Tip: Use get_commit_by_id tool with any commit SHA shown below to see the full diff")
+        output.append("")
 
         # Get code and parse into lines
         code = node_info.get("code", "")
@@ -254,7 +256,7 @@ class GetBlameByIdTool(BaseTool):
                 time_ago = self._format_time_ago(blame_info.get("timestamp", ""))
                 author = (blame_info.get("author", "Unknown")[:10]).ljust(10)
                 sha = blame_info.get("sha", "       ")[:7]
-                msg = (blame_info.get("message", "")[:30]).ljust(30)
+                msg = blame_info.get("message", "")  # Show full message
 
                 blame_str = f"{time_ago.ljust(13)} {author} {sha}  {msg}"
             else:
@@ -267,9 +269,18 @@ class GetBlameByIdTool(BaseTool):
         # Add summary section
         output.extend(["", "", "Summary:", "-" * 40])
 
-        # Total commits
+        # Total commits with their SHAs
         unique_commits = set(b.get("commit_sha") for b in blame_data if b.get("commit_sha"))
         output.append(f"Total commits: {len(unique_commits)}")
+        
+        # List all unique commit SHAs for easy reference
+        if unique_commits:
+            output.append("")
+            output.append("Commit SHAs (use with get_commit_by_id tool):")
+            for sha in sorted([s for s in unique_commits if s]):  # Filter out None values
+                commit_data = next((b for b in blame_data if b.get("commit_sha") == sha), {})
+                commit_msg = commit_data.get("commit_message", "No message")
+                output.append(f"  {sha[:7]} - {commit_msg}")
 
         # Calculate primary author (author with most lines)
         if blame_data:

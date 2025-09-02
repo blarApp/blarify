@@ -33,7 +33,7 @@ class GetBlameByIdTool(BaseTool):
 
     name: str = "get_blame_by_id"
     description: str = "Get historical Git change information for a code node, showing commit history and which commits modified each line of code over time. Great to compare old versions and understand code evolution."
-    args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
+    args_schema: type[BaseModel] = NodeIdInput
 
     db_manager: AbstractDbManager = Field(description="Database manager for graph operations")
     repo_owner: str = Field(description="GitHub repository owner")
@@ -187,21 +187,21 @@ class GetBlameByIdTool(BaseTool):
         if self._ref_commit_info is None:
             # Initialize a temporary GitHub client to fetch ref info
             from blarify.repositories.version_control.github import GitHub
-            
+
             github_client = GitHub(
                 token=self.github_token,
                 repo_owner=self.repo_owner,
                 repo_name=self.repo_name,
                 ref=self.ref,
             )
-            
+
             self._ref_commit_info = github_client.get_ref_commit_info(self.ref)
-            
+
             if self._ref_commit_info:
                 logger.info(f"Using ref commit {self._ref_commit_info['sha'][:7]} as time reference")
             else:
                 logger.warning(f"Could not fetch ref commit info for {self.ref}, using current time")
-        
+
         return self._ref_commit_info
 
     def _create_integration_if_needed(self, node_id: str) -> bool:
@@ -251,7 +251,7 @@ class GetBlameByIdTool(BaseTool):
         # Get ref commit info for time calculations
         ref_info = self._get_ref_commit_info()
         ref_timestamp = ref_info.get("timestamp") if ref_info else None
-        
+
         # Header
         node_name = node_info.get("node_name", "Unknown")
         node_path = node_info.get("node_path", "Unknown")
@@ -259,13 +259,13 @@ class GetBlameByIdTool(BaseTool):
 
         output.append(f"Git Blame for: {node_name} ({node_type})")
         output.append(f"File: {node_path}")
-        
+
         # Add reference commit info if available
         if ref_info:
             ref_sha = ref_info.get("sha", "")[:7]
             ref_msg = ref_info.get("message", "").split("\n")[0][:50]
             output.append(f"Reference: {self.ref} ({ref_sha}) - {ref_msg}")
-        
+
         output.append("=" * 80)
         output.append("")
         output.append("Tip: Use get_commit_by_id tool with any commit SHA shown below to see the full diff")
@@ -285,15 +285,17 @@ class GetBlameByIdTool(BaseTool):
 
         # Format each line with blame info
         for i, code_line in enumerate(code_lines):
-            line_num = start_line + i
-            blame_info = line_blame_map.get(line_num, {})
+            # The actual line number in the file (this is what we display)
+            display_line_num = start_line + i
+            # Get blame info for this exact line number
+            blame_info = line_blame_map.get(display_line_num, {})
 
             if blame_info:
                 # Format blame info
                 time_ago = self._format_time_ago(blame_info.get("timestamp", ""), ref_timestamp)
                 author = (blame_info.get("author", "Unknown")[:10]).ljust(10)
                 sha = blame_info.get("sha", "       ")[:7]
-                msg = blame_info.get("message", "")  # Show full message
+                msg = blame_info.get("message", "")[:30]  # Show full message
 
                 blame_str = f"{time_ago.ljust(16)} {author} {sha}  {msg}"
             else:
@@ -301,7 +303,7 @@ class GetBlameByIdTool(BaseTool):
                 blame_str = " " * 68
 
             # Format line: "blame_info  line_num | code"
-            output.append(f"{blame_str} {str(line_num).rjust(4)} | {code_line}")
+            output.append(f"{blame_str} {str(display_line_num).rjust(4)} | {code_line}")
 
         # Add summary section
         output.extend(["", "", "Summary:", "-" * 40])
@@ -380,7 +382,7 @@ class GetBlameByIdTool(BaseTool):
 
                     for line_num in range(start, end + 1):
                         # Only map lines within the node's range
-                        if start_line <= line_num < start_line + num_lines:
+                        if start_line <= line_num <= start_line + num_lines - 1:
                             line_blame_map[line_num] = {
                                 "sha": blame.get("commit_sha", ""),
                                 "message": blame.get("commit_message", ""),
@@ -414,7 +416,7 @@ class GetBlameByIdTool(BaseTool):
                 timestamp = timestamp[:-1] + "+00:00"
 
             commit_time = datetime.fromisoformat(timestamp)
-            
+
             # Determine reference time
             if ref_timestamp:
                 # Parse ref timestamp
@@ -430,7 +432,7 @@ class GetBlameByIdTool(BaseTool):
             # Calculate difference
             diff = reference_time - commit_time
             is_future = diff.total_seconds() < 0
-            
+
             if is_future:
                 diff = -diff  # Make positive for formatting
                 suffix = "after ref" if use_ref else "in future"

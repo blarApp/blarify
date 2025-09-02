@@ -473,10 +473,10 @@ class GitHub(AbstractVersionController):
         try:
             # Default to 'main' if HEAD is specified
             ref_name = ref if ref != "HEAD" else "main"
-            
+
             # Check if ref is likely a commit SHA
-            is_commit_sha = bool(re.match(r'^[a-fA-F0-9]{7,40}$', ref_name))
-            
+            is_commit_sha = bool(re.match(r"^[a-fA-F0-9]{7,40}$", ref_name))
+
             if is_commit_sha:
                 # Use object query for commit SHAs
                 query = """
@@ -519,13 +519,13 @@ class GitHub(AbstractVersionController):
                 }
                 """
                 variables = {"owner": self.repo_owner, "name": self.repo_name, "ref": ref_name}
-            
+
             # Execute GraphQL query
             response = self._execute_graphql_query(query, variables)
-            
+
             # Parse response
             repo_data = response.get("data", {}).get("repository", {})
-            
+
             if is_commit_sha:
                 commit_data = repo_data.get("object")
             else:
@@ -534,14 +534,14 @@ class GitHub(AbstractVersionController):
                     logger.warning(f"Ref {ref_name} not found")
                     return None
                 commit_data = ref_data.get("target")
-            
+
             if not commit_data:
                 logger.warning(f"No commit data found for ref {ref_name}")
                 return None
-            
+
             # Extract commit information
             author_data = commit_data.get("author", {})
-            
+
             return {
                 "sha": commit_data.get("oid"),
                 "message": commit_data.get("message", ""),
@@ -549,7 +549,7 @@ class GitHub(AbstractVersionController):
                 "author": author_data.get("name", "Unknown"),
                 "author_email": author_data.get("email"),
             }
-            
+
         except Exception as e:
             logger.error(f"Error getting ref commit info for {ref}: {e}")
             return None
@@ -606,10 +606,10 @@ class GitHub(AbstractVersionController):
         # Handle ref - determine if it's a commit SHA or branch/tag
         # Default to 'main' if HEAD is specified
         ref_name = ref if ref != "HEAD" else "main"
-        
+
         # Check if ref is likely a commit SHA (40 hex characters) or short SHA
-        is_commit_sha = bool(re.match(r'^[a-fA-F0-9]{7,40}$', ref_name))
-        
+        is_commit_sha = bool(re.match(r"^[a-fA-F0-9]{7,40}$", ref_name))
+
         if is_commit_sha:
             # Use object(oid:) for commit SHAs
             query = """
@@ -738,7 +738,7 @@ class GitHub(AbstractVersionController):
         try:
             # Navigate through the response structure - handle both ref and object patterns
             repo_data = response["data"]["repository"]
-            
+
             # Try to get blame data from either ref.target.blame or object.blame
             if "ref" in repo_data and repo_data["ref"]:
                 blame_data = repo_data["ref"]["target"]["blame"]
@@ -911,8 +911,8 @@ class GitHub(AbstractVersionController):
 
         merged = []
         current_range = {
-            "start": sorted_nodes[0].start_line,
-            "end": sorted_nodes[0].end_line,
+            "start": sorted_nodes[0].start_line + 1,
+            "end": sorted_nodes[0].end_line + 1,
             "nodes": [sorted_nodes[0]],
         }
 
@@ -920,12 +920,12 @@ class GitHub(AbstractVersionController):
             # Check if overlapping or adjacent (within 5 lines)
             if node.start_line <= current_range["end"] + 5:
                 # Merge ranges
-                current_range["end"] = max(current_range["end"], node.end_line)
+                current_range["end"] = max(current_range["end"], node.end_line + 1)
                 current_range["nodes"].append(node)
             else:
                 # Start new range
                 merged.append(current_range)
-                current_range = {"start": node.start_line, "end": node.end_line, "nodes": [node]}
+                current_range = {"start": node.start_line + 1, "end": node.end_line + 1, "nodes": [node]}
 
         # Add last range
         merged.append(current_range)

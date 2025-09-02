@@ -14,7 +14,7 @@ class TestGitHubGraphQLClient:
         github = GitHub(token="test", repo_owner="owner", repo_name="repo")
 
         # Test blame query construction
-        query, variables = github._build_blame_query("file.py", "main")
+        query, variables = github._build_blame_query("file.py", "main")  # pyright: ignore[reportPrivateUsage]
 
         # Verify query structure
         assert "blame(range: {startLine: $start, endLine: $end})" in query
@@ -81,7 +81,7 @@ class TestGitHubGraphQLClient:
             }
         }
 
-        commits = github._parse_blame_response(response)
+        commits = github._parse_blame_response(response)  # pyright: ignore[reportPrivateUsage]
 
         assert len(commits) == 1
         assert commits[0]["sha"] == "abc123"
@@ -99,7 +99,7 @@ class TestGitHubGraphQLClient:
         response = {"errors": [{"message": "Not found"}]}
 
         with pytest.raises(Exception) as exc_info:
-            github._parse_blame_response(response)
+            github._parse_blame_response(response)  # pyright: ignore[reportPrivateUsage]
 
         assert "GraphQL error" in str(exc_info.value)
 
@@ -175,7 +175,7 @@ class TestGitHubGraphQLClient:
             }
         }
 
-        commits = github._parse_blame_response(response)
+        commits = github._parse_blame_response(response)  # pyright: ignore[reportPrivateUsage]
 
         # Should consolidate to single commit with multiple line ranges
         assert len(commits) == 1

@@ -635,14 +635,14 @@ class GitHub(AbstractVersionController):
         if is_commit_sha:
             # Use object(oid:) for commit SHAs
             query = """
-            query ($owner: String!, $name: String!, $oid: GitObjectID!, $path: String!, $startLine: Int!, $endLine: Int!) {
+            query ($owner: String!, $name: String!, $oid: GitObjectID!, $path: String!) {
                 repository(owner: $owner, name: $name) {
                     object(oid: $oid) {
                         ... on Commit {
                             oid
                             committedDate
                             message
-                            blame(path: $path, range: {startLine: $startLine, endLine: $endLine}) {
+                            blame(path: $path) {
                                 ranges {
                                     startingLine
                                     endingLine
@@ -687,19 +687,17 @@ class GitHub(AbstractVersionController):
                 "owner": self.repo_owner, 
                 "name": self.repo_name, 
                 "oid": ref_name, 
-                "path": clean_path,
-                "startLine": start_line,
-                "endLine": end_line
+                "path": clean_path
             }
         else:
             # Use ref(qualifiedName:) for branch/tag names
             query = """
-            query ($owner:String!, $name:String!, $ref:String!, $path:String!, $startLine: Int!, $endLine: Int!) {
+            query ($owner:String!, $name:String!, $ref:String!, $path:String!) {
                 repository(owner:$owner, name:$name) {
                     ref(qualifiedName: $ref) {
                         target {
                             ... on Commit {
-                                blame(path: $path, range: {startLine: $startLine, endLine: $endLine}) {
+                                blame(path: $path) {
                                     ranges {
                                         startingLine
                                         endingLine
@@ -745,9 +743,7 @@ class GitHub(AbstractVersionController):
                 "owner": self.repo_owner, 
                 "name": self.repo_name, 
                 "ref": ref_name, 
-                "path": clean_path,
-                "startLine": start_line,
-                "endLine": end_line
+                "path": clean_path
             }
 
         return query, variables

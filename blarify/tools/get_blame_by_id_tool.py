@@ -33,7 +33,7 @@ class GetBlameByIdTool(BaseTool):
 
     name: str = "get_blame_by_id"
     description: str = "Get historical Git change information for a code node, showing commit history and which commits modified each line of code over time. Great to compare old versions and understand code evolution."
-    args_schema: type[BaseModel] = NodeIdInput
+    args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Database manager for graph operations")
     repo_owner: str = Field(description="GitHub repository owner")
@@ -81,6 +81,7 @@ class GetBlameByIdTool(BaseTool):
 
         self._graph_environment = GraphEnvironment(environment="production", diff_identifier="main", root_path="/")
         self._github_creator: Optional[GitHubCreator] = None
+        self._ref_commit_info: Optional[Dict[str, Any]] = None
 
     def _run(
         self,
@@ -108,7 +109,7 @@ class GetBlameByIdTool(BaseTool):
             # If no blame data exists and auto-create is enabled
             if not blame_data and self.auto_create_integration:
                 logger.info(f"No existing blame data for node {node_id}, creating integration nodes...")
-                created = self._create_integration_if_needed(node_id, self.ref)
+                created = self._create_integration_if_needed(node_id)
                 if created:
                     # Re-query for newly created blame data
                     blame_data = self._get_existing_blame(node_id)
@@ -177,12 +178,37 @@ class GetBlameByIdTool(BaseTool):
         results = self.db_manager.query(query, {"node_id": node_id})
         return results if results else []
 
-    def _create_integration_if_needed(self, node_id: str, ref: str = "HEAD") -> bool:
+    def _get_ref_commit_info(self) -> Optional[Dict[str, Any]]:
+        """Get the commit information for the configured ref.
+
+        Returns:
+            Dictionary with ref commit information or None
+        """
+        if self._ref_commit_info is None:
+            # Initialize a temporary GitHub client to fetch ref info
+            from blarify.repositories.version_control.github import GitHub
+            
+            github_client = GitHub(
+                token=self.github_token,
+                repo_owner=self.repo_owner,
+                repo_name=self.repo_name,
+                ref=self.ref,
+            )
+            
+            self._ref_commit_info = github_client.get_ref_commit_info(self.ref)
+            
+            if self._ref_commit_info:
+                logger.info(f"Using ref commit {self._ref_commit_info['sha'][:7]} as time reference")
+            else:
+                logger.warning(f"Could not fetch ref commit info for {self.ref}, using current time")
+        
+        return self._ref_commit_info
+
+    def _create_integration_if_needed(self, node_id: str) -> bool:
         """Create integration nodes using GitHubCreator if they don't exist.
 
         Args:
             node_id: The node ID
-            ref: Git ref (branch, tag, commit SHA) to blame at
 
         Returns:
             True if integration nodes were created successfully
@@ -222,6 +248,10 @@ class GetBlameByIdTool(BaseTool):
         """
         output = []
 
+        # Get ref commit info for time calculations
+        ref_info = self._get_ref_commit_info()
+        ref_timestamp = ref_info.get("timestamp") if ref_info else None
+        
         # Header
         node_name = node_info.get("node_name", "Unknown")
         node_path = node_info.get("node_path", "Unknown")
@@ -229,6 +259,13 @@ class GetBlameByIdTool(BaseTool):
 
         output.append(f"Git Blame for: {node_name} ({node_type})")
         output.append(f"File: {node_path}")
+        
+        # Add reference commit info if available
+        if ref_info:
+            ref_sha = ref_info.get("sha", "")[:7]
+            ref_msg = ref_info.get("message", "").split("\n")[0][:50]
+            output.append(f"Reference: {self.ref} ({ref_sha}) - {ref_msg}")
+        
         output.append("=" * 80)
         output.append("")
         output.append("Tip: Use get_commit_by_id tool with any commit SHA shown below to see the full diff")
@@ -253,15 +290,15 @@ class GetBlameByIdTool(BaseTool):
 
             if blame_info:
                 # Format blame info
-                time_ago = self._format_time_ago(blame_info.get("timestamp", ""))
+                time_ago = self._format_time_ago(blame_info.get("timestamp", ""), ref_timestamp)
                 author = (blame_info.get("author", "Unknown")[:10]).ljust(10)
                 sha = blame_info.get("sha", "       ")[:7]
                 msg = blame_info.get("message", "")  # Show full message
 
-                blame_str = f"{time_ago.ljust(13)} {author} {sha}  {msg}"
+                blame_str = f"{time_ago.ljust(16)} {author} {sha}  {msg}"
             else:
                 # No blame info for this line
-                blame_str = " " * 65
+                blame_str = " " * 68
 
             # Format line: "blame_info  line_num | code"
             output.append(f"{blame_str} {str(line_num).rjust(4)} | {code_line}")
@@ -292,7 +329,7 @@ class GetBlameByIdTool(BaseTool):
             # Last modified
             latest_commit = self._find_latest_commit(blame_data)
             if latest_commit:
-                time_ago = self._format_time_ago(latest_commit.get("commit_timestamp", ""))
+                time_ago = self._format_time_ago(latest_commit.get("commit_timestamp", ""), ref_timestamp)
                 author = latest_commit.get("commit_author", "Unknown")
                 output.append(f"Last modified: {time_ago} by {author}")
 
@@ -355,14 +392,18 @@ class GetBlameByIdTool(BaseTool):
 
         return line_blame_map
 
-    def _format_time_ago(self, timestamp: str) -> str:
-        """Convert ISO timestamp to human-readable 'X time ago' format.
+    def _format_time_ago(self, timestamp: str, ref_timestamp: Optional[str] = None) -> str:
+        """Convert ISO timestamp to human-readable time format.
+
+        When ref_timestamp is provided, calculates time relative to that reference.
+        Otherwise, calculates time relative to current time.
 
         Args:
             timestamp: ISO format timestamp string
+            ref_timestamp: Optional reference timestamp to calculate relative to
 
         Returns:
-            Human-readable time string (e.g., "2 months ago")
+            Human-readable time string (e.g., "2 months ago" or "3 days before ref")
         """
         if not timestamp:
             return "Unknown"
@@ -373,28 +414,46 @@ class GetBlameByIdTool(BaseTool):
                 timestamp = timestamp[:-1] + "+00:00"
 
             commit_time = datetime.fromisoformat(timestamp)
-            now = datetime.now(commit_time.tzinfo)
+            
+            # Determine reference time
+            if ref_timestamp:
+                # Parse ref timestamp
+                if ref_timestamp.endswith("Z"):
+                    ref_timestamp = ref_timestamp[:-1] + "+00:00"
+                reference_time = datetime.fromisoformat(ref_timestamp)
+                use_ref = True
+            else:
+                # Use current time
+                reference_time = datetime.now(commit_time.tzinfo)
+                use_ref = False
 
             # Calculate difference
-            diff = now - commit_time
+            diff = reference_time - commit_time
+            is_future = diff.total_seconds() < 0
+            
+            if is_future:
+                diff = -diff  # Make positive for formatting
+                suffix = "after ref" if use_ref else "in future"
+            else:
+                suffix = "before ref" if use_ref else "ago"
 
             # Format as human-readable
             if diff.days > 365:
                 years = diff.days // 365
-                return f"{years} year{'s' if years > 1 else ''} ago"
+                return f"{years} year{'s' if years > 1 else ''} {suffix}"
             elif diff.days > 30:
                 months = diff.days // 30
-                return f"{months} month{'s' if months > 1 else ''} ago"
+                return f"{months} month{'s' if months > 1 else ''} {suffix}"
             elif diff.days > 0:
-                return f"{diff.days} day{'s' if diff.days > 1 else ''} ago"
+                return f"{diff.days} day{'s' if diff.days > 1 else ''} {suffix}"
             elif diff.seconds > 3600:
                 hours = diff.seconds // 3600
-                return f"{hours} hour{'s' if hours > 1 else ''} ago"
+                return f"{hours} hour{'s' if hours > 1 else ''} {suffix}"
             elif diff.seconds > 60:
                 minutes = diff.seconds // 60
-                return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
+                return f"{minutes} minute{'s' if minutes > 1 else ''} {suffix}"
             else:
-                return "Just now"
+                return "same as ref" if use_ref else "Just now"
 
         except (ValueError, AttributeError) as e:
             logger.debug(f"Failed to parse timestamp {timestamp}: {e}")

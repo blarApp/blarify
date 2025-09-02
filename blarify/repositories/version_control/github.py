@@ -75,6 +75,28 @@ class GitHub(AbstractVersionController):
         """Get the repository API URL."""
         return f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}"
 
+    def _to_blame_line(self, node_line: int) -> int:
+        """Convert 0-indexed node line to 1-indexed blame line.
+        
+        Args:
+            node_line: 0-indexed line number from code node
+            
+        Returns:
+            1-indexed line number for GitHub blame API
+        """
+        return node_line + 1
+    
+    def _from_blame_line(self, blame_line: int) -> int:
+        """Convert 1-indexed blame line to 0-indexed node line.
+        
+        Args:
+            blame_line: 1-indexed line number from GitHub blame
+            
+        Returns:
+            0-indexed line number for code node
+        """
+        return blame_line - 1
+
     def _normalize_file_path(self, file_path: str) -> str:
         """Normalize file path to be relative to repository root.
 
@@ -588,13 +610,13 @@ class GitHub(AbstractVersionController):
             logger.error(f"GraphQL query failed: {e}")
             raise
 
-    def _build_blame_query(self, file_path: str, ref: str = "HEAD") -> Tuple[str, Dict[str, Any]]:
+    def _build_blame_query(self, file_path: str, start_line: int, end_line: int, ref: str = "HEAD") -> Tuple[str, Dict[str, Any]]:
         """Build GraphQL query for blame information.
 
         Args:
             file_path: Path to file in repository
             start_line: Starting line number (1-indexed)
-            end_line: Ending line number (inclusive)
+            end_line: Ending line number (inclusive, 1-indexed)
             ref: Git ref (branch, tag, commit SHA) to blame at
 
         Returns:
@@ -613,14 +635,14 @@ class GitHub(AbstractVersionController):
         if is_commit_sha:
             # Use object(oid:) for commit SHAs
             query = """
-            query ($owner: String!, $name: String!, $oid: GitObjectID!, $path: String!) {
+            query ($owner: String!, $name: String!, $oid: GitObjectID!, $path: String!, $startLine: Int!, $endLine: Int!) {
                 repository(owner: $owner, name: $name) {
                     object(oid: $oid) {
                         ... on Commit {
                             oid
                             committedDate
                             message
-                            blame(path: $path) {
+                            blame(path: $path, range: {startLine: $startLine, endLine: $endLine}) {
                                 ranges {
                                     startingLine
                                     endingLine
@@ -661,16 +683,23 @@ class GitHub(AbstractVersionController):
                 }
             }
             """
-            variables = {"owner": self.repo_owner, "name": self.repo_name, "oid": ref_name, "path": clean_path}
+            variables = {
+                "owner": self.repo_owner, 
+                "name": self.repo_name, 
+                "oid": ref_name, 
+                "path": clean_path,
+                "startLine": start_line,
+                "endLine": end_line
+            }
         else:
             # Use ref(qualifiedName:) for branch/tag names
             query = """
-            query ($owner:String!, $name:String!, $ref:String!, $path:String!) {
+            query ($owner:String!, $name:String!, $ref:String!, $path:String!, $startLine: Int!, $endLine: Int!) {
                 repository(owner:$owner, name:$name) {
                     ref(qualifiedName: $ref) {
                         target {
                             ... on Commit {
-                                blame(path: $path) {
+                                blame(path: $path, range: {startLine: $startLine, endLine: $endLine}) {
                                     ranges {
                                         startingLine
                                         endingLine
@@ -712,7 +741,14 @@ class GitHub(AbstractVersionController):
                 }
             }
             """
-            variables = {"owner": self.repo_owner, "name": self.repo_name, "ref": ref_name, "path": clean_path}
+            variables = {
+                "owner": self.repo_owner, 
+                "name": self.repo_name, 
+                "ref": ref_name, 
+                "path": clean_path,
+                "startLine": start_line,
+                "endLine": end_line
+            }
 
         return query, variables
 
@@ -835,7 +871,7 @@ class GitHub(AbstractVersionController):
         logger.info(f"Fetching blame for {file_path} lines {start_line}-{end_line} at {self.ref}")
 
         # Build and execute GraphQL query
-        query, variables = self._build_blame_query(file_path, self.ref)
+        query, variables = self._build_blame_query(file_path, start_line, end_line, self.ref)
         response = self._execute_graphql_query(query, variables)
 
         # Parse response
@@ -882,10 +918,11 @@ class GitHub(AbstractVersionController):
                     node_commits: List[BlameCommitDto] = []
                     for commit in commits:
                         # Check if commit actually touches this node's lines
+                        # Convert node lines to 1-indexed for comparison with blame ranges
                         if self._ranges_overlap(
                             [{"start": lr.start, "end": lr.end} for lr in commit.line_ranges],
-                            node.start_line,
-                            node.end_line,
+                            self._to_blame_line(node.start_line),
+                            self._to_blame_line(node.end_line),
                         ):
                             node_commits.append(commit)
 
@@ -911,21 +948,22 @@ class GitHub(AbstractVersionController):
 
         merged = []
         current_range = {
-            "start": sorted_nodes[0].start_line + 1,
-            "end": sorted_nodes[0].end_line + 1,
+            "start": self._to_blame_line(sorted_nodes[0].start_line),
+            "end": self._to_blame_line(sorted_nodes[0].end_line),
             "nodes": [sorted_nodes[0]],
         }
 
         for node in sorted_nodes[1:]:
             # Check if overlapping or adjacent (within 5 lines)
-            if node.start_line <= current_range["end"] + 5:
+            # Convert node.start_line to 1-indexed for comparison
+            if self._to_blame_line(node.start_line) <= current_range["end"] + 5:
                 # Merge ranges
-                current_range["end"] = max(current_range["end"], node.end_line + 1)
+                current_range["end"] = max(current_range["end"], self._to_blame_line(node.end_line))
                 current_range["nodes"].append(node)
             else:
                 # Start new range
                 merged.append(current_range)
-                current_range = {"start": node.start_line + 1, "end": node.end_line + 1, "nodes": [node]}
+                current_range = {"start": self._to_blame_line(node.start_line), "end": self._to_blame_line(node.end_line), "nodes": [node]}
 
         # Add last range
         merged.append(current_range)

@@ -33,7 +33,7 @@ class GetBlameByIdTool(BaseTool):
 
     name: str = "get_blame_by_id"
     description: str = "Get historical Git change information for a code node, showing commit history and which commits modified each line of code over time. Great to compare old versions and understand code evolution."
-    args_schema: type[BaseModel] = NodeIdInput
+    args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Database manager for graph operations")
     repo_owner: str = Field(description="GitHub repository owner")

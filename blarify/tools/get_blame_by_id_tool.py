@@ -32,7 +32,7 @@ class GetBlameByIdTool(BaseTool):
     """
 
     name: str = "get_blame_by_id"
-    description: str = "Get historical Git change information for a code node, showing commit history and which commits modified each line of code over time"
+    description: str = "Get historical Git change information for a code node, showing commit history and which commits modified each line of code over time. Great to compare old versions and understand code evolution."
     args_schema: type[BaseModel] = NodeIdInput
 
     db_manager: AbstractDbManager = Field(description="Database manager for graph operations")
@@ -272,7 +272,7 @@ class GetBlameByIdTool(BaseTool):
         # Total commits with their SHAs
         unique_commits = set(b.get("commit_sha") for b in blame_data if b.get("commit_sha"))
         output.append(f"Total commits: {len(unique_commits)}")
-        
+
         # List all unique commit SHAs for easy reference
         if unique_commits:
             output.append("")

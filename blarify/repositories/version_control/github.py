@@ -2,6 +2,8 @@
 
 import os
 import logging
+import re
+import base64
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 import requests
@@ -82,8 +84,6 @@ class GitHub(AbstractVersionController):
         Returns:
             File path relative to repository root, including repo_name as prefix
         """
-        import os
-
         # Remove file:// prefix if present
         clean_path = file_path
         if clean_path.startswith("file://"):
@@ -399,8 +399,6 @@ class GitHub(AbstractVersionController):
             response = self._make_request("GET", endpoint, params=params)
 
             if response and "content" in response:
-                import base64
-
                 content = base64.b64decode(response["content"]).decode("utf-8")
                 return content
 
@@ -504,13 +502,26 @@ class GitHub(AbstractVersionController):
         Returns:
             Tuple of (query string, variables dict)
         """
-        # GitHub GraphQL API uses blame on Commit type, not Blob
-        query = """
-        query ($owner:String!, $name:String!, $ref:String!, $path:String!) {
-            repository(owner:$owner, name:$name) {
-                ref(qualifiedName: $ref) {
-                    target {
+        # Clean up file path - normalize and remove leading slash if present
+        clean_path = self._normalize_file_path(file_path).lstrip("/")
+
+        # Handle ref - determine if it's a commit SHA or branch/tag
+        # Default to 'main' if HEAD is specified
+        ref_name = ref if ref != "HEAD" else "main"
+        
+        # Check if ref is likely a commit SHA (40 hex characters) or short SHA
+        is_commit_sha = bool(re.match(r'^[a-fA-F0-9]{7,40}$', ref_name))
+        
+        if is_commit_sha:
+            # Use object(oid:) for commit SHAs
+            query = """
+            query ($owner: String!, $name: String!, $oid: GitObjectID!, $path: String!) {
+                repository(owner: $owner, name: $name) {
+                    object(oid: $oid) {
                         ... on Commit {
+                            oid
+                            committedDate
+                            message
                             blame(path: $path) {
                                 ranges {
                                     startingLine
@@ -551,17 +562,59 @@ class GitHub(AbstractVersionController):
                     }
                 }
             }
-        }
-        """
-
-        # Clean up file path - normalize and remove leading slash if present
-        clean_path = self._normalize_file_path(file_path).lstrip("/")
-
-        # Handle ref - if it's a commit SHA, we need to use object instead of ref
-        # For now, let's use the branch name
-        ref_name = ref if ref != "HEAD" else "main"
-
-        variables = {"owner": self.repo_owner, "name": self.repo_name, "ref": ref_name, "path": clean_path}
+            """
+            variables = {"owner": self.repo_owner, "name": self.repo_name, "oid": ref_name, "path": clean_path}
+        else:
+            # Use ref(qualifiedName:) for branch/tag names
+            query = """
+            query ($owner:String!, $name:String!, $ref:String!, $path:String!) {
+                repository(owner:$owner, name:$name) {
+                    ref(qualifiedName: $ref) {
+                        target {
+                            ... on Commit {
+                                blame(path: $path) {
+                                    ranges {
+                                        startingLine
+                                        endingLine
+                                        age
+                                        commit {
+                                            oid
+                                            committedDate
+                                            message
+                                            additions
+                                            deletions
+                                            author {
+                                                name
+                                                email
+                                                user { login }
+                                            }
+                                            committer {
+                                                name
+                                                email
+                                                user { login }
+                                            }
+                                            url
+                                            associatedPullRequests(first: 1) {
+                                                nodes {
+                                                    number
+                                                    title
+                                                    bodyText
+                                                    url
+                                                    author { login }
+                                                    mergedAt
+                                                    state
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            """
+            variables = {"owner": self.repo_owner, "name": self.repo_name, "ref": ref_name, "path": clean_path}
 
         return query, variables
 
@@ -585,8 +638,16 @@ class GitHub(AbstractVersionController):
         seen_shas: Dict[str, int] = {}  # Map SHA to commit index for consolidation
 
         try:
-            # Navigate through the new response structure
-            blame_data = response["data"]["repository"]["ref"]["target"]["blame"]
+            # Navigate through the response structure - handle both ref and object patterns
+            repo_data = response["data"]["repository"]
+            
+            # Try to get blame data from either ref.target.blame or object.blame
+            if "ref" in repo_data and repo_data["ref"]:
+                blame_data = repo_data["ref"]["target"]["blame"]
+            elif "object" in repo_data and repo_data["object"]:
+                blame_data = repo_data["object"]["blame"]
+            else:
+                raise Exception("Unable to find blame data in response")
 
             for blame_range in blame_data["ranges"]:
                 commit_data = blame_range["commit"]
@@ -856,8 +917,6 @@ class GitHub(AbstractVersionController):
             # Check for hunk header (@@ -start,count +start,count @@)
             elif line.startswith("@@") and in_relevant_file:
                 # Parse the line numbers from the hunk header
-                import re
-
                 match = re.match(r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@", line)
                 if match:
                     # old_start = int(match.group(1))

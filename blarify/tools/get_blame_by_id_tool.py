@@ -278,7 +278,9 @@ class GetBlameByIdTool(BaseTool):
             return "\n".join(output)
 
         code_lines = code.split("\n")
-        start_line = node_info.get("start_line", 1)
+        # Code nodes use 0-indexed lines, but blame uses 1-indexed lines
+        # Add 1 to convert from 0-indexed to 1-indexed
+        start_line = node_info.get("start_line", 0) + 1
 
         # Build line-to-blame mapping
         line_blame_map = self._build_line_blame_map(blame_data, start_line, len(code_lines))

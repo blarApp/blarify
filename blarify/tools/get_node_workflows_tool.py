@@ -44,21 +44,18 @@ class GetNodeWorkflowsTool(BaseTool):
     args_schema: type[BaseModel] = NodeWorkflowsInput  # type: ignore[assignment]
 
     db_manager: Neo4jManager = Field(description="Neo4jManager object to interact with the database")
-    company_id: str = Field(description="Company ID to search for in the Neo4j database")
     auto_generate: bool = Field(default=True, description="Whether to auto-generate workflows when missing")
     _workflow_creator: Optional[Any] = None
 
     def __init__(
         self,
         db_manager: Neo4jManager,
-        company_id: str,
         handle_validation_error: bool = False,
         auto_generate: bool = True,
     ):
         """Initialize the tool with database connection."""
         super().__init__(
             db_manager=db_manager,
-            company_id=company_id,
             handle_validation_error=handle_validation_error,
             auto_generate=auto_generate,
         )
@@ -178,7 +175,7 @@ class GetNodeWorkflowsTool(BaseTool):
                    labels(n) as labels
             """
 
-            result = self.db_manager.query(query, {"node_id": node_id, "entity_id": self.company_id})
+            result = self.db_manager.query(query, {"node_id": node_id})
 
             return result[0] if result else None
 
@@ -198,7 +195,7 @@ class GetNodeWorkflowsTool(BaseTool):
                    collect(DISTINCT w.node_id) as workflow_ids
             """
 
-            check_result = self.db_manager.query(check_query, {"node_id": node_id, "entity_id": self.company_id})
+            check_result = self.db_manager.query(check_query, {"node_id": node_id})
 
             workflow_count = 0  # Default value
             if check_result:
@@ -232,7 +229,7 @@ class GetNodeWorkflowsTool(BaseTool):
             ORDER BY w.title
             """
 
-            result = self.db_manager.query(query, {"node_id": node_id, "entity_id": self.company_id})
+            result = self.db_manager.query(query, {"node_id": node_id})
 
             if not result and workflow_count > 0:
                 logger.warning(f"Found {workflow_count} workflows but couldn't retrieve workflow details")

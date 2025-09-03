@@ -33,6 +33,7 @@ from blarify.tools import (
     FindNodesByNameAndType,
     FindNodesByPath,
     GetRelationshipFlowchart,
+    GetNodeWorkflowsTool,
 )
 
 console = Console()
@@ -80,6 +81,10 @@ class InteractiveCodeAgent:
             GetRelationshipFlowchart(
                 db_manager=self.db_manager
             ),
+            GetNodeWorkflowsTool(
+                db_manager=self.db_manager,
+                company_id=entity_id
+            ),
         ]
         
         # Initialize ChatOpenAI
@@ -91,7 +96,7 @@ class InteractiveCodeAgent:
         
         # Create prompt template
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", f"""You are a helpful code analysis assistant that helps users explore and understand a codebase.
+            ("system", """You are a helpful code analysis assistant that helps users explore and understand a codebase.
             You have access to tools that can search for code, show file contents, explore directory structures, and analyze relationships between code components.
             
             When answering questions:
@@ -101,6 +106,7 @@ class InteractiveCodeAgent:
             4. Use get_relationship_flowchart to show dependencies
             5. Use get_file_context_by_id to see the context around a specific node
             6. Use get_blame_by_id to see git history information
+            7. Use get_node_workflows to understand which workflows a node participates in and its execution context
             
             Node IDs are 32-character hexadecimal strings (like UUIDs).
             
@@ -148,6 +154,7 @@ Welcome! I'm an AI assistant that can help you explore and understand the codeba
 - **get_blame_by_id**: Show git blame information for a node
 - **get_relationship_flowchart**: Display dependencies and relationships
 - **directory_explorer**: Explore the directory structure
+- **get_node_workflows**: Discover which workflows a code node participates in
 
 ## Example questions:
 
@@ -157,6 +164,7 @@ Welcome! I'm an AI assistant that can help you explore and understand the codeba
 - "Show me functions that call process_node"
 - "Find code that contains 'def process_node'"
 - "Show the directory structure of /blarify/tools"
+- "What workflows does the process_node function participate in?"
 
 Type 'quit' or 'exit' to leave, 'clear' to clear the screen, 'help' for this message.
 """

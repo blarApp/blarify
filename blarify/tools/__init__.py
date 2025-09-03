@@ -7,6 +7,7 @@ from .get_code_by_id_tool import GetCodeByIdTool
 from .get_file_context_tool import GetFileContextByIdTool
 from .get_blame_by_id_tool import GetBlameByIdTool
 from .get_commit_by_id_tool import GetCommitByIdTool
+from .get_node_workflows_tool import GetNodeWorkflowsTool
 
 __all__ = [
     "GetCodeByIdTool",
@@ -18,4 +19,5 @@ __all__ = [
     "FindNodesByNameAndType",
     "FindNodesByPath",
     "GetRelationshipFlowchart",
+    "GetNodeWorkflowsTool",
 ]

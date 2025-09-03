@@ -35,7 +35,10 @@ class GetNodeWorkflowsTool(BaseTool):
     name: str = "get_node_workflows"
     description: str = (
         "Discovers which workflows and execution paths a code node participates in. "
-        "Shows how the node is called, what calls it, and its role in larger workflows."
+        "Shows how the node is called, what calls it, and its role in larger workflows. "
+        "This tool helps you understand how the code you are querying interacts with other parts "
+        "of the codebase, how it fits into the overall architecture, and the role it plays in "
+        "the system's functionality."
     )
 
     args_schema: type[BaseModel] = NodeWorkflowsInput  # type: ignore[assignment]

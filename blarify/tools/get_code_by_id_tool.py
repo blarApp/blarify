@@ -1,7 +1,6 @@
 import logging
 import re
 from typing import Any, Optional, List
-from concurrent.futures import ThreadPoolExecutor, Future
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
@@ -14,6 +13,7 @@ from blarify.graph.graph_environment import GraphEnvironment
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
 from blarify.repositories.graph_db_manager.dtos.edge_dto import EdgeDTO
+from blarify.graph.relationship.relationship_type import RelationshipType
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class GetCodeByIdTool(BaseTool):
             db_manager=self.db_manager,
             agent_caller=LLMProvider(),
             graph_environment=self._graph_environment,
-            max_workers=1,
+            max_workers=20,
             overwrite_documentation=False,
         )
         self._workflow_creator = WorkflowCreator(
@@ -123,38 +123,6 @@ class GetCodeByIdTool(BaseTool):
         except Exception as e:
             logger.error(f"Failed to auto-generate workflows: {e}")
             return None
-
-    def _parallel_generate_missing_data(
-        self, node: NodeSearchResultDTO
-    ) -> tuple[Optional[str], Optional[list[dict[str, Any]]]]:
-        """Generate documentation and workflows in parallel if missing."""
-        doc_result = node.documentation
-        workflow_result = node.workflows
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures: list[tuple[str, Future[Any]]] = []
-
-            # Submit documentation generation if needed
-            if not doc_result and self.auto_generate_documentation:
-                doc_future = executor.submit(self._generate_documentation_for_node, node)
-                futures.append(("doc", doc_future))
-
-            # Submit workflow generation if needed
-            if not workflow_result and self.auto_generate_workflows:
-                workflow_future = executor.submit(self._generate_workflows_for_node, node)
-                futures.append(("workflow", workflow_future))
-
-            # Collect results
-            for task_type, future in futures:
-                try:
-                    if task_type == "doc":
-                        doc_result = future.result(timeout=150)
-                    elif task_type == "workflow":
-                        workflow_result = future.result(timeout=150)
-                except Exception as e:
-                    logger.error(f"Error in parallel generation ({task_type}): {e}")
-
-        return doc_result, workflow_result
 
     def _get_relations_str(self, *, node_name: str, relations: list[EdgeDTO], direction: str) -> str:
         if direction == "outbound":
@@ -225,58 +193,27 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
 
         return "\n".join(formatted_lines)
 
-    def _format_workflow_chains(self, workflows: list[dict[str, Any]], target_node_id: str) -> str:
-        """Format workflow chains for display."""
-        if not workflows:
-            return ""
-
-        output = "📊 WORKFLOWS:\n"
-        output += "━" * 80 + "\n"
-
-        for i, workflow in enumerate(workflows, 1):
-            # Get workflow metadata
-            workflow_name = workflow.get("workflow_name", "Unnamed Workflow")
-            entry_point = workflow.get("entry_point_name", "Unknown")
-            exit_point = workflow.get("exit_point_name", "Unknown")
-
-            output += f"\nWorkflow {i}: {workflow_name}\n"
-            output += f"Entry: {entry_point}() → Exit: {exit_point}()\n"
-
-            # Build the execution chain
-            chain = workflow.get("execution_chain", [])
-            if chain:
-                output += "Chain: "
-
-                # Build a list of unique nodes in order
-                seen_nodes = set()
-                chain_parts = []
-
-                for step in sorted(chain, key=lambda x: (x.get("step_order", 0), x.get("depth", 0))):
-                    # Add from node
-                    from_id = step.get("from_id")
-                    from_name = step.get("from_name", "Unknown")
-                    if from_id and from_id not in seen_nodes:
-                        if from_id == target_node_id:
-                            chain_parts.append(f"【{from_name}[{from_id}]】")
-                        else:
-                            chain_parts.append(f"{from_name}[{from_id}]")
-                        seen_nodes.add(from_id)
-
-                    # Add to node
-                    to_id = step.get("to_id")
-                    to_name = step.get("to_name", "Unknown")
-                    if to_id and to_id not in seen_nodes:
-                        if to_id == target_node_id:
-                            chain_parts.append(f"【{to_name}[{to_id}]】")
-                        else:
-                            chain_parts.append(f"{to_name}[{to_id}]")
-                        seen_nodes.add(to_id)
-
-                output += " -> ".join(chain_parts) + "\n"
-            else:
-                output += f"Chain: {entry_point}() -> {exit_point}()\n"
-
-        return output
+    def _is_code_generated_relationship(self, relationship_type: str) -> bool:
+        """Check if a relationship type is generated by code analysis."""
+        code_generated_types = {
+            # Code hierarchy
+            RelationshipType.CONTAINS.value,
+            RelationshipType.FUNCTION_DEFINITION.value,
+            RelationshipType.CLASS_DEFINITION.value,
+            # Code references
+            RelationshipType.IMPORTS.value,
+            RelationshipType.CALLS.value,
+            RelationshipType.INHERITS.value,
+            RelationshipType.INSTANTIATES.value,
+            RelationshipType.TYPES.value,
+            RelationshipType.ASSIGNS.value,
+            RelationshipType.USES.value,
+            # Code diff
+            RelationshipType.MODIFIED.value,
+            RelationshipType.DELETED.value,
+            RelationshipType.ADDED.value,
+        }
+        return relationship_type in code_generated_types
 
     def _get_result_prompt(self, node_result: NodeSearchResultDTO) -> str:
         output = f"""
@@ -307,60 +244,26 @@ CODE for {node_result.node_name}:
         output += f"🏷️  Labels: {', '.join(node_result.node_labels)}\n"
         output += f"🆔 Node ID: {node_id}\n"
         output += "-" * 80 + "\n"
-        output += "📝 CODE:\n"
-        output += "-" * 80 + "\n"
 
-        # Display relationships if available
-        has_relationships = (
-            node_result.inbound_relations and any(rel.node_id for rel in node_result.inbound_relations)
-        ) or (node_result.outbound_relations and any(rel.node_id for rel in node_result.outbound_relations))
-
-        if has_relationships:
-            output += "🔗 RELATIONSHIPS:\n"
-            output += "-" * 80 + "\n"
-
-            # Display inbound relations
-            if node_result.inbound_relations:
-                inbound_filtered = [rel for rel in node_result.inbound_relations if rel.node_id]
-                if inbound_filtered:
-                    output += "📥 Inbound Relations:\n"
-                    for rel in inbound_filtered:
-                        node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
-                        output += f"  • {rel.node_name} ({node_types}) -> {rel.relationship_type} -> {node_result.node_name} ID:({rel.node_id})\n"
-                    output += "\n"
-
-            # Display outbound relations
-            if node_result.outbound_relations:
-                outbound_filtered = [rel for rel in node_result.outbound_relations if rel.node_id]
-                if outbound_filtered:
-                    output += "📤 Outbound Relations:\n"
-                    for rel in outbound_filtered:
-                        node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
-                        output += f"  • {node_result.node_name} -> {rel.relationship_type} -> {rel.node_name} ID:({rel.node_id}) ({node_types})\n"
-                    output += "\n"
-
-            # Check if we actually displayed any relationships
-            inbound_count = len([rel for rel in (node_result.inbound_relations or []) if rel.node_id])
-            outbound_count = len([rel for rel in (node_result.outbound_relations or []) if rel.node_id])
-
-            if inbound_count == 0 and outbound_count == 0:
-                output += "No relationships found\n"
-        else:
-            output += "🔗 RELATIONSHIPS: None found\n"
-            output += "-" * 80 + "\n"
-
-        # Generate missing data in parallel if needed
+        # Generate missing documentation if needed (but don't wait for workflows)
         doc_content = node_result.documentation
-        workflows = node_result.workflows
 
-        if (not doc_content and self.auto_generate_documentation) or (not workflows and self.auto_generate_workflows):
-            doc_content, workflows = self._parallel_generate_missing_data(node_result)
+        if not doc_content and self.auto_generate_documentation:
+            doc_content = self._generate_documentation_for_node(node_result)
 
-        # Display documentation
+        # Generate workflows in background if needed (fire and forget)
+        if not node_result.workflows and self.auto_generate_workflows:
+            # Start workflow generation but don't wait for it
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(self._generate_workflows_for_node, node_result)
+
+        # Display documentation first
         if doc_content:
             output += "📚 DOCUMENTATION:\n"
             output += "-" * 80 + "\n"
-            output += f"📝 Content:\n{doc_content}\n"
+            output += f"{doc_content}\n"
             output += "-" * 80 + "\n"
         else:
             if self.auto_generate_documentation:
@@ -369,17 +272,61 @@ CODE for {node_result.node_name}:
                 output += "📚 DOCUMENTATION: None found\n"
             output += "-" * 80 + "\n"
 
-        # Display workflows
-        if workflows:
-            workflow_output = self._format_workflow_chains(workflows, node_id)
-            if workflow_output:
-                output += workflow_output
-                output += "-" * 80 + "\n"
+        # Display code
+        output += "📝 CODE:\n"
+        output += "-" * 80 + "\n"
+        
+        # Format and display the actual code
+        formatted_code = self._format_code_with_line_numbers(
+            node_result.code, 
+            node_result.start_line, 
+            None  # child_nodes not available in NodeSearchResultDTO
+        )
+        output += formatted_code + "\n"
+        output += "-" * 80 + "\n"
+
+        # Display filtered relationships (only code-generated ones)
+        has_code_relationships = False
+        filtered_inbound = []
+        filtered_outbound = []
+
+        if node_result.inbound_relations:
+            filtered_inbound = [
+                rel
+                for rel in node_result.inbound_relations
+                if rel.node_id and self._is_code_generated_relationship(rel.relationship_type)
+            ]
+            has_code_relationships = has_code_relationships or bool(filtered_inbound)
+
+        if node_result.outbound_relations:
+            filtered_outbound = [
+                rel
+                for rel in node_result.outbound_relations
+                if rel.node_id and self._is_code_generated_relationship(rel.relationship_type)
+            ]
+            has_code_relationships = has_code_relationships or bool(filtered_outbound)
+
+        if has_code_relationships:
+            output += "🔗 RELATIONSHIPS (Code-Generated):\n"
+            output += "-" * 80 + "\n"
+
+            # Display inbound relations
+            if filtered_inbound:
+                output += "📥 Inbound Relations:\n"
+                for rel in filtered_inbound:
+                    node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                    output += f"  • {rel.node_name} ({node_types}) -> {rel.relationship_type} -> {node_result.node_name} ID:({rel.node_id})\n"
+                output += "\n"
+
+            # Display outbound relations
+            if filtered_outbound:
+                output += "📤 Outbound Relations:\n"
+                for rel in filtered_outbound:
+                    node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                    output += f"  • {node_result.node_name} -> {rel.relationship_type} -> {rel.node_name} ID:({rel.node_id}) ({node_types})\n"
+                output += "\n"
         else:
-            if self.auto_generate_workflows:
-                output += "📊 WORKFLOWS: None found (generation attempted)\n"
-            else:
-                output += "📊 WORKFLOWS: None found\n"
+            output += "🔗 RELATIONSHIPS (Code-Generated): None found\n"
             output += "-" * 80 + "\n"
 
         return output

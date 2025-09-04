@@ -611,7 +611,10 @@ class GitHub(AbstractVersionController):
             raise
 
     def _build_blame_query(self, file_path: str, start_line: int, end_line: int, ref: str = "HEAD") -> Tuple[str, Dict[str, Any]]:
-        """Build GraphQL query for blame information.
+        """Build lightweight GraphQL query for blame information.
+
+        This query only fetches line ranges and commit SHAs to minimize response size.
+        Full commit details are fetched separately in batches.
 
         Args:
             file_path: Path to file in repository
@@ -639,42 +642,12 @@ class GitHub(AbstractVersionController):
                 repository(owner: $owner, name: $name) {
                     object(oid: $oid) {
                         ... on Commit {
-                            oid
-                            committedDate
-                            message
                             blame(path: $path) {
                                 ranges {
                                     startingLine
                                     endingLine
-                                    age
                                     commit {
                                         oid
-                                        committedDate
-                                        message
-                                        additions
-                                        deletions
-                                        author {
-                                            name
-                                            email
-                                            user { login }
-                                        }
-                                        committer {
-                                            name
-                                            email
-                                            user { login }
-                                        }
-                                        url
-                                        associatedPullRequests(first: 1) {
-                                            nodes {
-                                                number
-                                                title
-                                                bodyText
-                                                url
-                                                author { login }
-                                                mergedAt
-                                                state
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -701,35 +674,8 @@ class GitHub(AbstractVersionController):
                                     ranges {
                                         startingLine
                                         endingLine
-                                        age
                                         commit {
                                             oid
-                                            committedDate
-                                            message
-                                            additions
-                                            deletions
-                                            author {
-                                                name
-                                                email
-                                                user { login }
-                                            }
-                                            committer {
-                                                name
-                                                email
-                                                user { login }
-                                            }
-                                            url
-                                            associatedPullRequests(first: 1) {
-                                                nodes {
-                                                    number
-                                                    title
-                                                    bodyText
-                                                    url
-                                                    author { login }
-                                                    mergedAt
-                                                    state
-                                                }
-                                            }
                                         }
                                     }
                                 }
@@ -748,14 +694,174 @@ class GitHub(AbstractVersionController):
 
         return query, variables
 
+    def _fetch_commit_details_batch(self, commit_shas: List[str], batch_size: int = 20) -> Dict[str, Dict[str, Any]]:
+        """Fetch detailed commit information for multiple SHAs in batches.
+
+        Args:
+            commit_shas: List of commit SHAs to fetch details for
+            batch_size: Initial batch size (will be reduced on 502 errors)
+
+        Returns:
+            Dictionary mapping SHA to commit details
+        """
+        if not commit_shas:
+            return {}
+
+        all_details: Dict[str, Dict[str, Any]] = {}
+        remaining_shas = list(commit_shas)
+        current_batch_size = batch_size
+
+        while remaining_shas:
+            # Take next batch
+            batch = remaining_shas[:current_batch_size]
+            remaining_shas = remaining_shas[current_batch_size:]
+
+            # Build query for batch
+            query = self._build_commit_details_query(batch)
+            
+            try:
+                response = self._execute_graphql_query(query["query"], query["variables"])
+                
+                # Parse response and add to results
+                batch_details = self._parse_commit_details_response(response, batch)
+                all_details.update(batch_details)
+                
+                logger.debug(f"Fetched details for {len(batch)} commits (batch size: {current_batch_size})")
+                
+            except Exception as e:
+                if "502" in str(e) and current_batch_size > 1:
+                    # Reduce batch size and retry this batch
+                    logger.warning(f"Got 502 error with batch size {current_batch_size}, reducing to {current_batch_size // 2}")
+                    current_batch_size = current_batch_size // 2
+                    remaining_shas = batch + remaining_shas  # Put failed batch back
+                else:
+                    logger.error(f"Failed to fetch commit details for batch: {e}")
+                    # Skip this batch and continue with remaining
+                    
+        return all_details
+
+    def _build_commit_details_query(self, shas: List[str]) -> Dict[str, Any]:
+        """Build GraphQL query to fetch details for multiple commits.
+
+        Args:
+            shas: List of commit SHAs
+
+        Returns:
+            Dictionary with query and variables
+        """
+        # Create aliases for each commit
+        commit_queries = []
+        for i, sha in enumerate(shas):
+            commit_queries.append(f"""
+                commit_{i}: object(oid: "{sha}") {{
+                    ... on Commit {{
+                        oid
+                        committedDate
+                        message
+                        additions
+                        deletions
+                        author {{
+                            name
+                            email
+                            user {{ login }}
+                        }}
+                        url
+                        associatedPullRequests(first: 1) {{
+                            nodes {{
+                                number
+                                title
+                                bodyText
+                                url
+                                author {{ login }}
+                                mergedAt
+                                state
+                            }}
+                        }}
+                    }}
+                }}
+            """)
+
+        query = f"""
+        query ($owner: String!, $name: String!) {{
+            repository(owner: $owner, name: $name) {{
+                {' '.join(commit_queries)}
+            }}
+        }}
+        """
+
+        return {
+            "query": query,
+            "variables": {
+                "owner": self.repo_owner,
+                "name": self.repo_name
+            }
+        }
+
+    def _parse_commit_details_response(self, response: Dict[str, Any], shas: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Parse commit details response into a dictionary.
+
+        Args:
+            response: GraphQL response
+            shas: List of SHAs that were queried
+
+        Returns:
+            Dictionary mapping SHA to commit details
+        """
+        details = {}
+        
+        try:
+            repo_data = response["data"]["repository"]
+            
+            for i, sha in enumerate(shas):
+                commit_key = f"commit_{i}"
+                if commit_key in repo_data and repo_data[commit_key]:
+                    commit_data = repo_data[commit_key]
+                    
+                    # Extract PR info if available
+                    pr_info = None
+                    if commit_data.get("associatedPullRequests", {}).get("nodes"):
+                        pr = commit_data["associatedPullRequests"]["nodes"][0]
+                        pr_info = {
+                            "number": pr["number"],
+                            "title": pr["title"],
+                            "bodyText": pr.get("bodyText", ""),
+                            "url": pr["url"],
+                            "author": pr.get("author", {}).get("login"),
+                            "mergedAt": pr.get("mergedAt"),
+                            "state": pr.get("state", "MERGED")
+                        }
+                    
+                    # Extract author info
+                    author_data = commit_data.get("author", {})
+                    author_user = author_data.get("user") if author_data else None
+                    
+                    details[sha] = {
+                        "message": commit_data.get("message", ""),
+                        "author": author_data.get("name", "Unknown") if author_data else "Unknown",
+                        "author_email": author_data.get("email") if author_data else None,
+                        "author_login": author_user.get("login") if author_user else None,
+                        "timestamp": commit_data.get("committedDate"),
+                        "url": commit_data.get("url", ""),
+                        "additions": commit_data.get("additions"),
+                        "deletions": commit_data.get("deletions"),
+                        "pr_info": pr_info
+                    }
+                    
+        except Exception as e:
+            logger.error(f"Error parsing commit details response: {e}")
+            
+        return details
+
     def _parse_blame_response(self, response: Dict[str, Any]) -> List[BlameCommitDto]:
-        """Parse GraphQL blame response into commit list.
+        """Parse lightweight GraphQL blame response into partial commit list.
+
+        This only parses SHAs and line ranges. Full details are fetched separately.
 
         Args:
             response: GraphQL response JSON
 
         Returns:
-            List of BlameCommitDto objects with line attribution
+            List of BlameCommitDto objects with only SHA and line ranges
 
         Raises:
             Exception: If response has errors or unexpected format
@@ -780,64 +886,46 @@ class GitHub(AbstractVersionController):
                 raise Exception("Unable to find blame data in response")
 
             for blame_range in blame_data["ranges"]:
-                commit_data = blame_range["commit"]
-                sha = commit_data["oid"]
+                sha = blame_range["commit"]["oid"]
 
                 # Extract line range for this blame range
                 line_range = BlameLineRangeDto(start=blame_range["startingLine"], end=blame_range["endingLine"])
 
                 if sha in seen_shas:
-                    # Add line range to existing commit - need to create new DTO since frozen
+                    # Add line range to existing commit
                     existing_commit = commits[seen_shas[sha]]
                     new_line_ranges = list(existing_commit.line_ranges)
                     new_line_ranges.append(line_range)
+                    # Create new DTO with updated line ranges (keeping placeholders for other fields)
                     commits[seen_shas[sha]] = BlameCommitDto(
                         sha=existing_commit.sha,
-                        message=existing_commit.message,
-                        author=existing_commit.author,
-                        author_email=existing_commit.author_email,
-                        author_login=existing_commit.author_login,
-                        timestamp=existing_commit.timestamp,
-                        url=existing_commit.url,
-                        additions=existing_commit.additions,
-                        deletions=existing_commit.deletions,
+                        message="",  # Will be filled later
+                        author="",  # Will be filled later
+                        author_email=None,
+                        author_login=None,
+                        timestamp="",  # Will be filled later
+                        url="",
+                        additions=None,
+                        deletions=None,
                         line_ranges=new_line_ranges,
-                        pr_info=existing_commit.pr_info,
+                        pr_info=None,
                     )
                 else:
-                    # Create new commit entry
+                    # Create new commit entry with minimal info
                     seen_shas[sha] = len(commits)
-
-                    # Extract PR information if available
-                    pr_info = None
-                    if commit_data.get("associatedPullRequests", {}).get("nodes"):
-                        pr = commit_data["associatedPullRequests"]["nodes"][0]
-                        pr_info = PullRequestInfoDto(
-                            number=pr["number"],
-                            title=pr["title"],
-                            url=pr["url"],
-                            author=pr.get("author", {}).get("login"),
-                            merged_at=pr.get("mergedAt"),
-                            state=pr.get("state", "MERGED"),
-                            body_text=pr.get("bodyText", ""),  # Include PR description
-                        )
-
-                    # Extract author information safely
-                    author_data = commit_data.get("author", {})
-                    author_user = author_data.get("user") if author_data else None
-
+                    
                     commit = BlameCommitDto(
                         sha=sha,
-                        message=commit_data["message"],
-                        author=author_data.get("name", "Unknown") if author_data else "Unknown",
-                        author_email=author_data.get("email") if author_data else None,
-                        author_login=author_user.get("login") if author_user else None,
-                        timestamp=commit_data["committedDate"],
-                        url=commit_data["url"],
-                        additions=commit_data.get("additions"),
-                        deletions=commit_data.get("deletions"),
+                        message="",  # Will be filled later
+                        author="",  # Will be filled later
+                        author_email=None,
+                        author_login=None,
+                        timestamp="",  # Will be filled later
+                        url="",
+                        additions=None,
+                        deletions=None,
                         line_ranges=[line_range],
-                        pr_info=pr_info,
+                        pr_info=None,
                     )
                     commits.append(commit)
 
@@ -849,6 +937,10 @@ class GitHub(AbstractVersionController):
 
     def blame_commits_for_range(self, file_path: str, start_line: int, end_line: int) -> List[BlameCommitDto]:
         """Get all commits that modified specific line range using blame.
+
+        Uses a two-phase approach:
+        1. Fetch lightweight blame (just SHAs and line ranges)
+        2. Fetch full commit details in batches
 
         Args:
             file_path: Path to file in repository
@@ -866,18 +958,70 @@ class GitHub(AbstractVersionController):
 
         logger.info(f"Fetching blame for {file_path} lines {start_line}-{end_line} at {self.ref}")
 
-        # Build and execute GraphQL query
+        # Phase 1: Get lightweight blame (just SHAs and line ranges)
         query, variables = self._build_blame_query(file_path, start_line, end_line, self.ref)
         response = self._execute_graphql_query(query, variables)
+        
+        # Parse lightweight response
+        partial_commits = self._parse_blame_response(response)
+        
+        if not partial_commits:
+            logger.info(f"No commits found for {file_path} lines {start_line}-{end_line}")
+            self._blame_cache[cache_key] = []
+            return []
 
-        # Parse response
-        commits = self._parse_blame_response(response)
+        # Phase 2: Fetch full commit details in batches
+        unique_shas = list(set(commit.sha for commit in partial_commits))
+        logger.debug(f"Fetching details for {len(unique_shas)} unique commits")
+        
+        commit_details = self._fetch_commit_details_batch(unique_shas)
+        
+        # Merge details into commit objects
+        complete_commits = []
+        for partial_commit in partial_commits:
+            sha = partial_commit.sha
+            if sha in commit_details:
+                details = commit_details[sha]
+                
+                # Convert PR info dict to PullRequestInfoDto if present
+                pr_info = None
+                if details.get("pr_info"):
+                    pr_data = details["pr_info"]
+                    pr_info = PullRequestInfoDto(
+                        number=pr_data["number"],
+                        title=pr_data["title"],
+                        url=pr_data["url"],
+                        author=pr_data.get("author"),
+                        merged_at=pr_data.get("mergedAt"),
+                        state=pr_data.get("state", "MERGED"),
+                        body_text=pr_data.get("bodyText", ""),
+                    )
+                
+                # Create complete commit with merged data
+                complete_commit = BlameCommitDto(
+                    sha=sha,
+                    message=details.get("message", ""),
+                    author=details.get("author", "Unknown"),
+                    author_email=details.get("author_email"),
+                    author_login=details.get("author_login"),
+                    timestamp=details.get("timestamp", ""),
+                    url=details.get("url", ""),
+                    additions=details.get("additions"),
+                    deletions=details.get("deletions"),
+                    line_ranges=partial_commit.line_ranges,  # Keep the line ranges from blame
+                    pr_info=pr_info,
+                )
+                complete_commits.append(complete_commit)
+            else:
+                # If we couldn't fetch details, use partial commit with empty fields
+                logger.warning(f"Could not fetch details for commit {sha}")
+                complete_commits.append(partial_commit)
 
         # Cache results
-        self._blame_cache[cache_key] = commits
+        self._blame_cache[cache_key] = complete_commits
 
-        logger.info(f"Found {len(commits)} commits for {file_path} lines {start_line}-{end_line}")
-        return commits
+        logger.info(f"Found {len(complete_commits)} commits for {file_path} lines {start_line}-{end_line}")
+        return complete_commits
 
     def blame_commits_for_nodes(self, nodes: List[CodeNodeDto]) -> Dict[str, List[BlameCommitDto]]:
         """Get commits for multiple code nodes efficiently.

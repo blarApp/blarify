@@ -215,7 +215,6 @@ class GetNodeWorkflowsTool(BaseTool):
             MATCH (n:NODE {node_id: $node_id, entityId: $entity_id})-[:BELONGS_TO_WORKFLOW]->(w:NODE)
             WHERE w.layer = 'workflows'
             OPTIONAL MATCH (entry:NODE {node_id: w.entry_point_id})
-            OPTIONAL MATCH (doc:DOCUMENTATION)-[:DESCRIBES]->(entry)
             RETURN 
                 w.node_id as workflow_id,
                 w.title as workflow_name,
@@ -224,7 +223,6 @@ class GetNodeWorkflowsTool(BaseTool):
                 w.steps as total_steps,
                 w.entry_point_path as entry_path,
                 w.end_point_path as exit_path,
-                doc.content as workflow_description,
                 entry.name as entry_node_name
             ORDER BY w.title
             """
@@ -331,19 +329,6 @@ class GetNodeWorkflowsTool(BaseTool):
         output = "\n" + "━" * 80 + "\n"
         output += f"📊 WORKFLOW: {workflow.get('workflow_name', 'Unnamed Workflow')}\n"
         output += "━" * 80 + "\n\n"
-
-        # Add description if available
-        description = workflow.get("workflow_description")
-        if description:
-            output += "📝 Description:\n"
-            # Wrap description text
-            lines = description.split("\n")
-            for line in lines[:5]:  # Limit to first 5 lines
-                if line.strip():
-                    output += f"   {line.strip()}\n"
-            if len(lines) > 5:
-                output += "   ...\n"
-            output += "\n"
 
         # Add workflow metadata
         entry = workflow.get("entry_point") or workflow.get("chain_start", "Unknown")

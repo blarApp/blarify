@@ -2,7 +2,7 @@
   "include": ["blarify", "tests", "neo4j_container_manager"],
   "exclude": ["**/node_modules", "**/__pycache__", "dist", "build", "blarify/vendor", ".venv"],
   "typeCheckingMode": "strict",
-  "reportMissingImports": "warning",
+  "reportMissingImports": "error",
   "reportMissingTypeStubs": false,
   "reportMissingParameterType": true,
   "reportMissingReturnType": true,

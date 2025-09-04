@@ -27,7 +27,7 @@ class DirectoryExplorerTool(BaseTool):
 
     args_schema: type[BaseModel] = Input  # type: ignore
 
-    def _run(self, node_id: Optional[str], run_manager: Any) -> str:
+    def _run(self, run_manager: Any, node_id: Optional[str] = None) -> str:
         """
         List the contents of a directory in the code repository.
 

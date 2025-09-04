@@ -115,6 +115,14 @@ class GetBlameByIdTool(BaseTool):
                     blame_data = self._get_existing_blame(node_id)
                 else:
                     logger.warning(f"Failed to create integration nodes for node {node_id}")
+                    # Return informative error message
+                    return (
+                        "Unable to retrieve commit history from GitHub to build blame information.\n\n"
+                        "IMPORTANT: This does NOT mean the commits don't exist! The commit history exists "
+                        "in the repository, but we couldn't retrieve it at this time due to possible "
+                        "GitHub API rate limiting or network issues.\n\n"
+                        "Try again later."
+                    )
 
             # Format and return GitHub-style blame output
             return self._format_github_style_blame(node_info, blame_data)
@@ -233,7 +241,7 @@ class GetBlameByIdTool(BaseTool):
             return result.total_commits > 0
 
         except Exception as e:
-            logger.error(f"Failed to create integration nodes: {e}")
+            logger.exception(f"Failed to create integration nodes: {e}")
             return False
 
     def _format_github_style_blame(self, node_info: Dict[str, Any], blame_data: List[Dict[str, Any]]) -> str:

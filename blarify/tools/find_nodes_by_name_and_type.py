@@ -34,7 +34,8 @@ class Input(BaseModel):
 class FindNodesByNameAndType(BaseTool):
     name: str = "find_nodes_by_name_and_type"
     description: str = (
-        "Find nodes by exact name and type in the Neo4j database. Precise and narrow search using exact matches."
+        "Find nodes by exact name and type in the graph database. Precise and narrow search using exact matches. "
+        "File names need to include the extension, but classes or functions only need the name."
     )
     db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
 

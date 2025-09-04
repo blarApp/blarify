@@ -77,21 +77,21 @@ class GitHub(AbstractVersionController):
 
     def _to_blame_line(self, node_line: int) -> int:
         """Convert 0-indexed node line to 1-indexed blame line.
-        
+
         Args:
             node_line: 0-indexed line number from code node
-            
+
         Returns:
             1-indexed line number for GitHub blame API
         """
         return node_line + 1
-    
+
     def _from_blame_line(self, blame_line: int) -> int:
         """Convert 1-indexed blame line to 0-indexed node line.
-        
+
         Args:
             blame_line: 1-indexed line number from GitHub blame
-            
+
         Returns:
             0-indexed line number for code node
         """
@@ -116,7 +116,7 @@ class GitHub(AbstractVersionController):
             # If we have repo_name, look for /{repo_name}/ pattern in the path
             if self.repo_name:
                 repo_pattern = f"/{self.repo_name}/"
-                repo_index = clean_path.find(repo_pattern)
+                repo_index = clean_path.rfind(repo_pattern)  # Use rfind to get the last occurrence
                 if repo_index != -1:
                     # Extract path starting from /{repo_name}/ (including repo_name)
                     start_index = repo_index + 1  # Skip the leading slash but keep repo_name
@@ -610,7 +610,7 @@ class GitHub(AbstractVersionController):
             logger.error(f"GraphQL query failed: {e}")
             raise
 
-    def _build_blame_query(self, file_path: str, start_line: int, end_line: int, ref: str = "HEAD") -> Tuple[str, Dict[str, Any]]:
+    def _build_blame_query(self, file_path: str, ref: str = "HEAD") -> Tuple[str, Dict[str, Any]]:
         """Build lightweight GraphQL query for blame information.
 
         This query only fetches line ranges and commit SHAs to minimize response size.
@@ -656,12 +656,7 @@ class GitHub(AbstractVersionController):
                 }
             }
             """
-            variables = {
-                "owner": self.repo_owner, 
-                "name": self.repo_name, 
-                "oid": ref_name, 
-                "path": clean_path
-            }
+            variables = {"owner": self.repo_owner, "name": self.repo_name, "oid": ref_name, "path": clean_path}
         else:
             # Use ref(qualifiedName:) for branch/tag names
             query = """
@@ -685,12 +680,7 @@ class GitHub(AbstractVersionController):
                 }
             }
             """
-            variables = {
-                "owner": self.repo_owner, 
-                "name": self.repo_name, 
-                "ref": ref_name, 
-                "path": clean_path
-            }
+            variables = {"owner": self.repo_owner, "name": self.repo_name, "ref": ref_name, "path": clean_path}
 
         return query, variables
 
@@ -718,26 +708,28 @@ class GitHub(AbstractVersionController):
 
             # Build query for batch
             query = self._build_commit_details_query(batch)
-            
+
             try:
                 response = self._execute_graphql_query(query["query"], query["variables"])
-                
+
                 # Parse response and add to results
                 batch_details = self._parse_commit_details_response(response, batch)
                 all_details.update(batch_details)
-                
+
                 logger.debug(f"Fetched details for {len(batch)} commits (batch size: {current_batch_size})")
-                
+
             except Exception as e:
                 if "502" in str(e) and current_batch_size > 1:
                     # Reduce batch size and retry this batch
-                    logger.warning(f"Got 502 error with batch size {current_batch_size}, reducing to {current_batch_size // 2}")
+                    logger.warning(
+                        f"Got 502 error with batch size {current_batch_size}, reducing to {current_batch_size // 2}"
+                    )
                     current_batch_size = current_batch_size // 2
                     remaining_shas = batch + remaining_shas  # Put failed batch back
                 else:
                     logger.error(f"Failed to fetch commit details for batch: {e}")
                     # Skip this batch and continue with remaining
-                    
+
         return all_details
 
     def _build_commit_details_query(self, shas: List[str]) -> Dict[str, Any]:
@@ -784,18 +776,12 @@ class GitHub(AbstractVersionController):
         query = f"""
         query ($owner: String!, $name: String!) {{
             repository(owner: $owner, name: $name) {{
-                {' '.join(commit_queries)}
+                {" ".join(commit_queries)}
             }}
         }}
         """
 
-        return {
-            "query": query,
-            "variables": {
-                "owner": self.repo_owner,
-                "name": self.repo_name
-            }
-        }
+        return {"query": query, "variables": {"owner": self.repo_owner, "name": self.repo_name}}
 
     def _parse_commit_details_response(self, response: Dict[str, Any], shas: List[str]) -> Dict[str, Dict[str, Any]]:
         """Parse commit details response into a dictionary.
@@ -808,15 +794,15 @@ class GitHub(AbstractVersionController):
             Dictionary mapping SHA to commit details
         """
         details = {}
-        
+
         try:
             repo_data = response["data"]["repository"]
-            
+
             for i, sha in enumerate(shas):
                 commit_key = f"commit_{i}"
                 if commit_key in repo_data and repo_data[commit_key]:
                     commit_data = repo_data[commit_key]
-                    
+
                     # Extract PR info if available
                     pr_info = None
                     if commit_data.get("associatedPullRequests", {}).get("nodes"):
@@ -828,13 +814,13 @@ class GitHub(AbstractVersionController):
                             "url": pr["url"],
                             "author": pr.get("author", {}).get("login"),
                             "mergedAt": pr.get("mergedAt"),
-                            "state": pr.get("state", "MERGED")
+                            "state": pr.get("state", "MERGED"),
                         }
-                    
+
                     # Extract author info
                     author_data = commit_data.get("author", {})
                     author_user = author_data.get("user") if author_data else None
-                    
+
                     details[sha] = {
                         "message": commit_data.get("message", ""),
                         "author": author_data.get("name", "Unknown") if author_data else "Unknown",
@@ -844,12 +830,12 @@ class GitHub(AbstractVersionController):
                         "url": commit_data.get("url", ""),
                         "additions": commit_data.get("additions"),
                         "deletions": commit_data.get("deletions"),
-                        "pr_info": pr_info
+                        "pr_info": pr_info,
                     }
-                    
+
         except Exception as e:
             logger.error(f"Error parsing commit details response: {e}")
-            
+
         return details
 
     def _parse_blame_response(self, response: Dict[str, Any]) -> List[BlameCommitDto]:
@@ -913,7 +899,7 @@ class GitHub(AbstractVersionController):
                 else:
                     # Create new commit entry with minimal info
                     seen_shas[sha] = len(commits)
-                    
+
                     commit = BlameCommitDto(
                         sha=sha,
                         message="",  # Will be filled later
@@ -959,12 +945,12 @@ class GitHub(AbstractVersionController):
         logger.info(f"Fetching blame for {file_path} lines {start_line}-{end_line} at {self.ref}")
 
         # Phase 1: Get lightweight blame (just SHAs and line ranges)
-        query, variables = self._build_blame_query(file_path, start_line, end_line, self.ref)
+        query, variables = self._build_blame_query(file_path, self.ref)
         response = self._execute_graphql_query(query, variables)
-        
+
         # Parse lightweight response
         partial_commits = self._parse_blame_response(response)
-        
+
         if not partial_commits:
             logger.info(f"No commits found for {file_path} lines {start_line}-{end_line}")
             self._blame_cache[cache_key] = []
@@ -973,16 +959,16 @@ class GitHub(AbstractVersionController):
         # Phase 2: Fetch full commit details in batches
         unique_shas = list(set(commit.sha for commit in partial_commits))
         logger.debug(f"Fetching details for {len(unique_shas)} unique commits")
-        
+
         commit_details = self._fetch_commit_details_batch(unique_shas)
-        
+
         # Merge details into commit objects
         complete_commits = []
         for partial_commit in partial_commits:
             sha = partial_commit.sha
             if sha in commit_details:
                 details = commit_details[sha]
-                
+
                 # Convert PR info dict to PullRequestInfoDto if present
                 pr_info = None
                 if details.get("pr_info"):
@@ -996,7 +982,7 @@ class GitHub(AbstractVersionController):
                         state=pr_data.get("state", "MERGED"),
                         body_text=pr_data.get("bodyText", ""),
                     )
-                
+
                 # Create complete commit with merged data
                 complete_commit = BlameCommitDto(
                     sha=sha,
@@ -1103,7 +1089,11 @@ class GitHub(AbstractVersionController):
             else:
                 # Start new range
                 merged.append(current_range)
-                current_range = {"start": self._to_blame_line(node.start_line), "end": self._to_blame_line(node.end_line), "nodes": [node]}
+                current_range = {
+                    "start": self._to_blame_line(node.start_line),
+                    "end": self._to_blame_line(node.end_line),
+                    "nodes": [node],
+                }
 
         # Add last range
         merged.append(current_range)

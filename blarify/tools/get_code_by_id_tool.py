@@ -6,10 +6,6 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field, field_validator
 
-from blarify.documentation.documentation_creator import DocumentationCreator
-from blarify.documentation.workflow_creator import WorkflowCreator
-from blarify.agents.llm_provider import LLMProvider
-from blarify.graph.graph_environment import GraphEnvironment
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
 from blarify.repositories.graph_db_manager.dtos.edge_dto import EdgeDTO
@@ -41,88 +37,18 @@ class GetCodeByIdTool(BaseTool):
     args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
-    auto_generate_documentation: bool = Field(
-        default=True, description="Whether to auto-generate documentation when missing"
-    )
-    auto_generate_workflows: bool = Field(default=True, description="Whether to auto-generate workflows when missing")
 
     def __init__(
         self,
         db_manager: AbstractDbManager,
         handle_validation_error: bool = False,
-        auto_generate_documentation: bool = True,
-        auto_generate_workflows: bool = True,
     ):
         super().__init__(
             db_manager=db_manager,
             handle_validation_error=handle_validation_error,
-            auto_generate_documentation=auto_generate_documentation,
-            auto_generate_workflows=auto_generate_workflows,
-        )
-        self._graph_environment = GraphEnvironment(environment="main", diff_identifier="0", root_path="/")
-        self._documentation_creator = DocumentationCreator(
-            db_manager=self.db_manager,
-            agent_caller=LLMProvider(),
-            graph_environment=self._graph_environment,
-            max_workers=20,
-            overwrite_documentation=False,
-        )
-        self._workflow_creator = WorkflowCreator(
-            db_manager=self.db_manager,
-            graph_environment=self._graph_environment,
         )
 
-    def _generate_documentation_for_node(self, node: NodeSearchResultDTO) -> Optional[str]:
-        """Generate documentation for a specific node."""
-        try:
-            logger.info(f"Auto-generating documentation for node {node.node_id}")
 
-            # Use node_name as the target path
-            target_path = node.node_path
-
-            # Generate documentation for this specific node
-            result = self._documentation_creator.create_documentation(
-                target_paths=[target_path], save_to_database=True, generate_embeddings=False
-            )
-
-            if result.error:
-                logger.error(f"Documentation generation error: {result.error}")
-                return None
-
-            # Re-query for the newly created documentation
-            node_result = self.db_manager.get_node_by_id(node_id=node.node_id)
-
-            return node_result.documentation
-
-        except Exception as e:
-            logger.error(f"Failed to auto-generate documentation: {e}")
-            return None
-
-    def _generate_workflows_for_node(self, node: NodeSearchResultDTO) -> Optional[list[dict[str, Any]]]:
-        """Generate workflows for a specific node."""
-        try:
-            logger.info(f"Auto-generating workflows for node {node.node_id}")
-
-            # Use node_path for targeted workflow discovery
-            target_path = node.node_path
-
-            # Generate workflows for this specific node
-            result = self._workflow_creator.discover_workflows(
-                node_path=target_path, max_depth=20, save_to_database=True
-            )
-
-            if result.error:
-                logger.error(f"Workflow generation error: {result.error}")
-                return None
-
-            # Re-query for the newly created workflows
-            node_result = self.db_manager.get_node_by_id(node_id=node.node_id)
-
-            return node_result.workflows
-
-        except Exception as e:
-            logger.error(f"Failed to auto-generate workflows: {e}")
-            return None
 
     def _get_relations_str(self, *, node_name: str, relations: list[EdgeDTO], direction: str) -> str:
         if direction == "outbound":
@@ -245,42 +171,15 @@ CODE for {node_result.node_name}:
         output += f"🆔 Node ID: {node_id}\n"
         output += "-" * 80 + "\n"
 
-        # Generate missing documentation if needed (but don't wait for workflows)
-        doc_content = node_result.documentation
-
-        if not doc_content and self.auto_generate_documentation:
-            doc_content = self._generate_documentation_for_node(node_result)
-
-        # Generate workflows in background if needed (fire and forget)
-        if not node_result.workflows and self.auto_generate_workflows:
-            # Start workflow generation but don't wait for it
-            from concurrent.futures import ThreadPoolExecutor
-
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                executor.submit(self._generate_workflows_for_node, node_result)
-
-        # Display documentation first
-        if doc_content:
-            output += "📚 DOCUMENTATION:\n"
-            output += "-" * 80 + "\n"
-            output += f"{doc_content}\n"
-            output += "-" * 80 + "\n"
-        else:
-            if self.auto_generate_documentation:
-                output += "📚 DOCUMENTATION: None found (generation attempted)\n"
-            else:
-                output += "📚 DOCUMENTATION: None found\n"
-            output += "-" * 80 + "\n"
-
         # Display code
         output += "📝 CODE:\n"
         output += "-" * 80 + "\n"
-        
+
         # Format and display the actual code
         formatted_code = self._format_code_with_line_numbers(
-            node_result.code, 
-            node_result.start_line, 
-            None  # child_nodes not available in NodeSearchResultDTO
+            node_result.code,
+            node_result.start_line,
+            None,  # child_nodes not available in NodeSearchResultDTO
         )
         output += formatted_code + "\n"
         output += "-" * 80 + "\n"

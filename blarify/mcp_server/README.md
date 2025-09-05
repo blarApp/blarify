@@ -25,17 +25,35 @@ The Blarify MCP (Model Context Protocol) Server exposes Blarify's powerful graph
 
 ## Installation
 
-The MCP server is included with Blarify. Ensure you have Blarify installed:
+### Quick Setup with uvx (Recommended)
+
+Simply add to your Claude Desktop config - no installation needed:
+
+```json
+{
+  "mcpServers": {
+    "blarify": {
+      "command": "uvx",
+      "args": ["blarify-mcp"],
+      "env": {
+        "NEO4J_URI": "bolt://localhost:7687",
+        "NEO4J_USERNAME": "neo4j",
+        "NEO4J_PASSWORD": "your-password"
+      }
+    }
+  }
+}
+```
+
+`uvx` will automatically handle the installation!
+
+### Alternative: Install with pip
 
 ```bash
 pip install blarify
 ```
 
-Or with Poetry:
-
-```bash
-poetry add blarify
-```
+Then use `blarify-mcp` as the command in your config.
 
 ## Configuration
 

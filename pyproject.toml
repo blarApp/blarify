@@ -9,6 +9,9 @@ repository = "https://github.com/blarApp/blarify"
 license = "MIT"
 packages = [{include = "blarify"}, {include = "neo4j_container_manager"}]
 
+[tool.poetry.scripts]
+blarify-mcp = "blarify.mcp_server:main"
+
 [tool.poetry.dependencies]
 python = ">=3.11,<=3.14"
 asyncio = "^3.4.3"

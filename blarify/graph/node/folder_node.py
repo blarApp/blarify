@@ -1,6 +1,6 @@
 from blarify.graph.node import Node, NodeLabels
 from blarify.graph.node.file_node import FileNode
-from typing import Union, List, TYPE_CHECKING
+from typing import Union, List, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from blarify.graph.relationship import Relationship
@@ -30,12 +30,13 @@ class FolderNode(Node):
         else:
             raise Exception("Folder node cannot contain node of type: " + type(node).__name__)
 
-    def relate_nodes_as_contain_relationship(self, nodes: List[Union[FileNode, "FolderNode"]]) -> None:
+    def relate_nodes_as_contain_relationship(self, nodes: Sequence[Union[FileNode, "FolderNode"]]) -> None:
         for node in nodes:
             self.relate_node_as_contain_relationship(node)
 
     def get_relationships(self) -> List["Relationship"]:
         from blarify.graph.relationship import RelationshipCreator
+
         relationships = []
         for node in self._contains:
             relationships.append(RelationshipCreator.create_contains_relationship(self, node))

@@ -6,7 +6,7 @@ from blarify.code_references.types import Reference, Range, Point
 from .languages import LanguageDefinitions, BodyNodeNotFound, FallbackDefinitions
 from blarify.graph.node import NodeLabels
 from blarify.project_file_explorer import File
-from typing import List, TYPE_CHECKING, Tuple, Optional
+from typing import List, TYPE_CHECKING, Tuple, Optional, Type
 from blarify.graph.relationship import RelationshipType
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class TreeSitterHelper:
-    language_definitions: LanguageDefinitions
+    language_definitions: Type[LanguageDefinitions]
     parser: Parser
     current_path: str
     base_node_source_code: str
@@ -25,7 +25,7 @@ class TreeSitterHelper:
     graph_environment: Optional["GraphEnvironment"]
 
     def __init__(
-        self, language_definitions: LanguageDefinitions, graph_environment: Optional["GraphEnvironment"] = None
+        self, language_definitions: Type[LanguageDefinitions], graph_environment: Optional["GraphEnvironment"] = None
     ):
         self.language_definitions = language_definitions
         self.parsers = self.language_definitions.get_parsers_for_extensions()
@@ -69,7 +69,9 @@ class TreeSitterHelper:
 
         return node._tree_sitter_node.descendant_for_point_range(start_point, end_point)
 
-    def create_nodes_and_relationships_in_file(self, file: File, parent_folder: "FolderNode" = None) -> List["Node"]:
+    def create_nodes_and_relationships_in_file(
+        self, file: File, parent_folder: Optional["FolderNode"] = None
+    ) -> List["Node"]:
         self.current_path = file.uri_path
         self.created_nodes = []
         self.base_node_source_code = self._get_content_from_file(file)
@@ -88,7 +90,7 @@ class TreeSitterHelper:
             return False
         return any(path.endswith(extension) for extension in self.language_definitions.get_language_file_extensions())
 
-    def _handle_paths_with_valid_extension(self, file: File, parent_folder: "FolderNode" = None) -> None:
+    def _handle_paths_with_valid_extension(self, file: File, parent_folder: Optional["FolderNode"] = None) -> None:
         tree = self._parse(self.base_node_source_code, file.extension)
 
         file_node = self._create_file_node_from_module_node(
@@ -219,7 +221,7 @@ class TreeSitterHelper:
     def get_parent_node(self, context_stack: List["Node"]) -> "DefinitionNode":
         return context_stack[-1]
 
-    def _create_file_node_from_raw_file(self, file: File, parent_folder: "FolderNode" = None) -> "FileNode":
+    def _create_file_node_from_raw_file(self, file: File, parent_folder: Optional["FolderNode"] = None) -> "FileNode":
         return NodeFactory.create_file_node(
             path=file.uri_path,
             name=file.name,

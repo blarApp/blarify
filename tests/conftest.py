@@ -5,6 +5,7 @@ This module provides common fixtures for integration testing,
 particularly for GraphBuilder functionality with Neo4j containers.
 """
 # pyright: reportMissingParameterType=false
+# pyright: reportPrivateUsage=false
 
 import tempfile
 from pathlib import Path
@@ -89,12 +90,15 @@ async def graph_assertions(neo4j_instance: Any) -> GraphAssertions:
 
 
 @pytest_asyncio.fixture  # type: ignore[misc]
-async def mcp_server_with_neo4j(neo4j_instance: Neo4jContainerInstance) -> AsyncGenerator[BlarifyMCPServer, None]:
+async def mcp_server_with_neo4j(
+    neo4j_instance: Neo4jContainerInstance, temp_project_dir: Path
+) -> AsyncGenerator[BlarifyMCPServer, None]:
     """
     Fixture that provides a BlarifyMCPServer configured with a Neo4j container.
 
     Args:
         neo4j_instance: Neo4j container instance from fixtures
+        temp_project_dir: Temporary directory for test repository
 
     Yields:
         BlarifyMCPServer instance configured for the test database
@@ -104,9 +108,9 @@ async def mcp_server_with_neo4j(neo4j_instance: Neo4jContainerInstance) -> Async
         neo4j_uri=neo4j_instance.uri,
         neo4j_username="neo4j",
         neo4j_password="test-password",
-        repository_id="test_repo",
         entity_id="test_entity",
         db_type="neo4j",
+        root_path=str(temp_project_dir),
     )
 
     # Create and initialize the server
@@ -160,20 +164,21 @@ async def cleanup_blarify_neo4j():
     # Clean after test
     try:
         import docker
+        from docker import errors
 
         client = docker.from_env()
         try:
             container = client.containers.get("blarify-neo4j-dev")
             container.stop()
             container.remove()
-        except docker.errors.NotFound:
+        except errors.NotFound:
             pass
 
         # Also remove the volume to ensure clean state
         try:
             volume = client.volumes.get("blarify-neo4j-dev-data")
             volume.remove()
-        except docker.errors.NotFound:
+        except errors.NotFound:
             pass
     except Exception:
         pass
@@ -184,9 +189,12 @@ async def cleanup_blarify_neo4j():
 
 
 @pytest.fixture
-def mcp_server_config() -> MCPServerConfig:
+def mcp_server_config(temp_project_dir: Path) -> MCPServerConfig:
     """
     Fixture that provides a default MCP server configuration for testing.
+
+    Args:
+        temp_project_dir: Temporary directory for test repository
 
     Returns:
         MCPServerConfig instance with test defaults
@@ -195,9 +203,9 @@ def mcp_server_config() -> MCPServerConfig:
         neo4j_uri="bolt://localhost:7687",
         neo4j_username="test_user",
         neo4j_password="test_password",
-        repository_id="test_repo",
         entity_id="test_entity",
         db_type="neo4j",
+        root_path=str(temp_project_dir),
     )
 
 

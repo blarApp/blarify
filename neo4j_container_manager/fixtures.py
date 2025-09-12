@@ -101,20 +101,8 @@ Neo4jInstanceFixture = Callable[
 ]
 
 
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """
-    Create an event loop for the entire test session.
-
-    This fixture ensures that async fixtures can work properly across
-    the entire test session.
-    """
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        yield loop
-    finally:
-        loop.close()
+# Note: Removed event_loop fixture to avoid conflicts with pytest-asyncio
+# pytest-asyncio will automatically provide event loops for async tests
 
 
 @pytest.fixture(scope="session")

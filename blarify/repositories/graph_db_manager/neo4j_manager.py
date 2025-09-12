@@ -273,3 +273,74 @@ class Neo4jManager(AbstractDbManager):
             nodes.append(node)
 
         return nodes
+
+    def create_function_name_index(self) -> None:
+        """Creates a fulltext index on the name and path properties of the nodes."""
+        node_query = """
+        CREATE FULLTEXT INDEX functionNames IF NOT EXISTS 
+        FOR (n:CLASS|FUNCTION|FILE|DIFF) 
+        ON EACH [n.name, n.path, n.node_id]
+        """
+        self.query(node_query)
+
+    def create_node_text_index(self) -> None:
+        """Creates a text index on the text property of nodes."""
+        node_query = """
+        CREATE TEXT INDEX node_text_index IF NOT EXISTS 
+        FOR (n:NODE) 
+        ON (n.text)
+        """
+        self.query(node_query)
+
+    def create_node_id_index(self) -> None:
+        """Creates an index on node_id for fast lookups."""
+        node_query = """
+        CREATE INDEX node_id_NODE IF NOT EXISTS 
+        FOR (n:NODE) 
+        ON (n.node_id)
+        """
+        self.query(node_query)
+
+    def create_entityId_index(self) -> None:
+        """Creates an index on entityId for data isolation."""
+        user_query = """
+        CREATE INDEX entityId_INDEX IF NOT EXISTS 
+        FOR (n:NODE) 
+        ON (n.entityId)
+        """
+        self.query(user_query)
+
+    def create_unique_constraint(self) -> None:
+        """Creates a unique constraint for data integrity."""
+        constraint_query = """
+        CREATE CONSTRAINT user_node_unique IF NOT EXISTS 
+        FOR (n:NODE)
+        REQUIRE (n.entityId, n.node_id, n.environment) IS UNIQUE
+        """
+        self.query(constraint_query)
+
+    def create_vector_index(self) -> None:
+        """Creates a vector index for semantic search on content embeddings."""
+        vector_query = """
+        CREATE VECTOR INDEX content_embeddings IF NOT EXISTS
+        FOR (n:NODE)
+        ON n.content_embedding
+        OPTIONS { indexConfig: {
+            `vector.dimensions`: 1536,
+            `vector.similarity_function`: 'cosine'
+        }}
+        """
+        self.query(vector_query)
+
+    def create_indexes(self) -> None:
+        """Create all required indexes for optimal Blarify performance."""
+        try:
+            self.create_function_name_index()
+            self.create_node_text_index()
+            self.create_node_id_index()
+            self.create_entityId_index()
+            self.create_unique_constraint()
+            self.create_vector_index()
+            logger.info("Successfully created/verified all Neo4j indexes")
+        except Exception as e:
+            logger.warning(f"Some indexes may have failed to create: {e}")

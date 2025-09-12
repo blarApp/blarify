@@ -1,4 +1,5 @@
 """Integration tests for Neo4j container auto-spawn functionality."""
+# pyright: reportMissingParameterType=false
 
 import asyncio
 from argparse import Namespace
@@ -11,7 +12,7 @@ from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
 
 @pytest.mark.neo4j_integration
-def test_full_autospawn_workflow(docker_check, temp_project_dir, cleanup_blarify_neo4j):  # pyright: ignore[reportMissingParameterType]
+def test_full_autospawn_workflow(docker_check, temp_project_dir, cleanup_blarify_neo4j):
     """Test complete workflow with auto-spawned Neo4j container."""
     # Create test file
     test_file = temp_project_dir / "test.py"
@@ -134,7 +135,7 @@ async def test_container_persists_and_is_reused(docker_check, cleanup_blarify_ne
     assert await instance2.is_running()
 
 
-def test_credentials_are_persisted(tmp_path, monkeypatch):
+def test_credentials_are_persisted(tmp_path: Path, monkeypatch):
     """Test that credentials are saved and reused."""
     # Mock home directory
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

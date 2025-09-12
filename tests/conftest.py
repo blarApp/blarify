@@ -4,6 +4,7 @@ Shared pytest configuration and fixtures for Blarify tests.
 This module provides common fixtures for integration testing,
 particularly for GraphBuilder functionality with Neo4j containers.
 """
+# pyright: reportMissingParameterType=false
 
 import tempfile
 from pathlib import Path
@@ -139,7 +140,7 @@ async def cleanup_blarify_neo4j():
             container.remove()
         except errors.NotFound:
             pass
-        
+
         # Also remove the volume to ensure clean state
         try:
             volume = client.volumes.get("blarify-neo4j-dev-data")
@@ -167,7 +168,7 @@ async def cleanup_blarify_neo4j():
             container.remove()
         except docker.errors.NotFound:
             pass
-        
+
         # Also remove the volume to ensure clean state
         try:
             volume = client.volumes.get("blarify-neo4j-dev-data")

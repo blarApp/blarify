@@ -19,5 +19,15 @@
   "strictListInference": false,
   "strictDictionaryInference": false,
   "strictSetInference": false,
-  "extraPaths": [".", "tests"]
+  "extraPaths": [".", "tests"],
+  "overrides": [
+    {
+      "include": ["tests/**"],
+      "reportMissingParameterType": false
+    },
+    {
+      "include": ["neo4j_container_manager/tests/**"],
+      "reportMissingParameterType": false
+    }
+  ]
 }

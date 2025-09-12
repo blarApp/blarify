@@ -36,6 +36,8 @@ Simply add to your Claude Desktop config - no installation needed:
       "command": "uvx",
       "args": ["blarify-mcp"],
       "env": {
+        "ROOT_PATH": "/path/to/your/repository",
+        "ENTITY_ID": "your-entity",
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
         "NEO4J_PASSWORD": "your-password"
@@ -66,7 +68,7 @@ Create a `.env` file or set environment variables:
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your-password
-REPOSITORY_ID=your-repo
+ROOT_PATH=/path/to/your/repository  # Same path used with 'blarify create'
 ENTITY_ID=your-entity
 
 # Database Type (neo4j or falkordb)
@@ -92,11 +94,11 @@ Add to your Claude Desktop configuration file:
       "command": "python",
       "args": ["-m", "blarify.mcp_server"],
       "env": {
+        "ROOT_PATH": "/path/to/your/repository",
+        "ENTITY_ID": "your-entity",
         "NEO4J_URI": "bolt://localhost:7687",
         "NEO4J_USERNAME": "neo4j",
         "NEO4J_PASSWORD": "your-password",
-        "REPOSITORY_ID": "your-repo",
-        "ENTITY_ID": "your-entity",
         "DB_TYPE": "neo4j"
       }
     }
@@ -127,11 +129,11 @@ from blarify.mcp_server.server import BlarifyMCPServer
 async def main():
     # Create configuration
     config = MCPServerConfig(
+        root_path="/path/to/your/repository",
+        entity_id="my_entity",
         neo4j_uri="bolt://localhost:7687",
         neo4j_username="neo4j",
-        neo4j_password="password",
-        repository_id="my_repo",
-        entity_id="my_entity"
+        neo4j_password="password"
     )
     
     # Create and run server
@@ -149,7 +151,7 @@ config = MCPServerConfig(
     db_type="falkordb",
     falkor_host="localhost",
     falkor_port=6379,
-    repository_id="my_repo",
+    root_path="/path/to/your/repository",
     entity_id="my_entity"
 )
 ```
@@ -204,30 +206,27 @@ config = MCPServerConfig(
 ## Prerequisites
 
 1. **Database Setup**: Ensure you have Neo4j or FalkorDB running and accessible
-2. **Graph Data**: Use Blarify to build and save a code graph to your database:
+2. **Graph Data**: Use the Blarify CLI to build and save a code graph to your database:
 
-```python
-from blarify.prebuilt.graph_builder import GraphBuilder
-from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+```bash
+# Install Blarify
+pip install blarify
 
-# Build graph
-builder = GraphBuilder(root_path="/path/to/your/code")
-graph = builder.build()
+# Build a graph for your repository
+blarify create /path/to/your/code --entity-id my-company
 
-# Save to database
-db_manager = Neo4jManager(
-    uri="bolt://localhost:7687",
-    username="neo4j",
-    password="password",
-    repository_id="my_repo",
-    entity_id="my_entity"
-)
-db_manager.save_graph(
-    graph.get_nodes_as_objects(),
-    graph.get_relationships_as_objects()
-)
-db_manager.close()
+# With documentation and workflows
+blarify create /path/to/your/code --entity-id my-company --docs --workflows
+
+# With custom database settings
+blarify create /path/to/your/code \
+  --entity-id my-company \
+  --neo4j-uri bolt://localhost:7687 \
+  --neo4j-username neo4j \
+  --neo4j-password your-password
 ```
+
+The CLI will use the repository path as the repo_id by default, which matches the ROOT_PATH configuration for the MCP server.
 
 ## Troubleshooting
 
@@ -243,7 +242,7 @@ If you get connection errors:
 
 If tools return empty results:
 1. Verify graph data exists in database
-2. Check repository_id and entity_id match
+2. Check ROOT_PATH and entity_id match what was used with `blarify create`
 3. Use Neo4j Browser to verify data
 
 ### Performance Issues

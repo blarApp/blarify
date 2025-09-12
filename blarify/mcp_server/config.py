@@ -25,9 +25,8 @@ class MCPServerConfig(BaseModel):
     )
     
     # Repository configuration
-    repository_id: str = Field(
-        default="default",
-        description="Repository identifier",
+    root_path: str = Field(
+        description="Repository path (used as repo_id)",
     )
     entity_id: str = Field(
         default="default",
@@ -70,7 +69,7 @@ class MCPServerConfig(BaseModel):
             "NEO4J_URI": "neo4j_uri",
             "NEO4J_USERNAME": "neo4j_username",
             "NEO4J_PASSWORD": "neo4j_password",
-            "REPOSITORY_ID": "repository_id",
+            "ROOT_PATH": "root_path",
             "ENTITY_ID": "entity_id",
             "DB_TYPE": "db_type",
             "FALKOR_HOST": "falkor_host",

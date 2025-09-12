@@ -5,7 +5,7 @@ import logging
 import sys
 from typing import Any, Dict, List, Optional
 
-from fastmcp import FastMCP  # type: ignore[import-not-found]
+from fastmcp import FastMCP
 
 from blarify.mcp_server.config import MCPServerConfig
 from blarify.mcp_server.tools import MCPToolWrapper
@@ -53,7 +53,7 @@ class BlarifyMCPServer:
                 uri=self.config.neo4j_uri,
                 user=self.config.neo4j_username,
                 password=self.config.neo4j_password,
-                repo_id=self.config.repository_id,
+                repo_id=self.config.root_path,  # Use root_path as repo_id
                 entity_id=self.config.entity_id,
             )
         elif self.config.db_type == "falkordb":
@@ -61,7 +61,7 @@ class BlarifyMCPServer:
                 raise ValueError("FalkorDB configuration incomplete")
             return FalkorDBManager(
                 uri=self.config.falkor_host,
-                repo_id=self.config.repository_id,
+                repo_id=self.config.root_path,  # Use root_path as repo_id
                 entity_id=self.config.entity_id,
             )
         else:
@@ -102,7 +102,7 @@ class BlarifyMCPServer:
         # Since FastMCP doesn't support **kwargs, we create a function that
         # accepts a single Dict[str, Any] parameter for all arguments
         
-        async def tool_function(arguments: Dict[str, Any] = {}) -> str:  # type: ignore
+        async def tool_function(arguments: Dict[str, Any] = {}) -> str:
             """Execute the tool with the provided arguments."""
             result = await wrapper.invoke(arguments)
             return str(result)

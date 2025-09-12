@@ -1,5 +1,5 @@
 from typing import Optional
-from blarify.code_references.lsp_helper import LspQueryHelper
+from blarify.code_references.hybrid_resolver import HybridReferenceResolver, ResolverMode
 from blarify.graph.graph import Graph
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.project_file_explorer.project_files_iterator import ProjectFilesIterator
@@ -54,11 +54,14 @@ class GraphBuilder:
         Returns:
             Graph object containing code nodes (and documentation nodes if requested)
         """
-        lsp_query_helper = self._get_started_lsp_query_helper()
+        reference_query_helper = self._get_started_reference_query_helper()
         project_files_iterator = self._get_project_files_iterator()
 
         graph_creator = ProjectGraphCreator(
-            self.root_path, lsp_query_helper, project_files_iterator, graph_environment=self.graph_environment
+            root_path=self.root_path,
+            reference_query_helper=reference_query_helper,
+            project_files_iterator=project_files_iterator,
+            graph_environment=self.graph_environment,
         )
 
         if self.only_hierarchy:
@@ -66,16 +69,18 @@ class GraphBuilder:
         else:
             graph = graph_creator.build()
 
-        lsp_query_helper.shutdown_exit_close()
+        reference_query_helper.shutdown()
 
         return graph
 
     def _get_project_files_iterator(self):
         return ProjectFilesIterator(
-            root_path=self.root_path, extensions_to_skip=self.extensions_to_skip, names_to_skip=self.names_to_skip
+            root_path=self.root_path,
+            extensions_to_skip=self.extensions_to_skip,
+            names_to_skip=self.names_to_skip,
+            blarignore_path=self.root_path + "/.blarignore",
         )
 
-    def _get_started_lsp_query_helper(self):
-        lsp_query_helper = LspQueryHelper(root_uri=self.root_path)
-        lsp_query_helper.start()
-        return lsp_query_helper
+    def _get_started_reference_query_helper(self):
+        reference_query_helper = HybridReferenceResolver(root_uri=self.root_path, mode=ResolverMode.AUTO)
+        return reference_query_helper

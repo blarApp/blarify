@@ -10,6 +10,7 @@ license = "MIT"
 packages = [{include = "blarify"}, {include = "neo4j_container_manager"}]
 
 [tool.poetry.scripts]
+blarify = "blarify.cli.main:main"
 blarify-mcp = "blarify.mcp_server:main"
 
 [tool.poetry.dependencies]
@@ -89,7 +90,7 @@ markers = [
 # Use: pytest -n auto tests/unit for parallel unit tests
 # Use: pytest tests/integration for sequential integration tests
 addopts = [
-    "--dist", "loadscope",  # Group tests by module for better test isolation
+    # "--dist", "loadscope",  # Group tests by module for better test isolation
 ]
 # Test discovery
 testpaths = ["tests"]

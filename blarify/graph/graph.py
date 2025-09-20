@@ -1,7 +1,9 @@
 from collections import defaultdict
-from typing import List, Dict, Set, DefaultDict, Optional, TYPE_CHECKING, Any
+from typing import List, Dict, Set, DefaultDict, Optional, TYPE_CHECKING, Any, Sequence, cast
 
 from blarify.graph.node import Node, NodeLabels
+from blarify.graph.node.file_node import FileNode
+from blarify.graph.node.folder_node import FolderNode
 
 if TYPE_CHECKING:
     from blarify.graph.relationship import Relationship
@@ -9,8 +11,8 @@ if TYPE_CHECKING:
 
 class Graph:
     nodes_by_path: DefaultDict[str, Set[Node]]
-    file_nodes_by_path: Dict[str, Node]
-    folder_nodes_by_path: Dict[str, Node]
+    file_nodes_by_path: Dict[str, FileNode]
+    folder_nodes_by_path: Dict[str, FolderNode]
     nodes_by_label: DefaultDict[str, Set[Node]]
     nodes_by_relative_id: Dict[str, Node]
     __nodes: Dict[str, Node]
@@ -20,15 +22,15 @@ class Graph:
         self.__nodes: Dict[str, Node] = {}
         self.__references_relationships: List["Relationship"] = []
         self.nodes_by_path: DefaultDict[str, Set[Node]] = defaultdict(set)
-        self.file_nodes_by_path: Dict[str, Node] = {}
-        self.folder_nodes_by_path: Dict[str, Node] = {}
+        self.file_nodes_by_path: Dict[str, FileNode] = {}
+        self.folder_nodes_by_path: Dict[str, FolderNode] = {}
         self.nodes_by_label: DefaultDict[str, Set[Node]] = defaultdict(set)
         self.nodes_by_relative_id: Dict[str, Node] = {}
 
     def has_folder_node_with_path(self, path: str) -> bool:
         return path in self.folder_nodes_by_path
 
-    def add_nodes(self, nodes: List[Node]) -> None:
+    def add_nodes(self, nodes: Sequence[Node]) -> None:
         for node in nodes:
             self.add_node(node)
 
@@ -39,10 +41,10 @@ class Graph:
         self.nodes_by_relative_id[node.relative_id] = node
 
         if node.label == NodeLabels.FILE:
-            self.file_nodes_by_path[node.path] = node
+            self.file_nodes_by_path[node.path] = cast(FileNode, node)
 
         if node.label == NodeLabels.FOLDER:
-            self.folder_nodes_by_path[node.path] = node
+            self.folder_nodes_by_path[node.path] = cast(FolderNode, node)
 
     def get_nodes_by_path(self, path: str) -> Set[Node]:
         return self.nodes_by_path[path]
@@ -50,7 +52,7 @@ class Graph:
     def get_file_node_by_path(self, path: str) -> Optional[Node]:
         return self.file_nodes_by_path.get(path)
 
-    def get_folder_node_by_path(self, path: str) -> Node:
+    def get_folder_node_by_path(self, path: str) -> FolderNode:
         return self.folder_nodes_by_path[path]
 
     def get_nodes_by_label(self, label: str) -> Set[Node]:

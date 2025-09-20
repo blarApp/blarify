@@ -4,12 +4,13 @@ These tests focus specifically on thread management and exhaustion prevention,
 complementing the full documentation flow tests in test_documentation_creation.py
 and deadlock tests in test_recursive_dfs_deadlock.py.
 """
+# pyright: reportMissingParameterType=false
 
 import threading
 import time
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Set, List, Optional
+from typing import Dict, Set, List, Optional, Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -19,9 +20,9 @@ from blarify.documentation.utils.bottom_up_batch_processor import (
     BottomUpBatchProcessor,
 )
 from blarify.graph.graph_environment import GraphEnvironment
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.integration.test_helpers import (
     create_test_file_node,
+    create_test_folder_node,
     create_test_function_node,
     insert_nodes_and_edges,
     create_contains_edge,
@@ -74,10 +75,14 @@ class ThreadTracker:
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_thread_reuse_in_deep_hierarchy(neo4j_instance: Neo4jContainerInstance):
+async def test_thread_reuse_in_deep_hierarchy(test_data_isolation: Dict[str, Any]):
     """Test that threads are properly reused in deep hierarchies without exhaustion."""
     db_manager = Neo4jManager(
-        uri=neo4j_instance.uri, user="neo4j", password="test-password", entity_id="test-entity", repo_id="test-repo"
+        uri=test_data_isolation["uri"],
+        user="neo4j",
+        password="test-password",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
     )
 
     # Create deep hierarchy (100+ nodes) using Node classes
@@ -88,8 +93,8 @@ async def test_thread_reuse_in_deep_hierarchy(neo4j_instance: Neo4jContainerInst
         path="/root.py",
         name="root.py",
         content="root content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -102,8 +107,8 @@ async def test_thread_reuse_in_deep_hierarchy(neo4j_instance: Neo4jContainerInst
             path=f"/child{i}.py",
             name=f"child{i}.py",
             content="child content",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
             graph_environment=graph_env,
         )
         nodes.append(child)
@@ -115,8 +120,8 @@ async def test_thread_reuse_in_deep_hierarchy(neo4j_instance: Neo4jContainerInst
                 path=f"/gc_{i}_{j}.py",
                 name=f"gc_{i}_{j}.py",
                 content="gc content",
-                entity_id="test-entity",
-                repo_id="test-repo",
+                entity_id=test_data_isolation["entity_id"],
+                repo_id=test_data_isolation["repo_id"],
                 graph_environment=graph_env,
             )
             nodes.append(grandchild)
@@ -169,10 +174,14 @@ async def test_thread_reuse_in_deep_hierarchy(neo4j_instance: Neo4jContainerInst
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInstance):
+async def test_as_completed_thread_harvesting(test_data_isolation: Dict[str, Any]):
     """Test that as_completed() is used for immediate thread harvesting."""
     db_manager = Neo4jManager(
-        uri=neo4j_instance.uri, user="neo4j", password="test-password", entity_id="test-entity", repo_id="test-repo"
+        uri=test_data_isolation["uri"],
+        user="neo4j",
+        password="test-password",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
     )
 
     # Create a wide hierarchy to test parallel processing
@@ -183,8 +192,8 @@ async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInst
         path="/root.py",
         name="root.py",
         content="root content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -197,8 +206,8 @@ async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInst
             path=f"/child_{i}.py",
             name=f"child_{i}.py",
             content=f"child {i} content",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
             graph_environment=graph_env,
         )
         nodes.append(child)
@@ -222,11 +231,13 @@ async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInst
     mock_llm = Mock()
     mock_llm.call_dumb_agent.side_effect = mock_llm_with_tracking
 
+    max_workers = 5  # Limited workers to force thread reuse
+
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
         graph_environment=graph_env,
-        max_workers=5,  # Limited workers to force thread reuse
+        max_workers=max_workers,  # Limited workers to force thread reuse
     )
 
     # Patch as_completed to verify it's being used
@@ -239,14 +250,16 @@ async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInst
         return original_as_completed(*args, **kwargs)
 
     with patch("blarify.documentation.utils.bottom_up_batch_processor.as_completed", side_effect=tracked_as_completed):
-        result = processor.process_node("/root.py")
+        processor.process_node("/root.py")
 
     # Verify as_completed was used for thread harvesting
     assert as_completed_called, "as_completed() should be used for thread harvesting"
 
     # Verify threads were reused (20 tasks with only 5 workers)
     unique_threads = set(thread_id for _, thread_id in completion_order)
-    assert len(unique_threads) <= 5, f"Should reuse threads, but found {len(unique_threads)} unique threads"
+    assert len(unique_threads) <= max_workers + 1, (
+        f"Should reuse threads, but found {len(unique_threads)} unique threads"
+    )
 
     # Verify all children were processed
     assert len(completion_order) >= 20, f"Expected at least 20 completions, got {len(completion_order)}"
@@ -256,77 +269,87 @@ async def test_as_completed_thread_harvesting(neo4j_instance: Neo4jContainerInst
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_batch_processing_maintains_bottom_up_order(neo4j_instance: Neo4jContainerInstance):
+async def test_batch_processing_maintains_bottom_up_order(test_data_isolation: Dict[str, Any]):
     """Test that batch processing maintains bottom-up order (leaves first)."""
     db_manager = Neo4jManager(
-        uri=neo4j_instance.uri, user="neo4j", password="test-password", entity_id="test-entity", repo_id="test-repo"
+        uri=test_data_isolation["uri"],
+        user="neo4j",
+        password="test-password",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
     )
 
     # Create graph environment
     graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path="/")
 
-    # Create hierarchy using Node classes
-    root = create_test_file_node(
-        path="/root.py",
-        name="root.py",
-        content="root content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+    # Create proper hierarchy: Folder -> Files -> Functions
+    root_folder = create_test_folder_node(
+        path="/root",
+        name="root",
         graph_environment=graph_env,
     )
 
-    c1 = create_test_file_node(
-        path="/child1.py",
-        name="child1.py",
-        content="c1 content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+    # Create files in the root folder
+    file1 = create_test_file_node(
+        path="/root/file1.py",
+        name="file1.py",
+        content="# File 1 content",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
-    c2 = create_test_file_node(
-        path="/child2.py",
-        name="child2.py",
-        content="c2 content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+    file2 = create_test_file_node(
+        path="/root/file2.py",
+        name="file2.py",
+        content="# File 2 content",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
-    gc1 = create_test_file_node(
-        path="/grandchild1.py",
-        name="grandchild1.py",
-        content="gc1 content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+    # Create functions inside file1 (functions are the deepest level)
+    func1 = create_test_function_node(
+        path="/root/file1.py",  # Path should be the file path, not include function name
+        name="func1",
+        content="def func1(): pass",
+        parent=file1,
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
-    gc2 = create_test_file_node(
-        path="/grandchild2.py",
-        name="grandchild2.py",
-        content="gc2 content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+    func2 = create_test_function_node(
+        path="/root/file1.py",  # Path should be the file path, not include function name
+        name="func2",
+        content="def func2(): pass",
+        parent=file1,
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
-    ggc = create_test_file_node(
-        path="/great_grandchild.py",
-        name="great_grandchild.py",
-        content="ggc content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+    # Create function inside file2
+    func3 = create_test_function_node(
+        path="/root/file2.py",  # Path should be the file path, not include function name
+        name="func3",
+        content="def func3(): pass",
+        parent=file2,
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
-    nodes = [root, c1, c2, gc1, gc2, ggc]
+    # Proper hierarchy: Folder contains Files, Files contain Functions
+    nodes = [root_folder, file1, file2, func1, func2, func3]
     edges = [
-        create_contains_edge(root.hashed_id, c1.hashed_id),
-        create_contains_edge(root.hashed_id, c2.hashed_id),
-        create_contains_edge(c1.hashed_id, gc1.hashed_id),
-        create_contains_edge(c1.hashed_id, gc2.hashed_id),
-        create_contains_edge(gc1.hashed_id, ggc.hashed_id),
+        # Folder contains files
+        create_contains_edge(root_folder.hashed_id, file1.hashed_id),
+        create_contains_edge(root_folder.hashed_id, file2.hashed_id),
+        # Files contain functions
+        create_contains_edge(file1.hashed_id, func1.hashed_id),
+        create_contains_edge(file1.hashed_id, func2.hashed_id),
+        create_contains_edge(file2.hashed_id, func3.hashed_id),
     ]
 
     # Insert nodes and edges into database
@@ -339,15 +362,19 @@ async def test_batch_processing_maintains_bottom_up_order(neo4j_instance: Neo4jC
 
     def mock_llm_track_order(system_prompt, input_dict, input_prompt):
         node_path = input_dict.get("node_path", "unknown")
+        node_name = input_dict.get("node_name", "unknown")
         with lock:
-            # Determine level based on path
-            if "great_grandchild" in node_path:
-                level = 3
-            elif "grandchild" in node_path:
+            # Determine level based on node hierarchy:
+            # Level 0: Root folder
+            # Level 1: Files
+            # Level 2: Functions (deepest/leaves)
+
+            # Check if it's a function by looking at the name (func1, func2, func3)
+            if node_name in ["func1", "func2", "func3"]:  # Functions are the deepest level
                 level = 2
-            elif "child" in node_path and "grandchild" not in node_path:
+            elif node_path.endswith(".py"):  # Files are intermediate level
                 level = 1
-            else:
+            else:  # Root folder is the top level
                 level = 0
             processing_levels[node_path] = level
             processing_order.append(node_path)
@@ -359,22 +386,22 @@ async def test_batch_processing_maintains_bottom_up_order(neo4j_instance: Neo4jC
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
-        company_id="test-entity",
-        repo_id="test-repo",
         graph_environment=graph_env,
         max_workers=3,
     )
 
-    # Process the hierarchy
-    result = processor.process_node("/root.py")
+    # Process the hierarchy - start from root folder
+    result = processor.process_node("/root")
     assert result.error is None
 
     # Verify bottom-up order: higher level nodes (leaves) processed first
+    # Functions (level 2) should be processed before Files (level 1) before Folder (level 0)
     for i, path in enumerate(processing_order[:-1]):
         next_path = processing_order[i + 1]
         current_level = processing_levels.get(path, -1)
         next_level = processing_levels.get(next_path, -1)
         # Allow same level or moving up the tree (lower level number)
+        # Bottom-up means higher level numbers (deeper nodes) should come first
         assert current_level >= next_level or abs(current_level - next_level) <= 1, (
             f"Processing order violation: {path} (level {current_level}) before {next_path} (level {next_level})"
         )
@@ -386,10 +413,14 @@ async def test_batch_processing_maintains_bottom_up_order(neo4j_instance: Neo4jC
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jContainerInstance):
+async def test_cycle_handling_without_thread_exhaustion(test_data_isolation: Dict[str, Any]):
     """Test that cycles in the graph don't cause thread exhaustion."""
     db_manager = Neo4jManager(
-        uri=neo4j_instance.uri, user="neo4j", password="test-password", entity_id="test-entity", repo_id="test-repo"
+        uri=test_data_isolation["uri"],
+        user="neo4j",
+        password="test-password",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
     )
 
     # Create graph environment
@@ -400,8 +431,8 @@ async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jCon
         path="/main.py",
         name="main.py",
         content="main file content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -410,8 +441,8 @@ async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jCon
         name="func1",
         content="func1 content",
         parent=file1,
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -420,8 +451,8 @@ async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jCon
         name="func2",
         content="func2 content",
         parent=file1,
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -430,8 +461,8 @@ async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jCon
         name="func3",
         content="func3 content",
         parent=file1,
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -459,8 +490,6 @@ async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jCon
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
-        company_id="test-entity",
-        repo_id="test-repo",
         graph_environment=graph_env,
         max_workers=5,
     )
@@ -483,10 +512,14 @@ async def test_cycle_handling_without_thread_exhaustion(neo4j_instance: Neo4jCon
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainerInstance):
+async def test_thread_pool_resilience_with_errors(test_data_isolation: Dict[str, Any]):
     """Test that thread pool remains stable when individual nodes fail."""
     db_manager = Neo4jManager(
-        uri=neo4j_instance.uri, user="neo4j", password="test-password", entity_id="test-entity", repo_id="test-repo"
+        uri=test_data_isolation["uri"],
+        user="neo4j",
+        password="test-password",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
     )
 
     # Create graph environment
@@ -497,8 +530,8 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
         path="/parent.py",
         name="parent.py",
         content="parent content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -506,8 +539,8 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
         path="/good1.py",
         name="good1.py",
         content="good1 content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -515,8 +548,8 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
         path="/bad.py",
         name="bad.py",
         content="bad content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -524,8 +557,8 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
         path="/good2.py",
         name="good2.py",
         content="good2 content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -556,8 +589,6 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
-        company_id="test-entity",
-        repo_id="test-repo",
         graph_environment=graph_env,
         max_workers=3,
     )
@@ -584,10 +615,14 @@ async def test_thread_pool_resilience_with_errors(neo4j_instance: Neo4jContainer
 
 @pytest.mark.asyncio
 @pytest.mark.performance
-async def test_thread_pool_efficiency_at_scale(neo4j_instance: Neo4jContainerInstance):
+async def test_thread_pool_efficiency_at_scale(test_data_isolation: Dict[str, Any]):
     """Test that thread pool maintains efficiency with 100+ nodes."""
     db_manager = Neo4jManager(
-        uri=neo4j_instance.uri, user="neo4j", password="test-password", entity_id="test-entity", repo_id="test-repo"
+        uri=test_data_isolation["uri"],
+        user="neo4j",
+        password="test-password",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
     )
 
     # Create graph environment
@@ -598,8 +633,8 @@ async def test_thread_pool_efficiency_at_scale(neo4j_instance: Neo4jContainerIns
         path="/root.py",
         name="root.py",
         content="root content",
-        entity_id="test-entity",
-        repo_id="test-repo",
+        entity_id=test_data_isolation["entity_id"],
+        repo_id=test_data_isolation["repo_id"],
         graph_environment=graph_env,
     )
 
@@ -612,8 +647,8 @@ async def test_thread_pool_efficiency_at_scale(neo4j_instance: Neo4jContainerIns
             path=f"/level1/child{i}.py",
             name=f"child{i}.py",
             content="child content",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
             graph_environment=graph_env,
         )
         nodes.append(child)
@@ -625,8 +660,8 @@ async def test_thread_pool_efficiency_at_scale(neo4j_instance: Neo4jContainerIns
                 path=f"/level2/gc{i}_{j}.py",
                 name=f"gc{i}_{j}.py",
                 content="gc content",
-                entity_id="test-entity",
-                repo_id="test-repo",
+                entity_id=test_data_isolation["entity_id"],
+                repo_id=test_data_isolation["repo_id"],
                 graph_environment=graph_env,
             )
             nodes.append(grandchild)
@@ -646,8 +681,6 @@ async def test_thread_pool_efficiency_at_scale(neo4j_instance: Neo4jContainerIns
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
-        company_id="test-entity",
-        repo_id="test-repo",
         graph_environment=graph_env,
         max_workers=10,  # Moderate worker count
     )

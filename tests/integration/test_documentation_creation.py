@@ -16,7 +16,6 @@ from blarify.graph.graph import Graph
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.documentation.documentation_creator import DocumentationCreator
 from blarify.agents.llm_provider import LLMProvider
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 from pydantic import BaseModel
 
@@ -58,7 +57,7 @@ class TestDocumentationCreation:
     async def test_documentation_for_file_with_direct_code(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -83,11 +82,11 @@ class TestDocumentationCreation:
 
         # Step 2: Save graph to Neo4j
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Save the code graph
@@ -117,13 +116,13 @@ class TestDocumentationCreation:
         )
 
         # Don't specify target_paths so it processes all files in the graph
-        result = doc_creator.create_documentation(save_to_database=True)
+        result = doc_creator.create_documentation()
 
         # Verify documentation was created successfully
         assert result is not None
         assert result.error is None, f"Documentation creation failed: {result.error}"
 
-        doc_nodes = await graph_assertions.neo4j_instance.execute_cypher(
+        doc_nodes = await test_data_isolation["container"].execute_cypher(
             "MATCH (d:DOCUMENTATION) RETURN d.content as content, d.name as name"
         )
 
@@ -137,7 +136,7 @@ class TestDocumentationCreation:
     async def test_documentation_for_duplicate_named_nodes(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -167,11 +166,11 @@ class TestDocumentationCreation:
 
         # Step 2: Save graph to Neo4j
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Save the code graph
@@ -182,19 +181,19 @@ class TestDocumentationCreation:
         await graph_assertions.debug_print_graph_summary()
 
         # Verify duplicate named nodes exist
-        utils_files = await graph_assertions.neo4j_instance.execute_cypher(
+        utils_files = await test_data_isolation["container"].execute_cypher(
             "MATCH (f:FILE {name: 'utils.py'}) RETURN f.path as path, f.id as id ORDER BY f.path"
         )
         assert len(utils_files) == 2, f"Expected 2 utils.py files, found {len(utils_files)}"
         print(f"\nFound {len(utils_files)} utils.py files")
 
-        helper_functions = await graph_assertions.neo4j_instance.execute_cypher(
+        helper_functions = await test_data_isolation["container"].execute_cypher(
             "MATCH (f:FUNCTION {name: 'helper'}) RETURN f.path as path, f.id as id ORDER BY f.path"
         )
         assert len(helper_functions) == 2, f"Expected 2 helper functions, found {len(helper_functions)}"
         print(f"Found {len(helper_functions)} helper functions")
 
-        config_classes = await graph_assertions.neo4j_instance.execute_cypher(
+        config_classes = await test_data_isolation["container"].execute_cypher(
             "MATCH (c:CLASS {name: 'Config'}) RETURN c.path as path, c.id as id ORDER BY c.path"
         )
         assert len(config_classes) == 2, f"Expected 2 Config classes, found {len(config_classes)}"
@@ -222,7 +221,7 @@ class TestDocumentationCreation:
         )
 
         # Generate documentation for all files
-        result = doc_creator.create_documentation(save_to_database=True)
+        result = doc_creator.create_documentation()
 
         # Verify documentation was created successfully
         assert result is not None
@@ -240,7 +239,7 @@ class TestDocumentationCreation:
                size(described_nodes) as node_count,
                [n in described_nodes | n.name + ' at ' + n.path] as described_nodes
         """
-        shared_docs = await graph_assertions.neo4j_instance.execute_cypher(shared_doc_query)
+        shared_docs = await test_data_isolation["container"].execute_cypher(shared_doc_query)
 
         # This assertion will fail if the bug exists
         assert len(shared_docs) == 0, (
@@ -254,7 +253,7 @@ class TestDocumentationCreation:
         print("\n=== Detailed Analysis ===")
 
         # Check utils.py files
-        utils_analysis = await graph_assertions.neo4j_instance.execute_cypher("""
+        utils_analysis = await test_data_isolation["container"].execute_cypher("""
             MATCH (f:FILE {name: 'utils.py'})
             OPTIONAL MATCH (d:DOCUMENTATION)-[:DESCRIBES]->(f)
             RETURN f.path as path, count(DISTINCT d) as doc_count, collect(DISTINCT d.id) as doc_ids
@@ -265,7 +264,7 @@ class TestDocumentationCreation:
             print(f"  {item['path']}: {item['doc_count']} documentation node(s)")
 
         # Check helper functions
-        helper_analysis = await graph_assertions.neo4j_instance.execute_cypher("""
+        helper_analysis = await test_data_isolation["container"].execute_cypher("""
             MATCH (f:FUNCTION {name: 'helper'})
             OPTIONAL MATCH (d:DOCUMENTATION)-[:DESCRIBES]->(f)
             RETURN f.path as path, count(DISTINCT d) as doc_count, collect(DISTINCT d.id) as doc_ids
@@ -276,7 +275,7 @@ class TestDocumentationCreation:
             print(f"  {item['path']}: {item['doc_count']} documentation node(s)")
 
         # Check Config classes
-        config_analysis = await graph_assertions.neo4j_instance.execute_cypher("""
+        config_analysis = await test_data_isolation["container"].execute_cypher("""
             MATCH (c:CLASS {name: 'Config'})
             OPTIONAL MATCH (d:DOCUMENTATION)-[:DESCRIBES]->(c)
             RETURN c.path as path, count(DISTINCT d) as doc_count, collect(DISTINCT d.id) as doc_ids
@@ -292,7 +291,7 @@ class TestDocumentationCreation:
     async def test_documentation_with_generate_embeddings_stores_on_neo4j(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -316,11 +315,11 @@ class TestDocumentationCreation:
 
         # Step 2: Save graph to Neo4j
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Save the code graph
@@ -352,7 +351,6 @@ class TestDocumentationCreation:
 
             # Create documentation with embeddings enabled
             result = doc_creator.create_documentation(
-                save_to_database=True,
                 generate_embeddings=True,  # Enable embedding generation
             )
 
@@ -364,7 +362,7 @@ class TestDocumentationCreation:
             assert mock_embed.called, "EmbeddingService.embed_batch should have been called"
 
         # Step 4: Verify embeddings are stored in Neo4j
-        doc_nodes_with_embeddings = await graph_assertions.neo4j_instance.execute_cypher(
+        doc_nodes_with_embeddings = await test_data_isolation["container"].execute_cypher(
             """
             MATCH (d:DOCUMENTATION)
             WHERE d.content_embedding IS NOT NULL
@@ -389,7 +387,7 @@ class TestDocumentationCreation:
     async def test_embed_existing_documentation_adds_embeddings_to_nodes(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -413,11 +411,11 @@ class TestDocumentationCreation:
 
         # Step 2: Save graph to Neo4j
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         code_nodes = graph.get_nodes_as_objects()
@@ -442,7 +440,6 @@ class TestDocumentationCreation:
 
         # Create documentation WITHOUT embeddings
         result = doc_creator.create_documentation(
-            save_to_database=True,
             generate_embeddings=False,  # No embeddings initially
         )
 
@@ -451,7 +448,7 @@ class TestDocumentationCreation:
         assert result.error is None, f"Documentation creation failed: {result.error}"
 
         # Verify no embeddings exist yet
-        nodes_without_embeddings = await graph_assertions.neo4j_instance.execute_cypher(
+        nodes_without_embeddings = await test_data_isolation["container"].execute_cypher(
             """
             MATCH (d:DOCUMENTATION)
             WHERE d.content_embedding IS NULL
@@ -459,7 +456,7 @@ class TestDocumentationCreation:
             """
         )
 
-        nodes_without_documentation = await graph_assertions.neo4j_instance.execute_cypher(
+        nodes_without_documentation = await test_data_isolation["container"].execute_cypher(
             """
             MATCH (n:NODE)
             WHERE NOT (n:DOCUMENTATION)
@@ -491,14 +488,15 @@ class TestDocumentationCreation:
 
             # Verify the method completed successfully
             assert embed_result is not None
-            assert embed_result["total_processed"] == 30
-            assert embed_result["total_embedded"] == 30
+            assert embed_result["total_processed"] == 32
+            assert embed_result["total_embedded"] == 32
+            assert embed_result["total_skipped"] == 0
 
             # Verify embed_batch was called
             assert mock_embed.called, "EmbeddingService.embed_batch should have been called"
 
         # Step 5: Verify embeddings were added to existing nodes
-        nodes_with_embeddings = await graph_assertions.neo4j_instance.execute_cypher(
+        nodes_with_embeddings = await test_data_isolation["container"].execute_cypher(
             """
             MATCH (d:DOCUMENTATION)
             WHERE d.content_embedding IS NOT NULL

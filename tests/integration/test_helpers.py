@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from blarify.graph.node import FileNode, ClassNode, FunctionNode
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.code_references.types import Reference, Range, Point
+from blarify.graph.node.folder_node import FolderNode
 from blarify.repositories.graph_db_manager import AbstractDbManager
 
 
@@ -61,6 +62,26 @@ def create_test_file_node(
     # Add the entity_id and repo_id as extra attributes
     node.add_extra_attribute("entityId", entity_id)
     node.add_extra_attribute("repoId", repo_id)
+
+    return node
+
+
+def create_test_folder_node(
+    path: str,
+    name: str,
+    graph_environment: Optional[GraphEnvironment] = None,
+) -> FolderNode:
+    """Create a test FolderNode with minimal required fields."""
+    if graph_environment is None:
+        graph_environment = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path="/")
+
+    node = FolderNode(
+        path=f"file://{path}",
+        name=name,
+        level=0,
+        parent=None,
+        graph_environment=graph_environment,
+    )
 
     return node
 
@@ -159,6 +180,11 @@ def insert_nodes_and_edges(
 def create_contains_edge(parent_node_id: str, child_node_id: str) -> Dict[str, Any]:
     """Create a CONTAINS relationship between two nodes."""
     return {"type": "CONTAINS", "sourceId": parent_node_id, "targetId": child_node_id}
+
+
+def create_function_definition_edge(parent_node_id: str, child_node_id: str) -> Dict[str, Any]:
+    """Create a FUNCTION_DEFINITION relationship between two nodes."""
+    return {"type": "FUNCTION_DEFINITION", "sourceId": parent_node_id, "targetId": child_node_id}
 
 
 def create_calls_edge(caller_node_id: str, callee_node_id: str) -> Dict[str, Any]:

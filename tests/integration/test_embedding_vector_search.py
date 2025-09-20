@@ -21,7 +21,6 @@ from blarify.repositories.graph_db_manager.queries import (
     vector_similarity_search_query,
 )
 from blarify.services.embedding_service import EmbeddingService
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 from blarify.agents.llm_provider import LLMProvider
 from pydantic import BaseModel
@@ -33,10 +32,12 @@ class TestEmbeddingVectorSearch:
     """Test suite for embedding generation and vector search capabilities."""
 
     @pytest.fixture
-    def test_graph_environment(self) -> GraphEnvironment:
+    def test_graph_environment(self, test_data_isolation: Dict[str, Any]) -> GraphEnvironment:
         """Create a test GraphEnvironment."""
         return GraphEnvironment(
-            environment="test-entity/test-repo", diff_identifier="test-diff", root_path="/test/path"
+            environment=f"{test_data_isolation['entity_id']}/{test_data_isolation['repo_id']}", 
+            diff_identifier="test-diff", 
+            root_path="/test/path"
         )
 
     @pytest.fixture
@@ -101,7 +102,7 @@ class TestEmbeddingVectorSearch:
     async def test_vector_similarity_search(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_graph_environment: GraphEnvironment,
         sample_documentation_nodes: List[DocumentationNode],
         mock_embeddings: Dict[str, List[float]],
@@ -110,11 +111,11 @@ class TestEmbeddingVectorSearch:
         """Test vector similarity search on DOCUMENTATION nodes."""
         # Create Neo4j manager
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Setup: Create documentation nodes with embeddings
@@ -160,7 +161,7 @@ class TestEmbeddingVectorSearch:
     async def test_hybrid_search(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_graph_environment: GraphEnvironment,
         sample_documentation_nodes: List[DocumentationNode],
         mock_embeddings: Dict[str, List[float]],
@@ -169,11 +170,11 @@ class TestEmbeddingVectorSearch:
         """Test hybrid search combining vector and keyword similarity."""
         # Create Neo4j manager
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Setup: Create documentation nodes with embeddings
@@ -222,7 +223,7 @@ class TestEmbeddingVectorSearch:
         self,
         mock_openai_embeddings: MagicMock,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_llm_provider: Mock,
         test_graph_environment: GraphEnvironment,
         sample_documentation_nodes: List[DocumentationNode],
@@ -241,11 +242,11 @@ class TestEmbeddingVectorSearch:
 
         # Create Neo4j manager
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Create documentation nodes WITHOUT embeddings
@@ -309,7 +310,7 @@ class TestEmbeddingVectorSearch:
         WHERE n.content_embedding IS NOT NULL
         RETURN count(n) as count
         """
-        result = await graph_assertions.neo4j_instance.execute_cypher(query)
+        result = await test_data_isolation["container"].execute_cypher(query)
 
         assert result[0]["count"] == 3, "All nodes should have embeddings"
 
@@ -322,7 +323,7 @@ class TestEmbeddingVectorSearch:
         self,
         mock_openai_embeddings: MagicMock,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_llm_provider: Mock,
         test_graph_environment: GraphEnvironment,
         sample_documentation_nodes: List[DocumentationNode],
@@ -337,11 +338,11 @@ class TestEmbeddingVectorSearch:
 
         # Create Neo4j manager
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test_skip_existing_embeddings",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Create nodes with mixed embedding status
@@ -454,7 +455,7 @@ class TestEmbeddingVectorSearch:
     async def test_finding_similar_documentation_nodes(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_graph_environment: GraphEnvironment,
         sample_documentation_nodes: List[DocumentationNode],
         mock_embeddings: Dict[str, List[float]],
@@ -463,11 +464,11 @@ class TestEmbeddingVectorSearch:
         """Test finding similar documentation nodes based on vector similarity."""
         # Create Neo4j manager
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         # Setup: Create documentation nodes with embeddings

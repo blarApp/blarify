@@ -2275,48 +2275,6 @@ def update_documentation_embeddings_query() -> LiteralString:
     """
 
 
-def initialize_processing_query() -> LiteralString:
-    """
-    Initialize processing by marking all nodes as pending.
-
-    Sets the processing status of all nodes in the graph to 'pending'.
-
-    Parameters expected:
-        - entity_id: Entity identifier for the nodes
-        - repo_id: Repository identifier for the nodes
-
-    Returns:
-        str: The Cypher query string
-    """
-    return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    SET n.processing_status = 'pending'
-    RETURN count(n) as initialized_count
-    """
-
-
-def mark_processing_status_query() -> LiteralString:
-    """
-    Update the processing status of a specific node.
-
-    Marks a node with a specific processing status (pending, in_progress, completed).
-
-    Parameters expected:
-        - node_path: Path to the node to update
-        - status: New status ('pending', 'in_progress', or 'completed')
-        - entity_id: Entity identifier for the nodes
-        - repo_id: Repository identifier for the nodes
-
-    Returns:
-        str: The Cypher query string
-    """
-    return """
-    MATCH (n:NODE {path: $node_path, entityId: $entity_id, repoId: $repo_id})
-    SET n.processing_status = $status
-    RETURN n.path as path, $status as new_status
-    """
-
-
 def get_processable_nodes_query() -> LiteralString:
     """
     Get nodes that are ready for processing in bottom-up order.

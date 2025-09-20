@@ -127,7 +127,7 @@ class Neo4jContainerManager:
                 pass  # No existing container, that's fine
             except Exception:
                 pass  # Best effort cleanup
-            
+
             # Prepare environment variables for Neo4j 5.x
             environment = {
                 "NEO4J_AUTH": f"{config.username}/{config.password}" if config.enable_auth else "none",
@@ -135,11 +135,11 @@ class Neo4jContainerManager:
                 "NEO4J_server_memory_heap_max__size": config.memory or "1G",
                 "NEO4J_ACCEPT_LICENSE_AGREEMENT": "yes",
             }
-            
+
             # Add custom configuration
             for key, value in config.custom_config.items():
                 environment[f"NEO4J_{key}"] = value
-            
+
             # Add plugins if specified
             if config.plugins:
                 plugins_str = " ".join(config.plugins)
@@ -147,21 +147,18 @@ class Neo4jContainerManager:
                 if "apoc" in config.plugins:
                     environment["NEO4J_dbms_security_procedures_unrestricted"] = "apoc.*"
                     environment["NEO4J_dbms_security_procedures_allowlist"] = "apoc.*"
-            
+
             # Prepare port bindings
             ports_config = {
                 "7687/tcp": ports.bolt_port,  # Bolt protocol
                 "7474/tcp": ports.http_port,  # HTTP interface
             }
-            
+
             # Prepare volume mounts
             volumes_config = {}
             if volume:
-                volumes_config[volume.name] = {
-                    "bind": "/data",
-                    "mode": "rw"
-                }
-            
+                volumes_config[volume.name] = {"bind": "/data", "mode": "rw"}
+
             # Prepare Docker run kwargs
             docker_run_kwargs = {
                 "image": f"neo4j:{config.neo4j_version}",
@@ -175,16 +172,16 @@ class Neo4jContainerManager:
                     "blarify.component": "neo4j-container-manager",
                     "blarify.environment": config.environment.value,
                     "blarify.test_id": config.test_id or "",
-                }
+                },
             }
-            
+
             # Add Docker resource constraints if specified
             if config.docker_resources:
                 docker_run_kwargs.update(config.docker_resources.to_docker_kwargs())
-            
+
             # Create and start the container using Docker API directly
             container: Container = self._docker_client.containers.run(**docker_run_kwargs)
-            
+
             # Update instance with actual container reference
             instance.container_ref = container
             instance.status = ContainerStatus.RUNNING
@@ -218,8 +215,8 @@ class Neo4jContainerManager:
     async def start_for_test(self, config: Neo4jContainerConfig) -> Neo4jContainerInstance:
         """
         Start a Neo4j container for testing.
-        
-        This is a convenience method for test scenarios that ensures 
+
+        This is a convenience method for test scenarios that ensures
         the environment is set to TEST and generates a test_id if not provided.
 
         Args:
@@ -233,11 +230,11 @@ class Neo4jContainerManager:
         """
         # Ensure environment is set to TEST
         config.environment = Environment.TEST
-        
+
         # Generate unique test ID if not provided
         if not config.test_id:
             config.test_id = f"test-{uuid.uuid4().hex[:8]}"
-            
+
         return await self.start(config)
 
     async def stop(self, container_id: str) -> None:
@@ -281,7 +278,7 @@ class Neo4jContainerManager:
     async def stop_test(self, container_id: str) -> None:
         """
         Stop a specific test container.
-        
+
         This is a convenience method that calls the general stop method.
 
         Args:

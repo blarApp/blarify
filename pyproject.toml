@@ -9,6 +9,10 @@ repository = "https://github.com/blarApp/blarify"
 license = "MIT"
 packages = [{include = "blarify"}, {include = "neo4j_container_manager"}]
 
+[tool.poetry.scripts]
+blarify = "blarify.cli.main:main"
+blarify-mcp = "blarify.mcp_server:main"
+
 [tool.poetry.dependencies]
 python = ">=3.11,<=3.14"
 asyncio = "^3.4.3"
@@ -40,6 +44,7 @@ langchain-google-genai = "^2.1.7"
 docker = "^7.1.0"
 filelock = "^3.16.1"
 rich = "^14.1.0"
+fastmcp = "^2.12.0"
 
 
 
@@ -85,7 +90,7 @@ markers = [
 # Use: pytest -n auto tests/unit for parallel unit tests
 # Use: pytest tests/integration for sequential integration tests
 addopts = [
-    "--dist", "loadscope",  # Group tests by module for better test isolation
+    # "--dist", "loadscope",  # Group tests by module for better test isolation
 ]
 # Test discovery
 testpaths = ["tests"]

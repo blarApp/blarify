@@ -7,12 +7,11 @@ and doesn't produce false positives for common patterns like shared dependencies
 
 import pytest
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.repositories.graph_db_manager.queries import detect_function_cycles
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 
 
@@ -24,7 +23,7 @@ class TestCycleDetection:
     async def test_existing_simple_cycle_detection(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ):
@@ -43,8 +42,14 @@ class TestCycleDetection:
         )
         graph = builder.build()
 
-        # Save to Neo4j
-        db_manager = Neo4jManager(uri=neo4j_instance.uri, user="neo4j", password="test-password")
+        # Save to Neo4j with isolated IDs
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -73,7 +78,7 @@ class TestCycleDetection:
     async def test_existing_complex_cycle_detection(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ):
@@ -92,8 +97,14 @@ class TestCycleDetection:
         )
         graph = builder.build()
 
-        # Save to Neo4j
-        db_manager = Neo4jManager(uri=neo4j_instance.uri, user="neo4j", password="test-password")
+        # Save to Neo4j with isolated IDs
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -122,7 +133,7 @@ class TestCycleDetection:
     async def test_shared_dependency_not_cycle(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ):
@@ -142,8 +153,14 @@ class TestCycleDetection:
         )
         graph = builder.build()
 
-        # Save to Neo4j
-        db_manager = Neo4jManager(uri=neo4j_instance.uri, user="neo4j", password="test-password")
+        # Save to Neo4j with isolated IDs
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -182,7 +199,7 @@ class TestCycleDetection:
     #     async def test_real_direct_recursion(
     #         self,
     #         docker_check: Any,
-    #         neo4j_instance: Neo4jContainerInstance,
+    #         test_data_isolation: Dict[str, Any],
     #         graph_assertions: GraphAssertions,
     #     ):
     #         """
@@ -213,7 +230,13 @@ class TestCycleDetection:
     #             )
     #             graph = builder.build()
 
-    #             db_manager = Neo4jManager(uri=neo4j_instance.uri, user="neo4j", password="test-password")
+    #             db_manager = Neo4jManager(
+    #                 uri=test_data_isolation["uri"],
+    #                 user="neo4j",
+    #                 password=test_data_isolation["password"],
+    #                 repo_id=test_data_isolation["repo_id"],
+    #                 entity_id=test_data_isolation["entity_id"],
+    #             )
 
     #             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -223,10 +246,13 @@ class TestCycleDetection:
     #             # Debug: Check if CALLS relationships exist
     #             calls_query = """
     #             MATCH (f:FUNCTION)-[r:CALLS]->(target)
-    #             WHERE f.entityId = 'default_user' AND f.repoId = 'default_repo'
+    #             WHERE f.entityId = $entity_id AND f.repoId = $repo_id
     #             RETURN f.name as caller, target.name as callee, type(r) as rel_type
     #             """
-    #             calls_result = await neo4j_instance.execute_cypher(calls_query)
+    #             calls_result = await test_data_isolation["container"].execute_cypher(calls_query, {
+    #                 "entity_id": test_data_isolation["entity_id"],
+    #                 "repo_id": test_data_isolation["repo_id"]
+    #             })
     #             print(f"CALLS relationships found: {calls_result}")
 
     #             factorial_found = False
@@ -249,7 +275,7 @@ class TestCycleDetection:
     async def test_mutual_recursion(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ):
@@ -270,7 +296,14 @@ class TestCycleDetection:
         )
         graph = builder.build()
 
-        db_manager = Neo4jManager(uri=neo4j_instance.uri, user="neo4j", password="test-password")
+        # Save to Neo4j with isolated IDs
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 

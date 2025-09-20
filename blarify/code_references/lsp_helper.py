@@ -10,6 +10,7 @@ from blarify.vendor.multilspy.multilspy_logger import MultilspyLogger
 from blarify.vendor.multilspy.lsp_protocol_handler.server import Error
 import time
 
+
 if TYPE_CHECKING:
     from blarify.graph.node import DefinitionNode
     from blarify.code_hierarchy.languages import (
@@ -56,9 +57,7 @@ class ProgressTracker:
         elapsed_time = time.time() - self.start_time
 
         if self.completed_nodes > 0:
-            estimated_total_time = elapsed_time * (
-                self.total_nodes / self.completed_nodes
-            )
+            estimated_total_time = elapsed_time * (self.total_nodes / self.completed_nodes)
             remaining_time = estimated_total_time - elapsed_time
             eta_str = f"ETA: {remaining_time:.0f}s"
         else:
@@ -167,20 +166,14 @@ class LspResourceOptimizer:
             "cpu_efficiency": 0.8,
             "max_recommended": 6,
         }
-        factor = (
-            language_factors.get(language, default_factor)
-            if language
-            else default_factor
-        )
+        factor = language_factors.get(language, default_factor) if language else default_factor
 
         # Calculate based on CPU cores (with efficiency factor)
         cpu_based = max(1, int(cpu_cores * factor["cpu_efficiency"]))
 
         # Calculate based on available memory (reserve 2GB for system + other processes)
         available_memory_mb = max(0, (memory_gb - 2.0) * 1024)
-        memory_based = max(
-            1, int(available_memory_mb / factor["memory_per_instance_mb"])
-        )
+        memory_based = max(1, int(available_memory_mb / factor["memory_per_instance_mb"]))
 
         # Take the minimum of CPU and memory constraints, but cap at language maximum
         optimal = min(cpu_based, memory_based, factor["max_recommended"])
@@ -211,9 +204,7 @@ class LspResourceOptimizer:
 
 class LspQueryHelper:
     root_uri: str
-    language_to_lsp_servers: dict[
-        str, list[SyncLanguageServer]
-    ]  # Changed to list of servers
+    language_to_lsp_servers: dict[str, list[SyncLanguageServer]]  # Changed to list of servers
     entered_lsp_servers: dict[str, list]  # Track contexts for each server instance
     LSP_USAGES = 0
     MAX_LSP_INSTANCES_PER_LANGUAGE = 10  # Configurable number of instances
@@ -250,9 +241,7 @@ class LspQueryHelper:
                 f"💻 System resources: {system_info['cpu_cores']} cores, {system_info['memory_gb']:.1f}GB RAM ({system_info['available_memory_gb']:.1f}GB available)"
             )
         else:
-            logger.info(
-                f"🔧 Using fixed LSP instances: {self.MAX_LSP_INSTANCES_PER_LANGUAGE} per language"
-            )
+            logger.info(f"🔧 Using fixed LSP instances: {self.MAX_LSP_INSTANCES_PER_LANGUAGE} per language")
 
     @staticmethod
     def get_language_definition_for_extension(extension: str) -> "LanguageDefinitions":
@@ -284,19 +273,13 @@ class LspQueryHelper:
         elif extension in JavaDefinitions.get_language_file_extensions():
             return JavaDefinitions
         else:
-            raise FileExtensionNotSupported(
-                f'File extension "{extension}" is not supported)'
-            )
+            raise FileExtensionNotSupported(f'File extension "{extension}" is not supported)')
 
-    def _create_lsp_server(
-        self, language_definitions: "LanguageDefinitions", timeout=60
-    ) -> SyncLanguageServer:
+    def _create_lsp_server(self, language_definitions: "LanguageDefinitions", timeout=60) -> SyncLanguageServer:
         language = language_definitions.get_language_name()
         config = MultilspyConfig.from_dict({"code_language": language})
         logger = MultilspyLogger()
-        lsp = SyncLanguageServer.create(
-            config, logger, PathCalculator.uri_to_path(self.root_uri), timeout=timeout
-        )
+        lsp = SyncLanguageServer.create(config, logger, PathCalculator.uri_to_path(self.root_uri), timeout=timeout)
         return lsp
 
     def start(self) -> None:
@@ -309,9 +292,7 @@ class LspQueryHelper:
         servers = self._get_or_create_lsp_servers(extension, timeout, 1)
         return servers[0]
 
-    def _get_or_create_lsp_servers(
-        self, extension, timeout=60, count=None
-    ) -> List[SyncLanguageServer]:
+    def _get_or_create_lsp_servers(self, extension, timeout=60, count=None) -> List[SyncLanguageServer]:
         """Get or create multiple LSP server instances for a language"""
         language_definitions = self.get_language_definition_for_extension(extension)
         language = language_definitions.get_language_name()
@@ -332,9 +313,7 @@ class LspQueryHelper:
             existing_servers.append(new_lsp)
             context = self._initialize_lsp_server_instance(language, new_lsp)
             self.entered_lsp_servers[language].append(context)
-            logger.info(
-                f"Created LSP server instance {len(existing_servers)} for {language}"
-            )
+            logger.info(f"Created LSP server instance {len(existing_servers)} for {language}")
 
         return existing_servers[:count]
 
@@ -349,9 +328,7 @@ class LspQueryHelper:
         DEPRECATED, LSP servers are started on demand
         """
 
-    def get_paths_where_node_is_referenced(
-        self, node: "DefinitionNode"
-    ) -> list[Reference]:
+    def get_paths_where_node_is_referenced(self, node: "DefinitionNode") -> list[Reference]:
         server = self._get_or_create_lsp_server(node.extension)
         references = self._request_references_with_exponential_backoff(node, server)
         return [Reference(reference) for reference in references]
@@ -382,32 +359,24 @@ class LspQueryHelper:
         nodes_by_language: Dict[str, List["DefinitionNode"]] = {}
         for node in nodes:
             try:
-                language_def = self.get_language_definition_for_extension(
-                    node.extension
-                )
+                language_def = self.get_language_definition_for_extension(node.extension)
                 language = language_def.get_language_name()
                 if language not in nodes_by_language:
                     nodes_by_language[language] = []
                 nodes_by_language[language].append(node)
             except FileExtensionNotSupported:
-                logger.warning(
-                    f"Skipping node {node.name} with unsupported extension {node.extension}"
-                )
+                logger.warning(f"Skipping node {node.name} with unsupported extension {node.extension}")
                 continue
 
         # Show language distribution
         for language, language_nodes in nodes_by_language.items():
             percentage = (len(language_nodes) / total_nodes) * 100
-            logger.info(
-                f"📊 {language}: {len(language_nodes)} nodes ({percentage:.1f}%)"
-            )
+            logger.info(f"📊 {language}: {len(language_nodes)} nodes ({percentage:.1f}%)")
 
         results: Dict["DefinitionNode", List[Reference]] = {}
 
         # Process each language group with multiple server instances
-        for lang_index, (language, language_nodes) in enumerate(
-            nodes_by_language.items(), 1
-        ):
+        for lang_index, (language, language_nodes) in enumerate(nodes_by_language.items(), 1):
             try:
                 # Get multiple LSP server instances for this language
                 first_node = language_nodes[0]
@@ -478,23 +447,17 @@ class LspQueryHelper:
                 return
 
             # Process this group of nodes with one server instance
-            group_results = self._batch_request_references_for_language(
-                server_nodes, server, progress
-            )
+            group_results = self._batch_request_references_for_language(server_nodes, server, progress)
 
             # Thread-safe result collection
             with results_lock:
                 results.update(group_results)
 
         # Execute all server groups concurrently using ThreadPoolExecutor
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(lsp_servers)
-        ) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(lsp_servers)) as executor:
             futures = []
             for server_index in range(len(lsp_servers)):
-                if server_node_groups[
-                    server_index
-                ]:  # Only submit if there are nodes to process
+                if server_node_groups[server_index]:  # Only submit if there are nodes to process
                     future = executor.submit(process_server_group, server_index)
                     futures.append(future)
 
@@ -545,25 +508,19 @@ class LspQueryHelper:
             tasks = []
             for node in nodes:
                 task = lsp_server.language_server.request_references(
-                    relative_file_path=PathCalculator.get_relative_path_from_uri(
-                        root_uri=self.root_uri, uri=node.path
-                    ),
+                    relative_file_path=PathCalculator.get_relative_path_from_uri(root_uri=self.root_uri, uri=node.path),
                     line=node.definition_range.start_dict["line"],
                     column=node.definition_range.start_dict["character"],
                 )
                 tasks.append((node, task))
 
             # Wait for all requests to complete
-            task_results = await asyncio.gather(
-                *[task for _, task in tasks], return_exceptions=True
-            )
+            task_results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
 
             # Process results
             for (node, _), result in zip(tasks, task_results):
                 if isinstance(result, Exception):
-                    logger.warning(
-                        f"Error getting references for {node.name}: {result}"
-                    )
+                    logger.warning(f"Error getting references for {node.name}: {result}")
                     results[node] = []
                 else:
                     results[node] = [Reference(ref) for ref in result] if result else []
@@ -619,9 +576,7 @@ class LspQueryHelper:
             chunk = nodes[i : i + chunk_size]
 
             try:
-                chunk_results = self._batch_request_references_simple(
-                    chunk, lsp_server, progress
-                )
+                chunk_results = self._batch_request_references_simple(chunk, lsp_server, progress)
                 all_results.update(chunk_results)
 
             except Exception as e:
@@ -664,25 +619,19 @@ class LspQueryHelper:
             tasks = []
             for node in nodes:
                 task = lsp_server.language_server.request_references(
-                    relative_file_path=PathCalculator.get_relative_path_from_uri(
-                        root_uri=self.root_uri, uri=node.path
-                    ),
+                    relative_file_path=PathCalculator.get_relative_path_from_uri(root_uri=self.root_uri, uri=node.path),
                     line=node.definition_range.start_dict["line"],
                     column=node.definition_range.start_dict["character"],
                 )
                 tasks.append((node, task))
 
             # Wait for all requests to complete
-            task_results = await asyncio.gather(
-                *[task for _, task in tasks], return_exceptions=True
-            )
+            task_results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
 
             # Process results
             for (node, _), result in zip(tasks, task_results):
                 if isinstance(result, Exception):
-                    logger.warning(
-                        f"Error getting references for {node.name}: {result}"
-                    )
+                    logger.warning(f"Error getting references for {node.name}: {result}")
                     results[node] = []
                 else:
                     results[node] = [Reference(ref) for ref in result] if result else []
@@ -700,9 +649,7 @@ class LspQueryHelper:
 
             return batch_results
         except concurrent.futures.TimeoutError:
-            logger.error(
-                f"⏰ Simple batch timed out after {dynamic_timeout}s for {len(nodes)} nodes"
-            )
+            logger.error(f"⏰ Simple batch timed out after {dynamic_timeout}s for {len(nodes)} nodes")
             # Update progress even for failed nodes
             if progress:
                 progress.update(len(nodes))
@@ -721,9 +668,7 @@ class LspQueryHelper:
         for _ in range(1, 3):
             try:
                 references = lsp.request_references(
-                    file_path=PathCalculator.get_relative_path_from_uri(
-                        root_uri=self.root_uri, uri=node.path
-                    ),
+                    file_path=PathCalculator.get_relative_path_from_uri(root_uri=self.root_uri, uri=node.path),
                     line=node.definition_range.start_dict["line"],
                     column=node.definition_range.start_dict["character"],
                 )
@@ -735,9 +680,7 @@ class LspQueryHelper:
                     f"Error requesting references for {self.root_uri}, {node.definition_range}, attempting to restart LSP server with timeout {timeout}"
                 )
                 self._restart_lsp_for_extension(extension=node.extension)
-                lsp = self._get_or_create_lsp_server(
-                    extension=node.extension, timeout=timeout
-                )
+                lsp = self._get_or_create_lsp_server(extension=node.extension, timeout=timeout)
 
         logger.exception("Failed to get references, returning empty list")
         return []
@@ -790,7 +733,7 @@ class LspQueryHelper:
                     # If context exit fails, fall back to manual cleanup for this specific server
                     if language in self.language_to_lsp_servers and i < len(self.language_to_lsp_servers[language]):
                         self._manual_cleanup_lsp_server_instance(self.language_to_lsp_servers[language][i])
-            
+
             del self.entered_lsp_servers[language]
         else:
             # No context managers, do manual cleanup for all instances
@@ -802,9 +745,7 @@ class LspQueryHelper:
         if language in self.language_to_lsp_servers:
             del self.language_to_lsp_servers[language]
 
-    def _manual_cleanup_lsp_server_instance(
-        self, lsp_server: SyncLanguageServer
-    ) -> None:
+    def _manual_cleanup_lsp_server_instance(self, lsp_server: SyncLanguageServer) -> None:
         """Manual cleanup for a single LSP server instance."""
         try:
             # Best line of code I've ever written (now with instance support):
@@ -834,9 +775,7 @@ class LspQueryHelper:
                         pass  # Ignore exceptions from cancelled tasks
 
                 # Run the cleanup coroutine in the loop
-                future = asyncio.run_coroutine_threadsafe(
-                    wait_for_cancelled_tasks(), loop
-                )
+                future = asyncio.run_coroutine_threadsafe(wait_for_cancelled_tasks(), loop)
                 try:
                     future.result(timeout=5)  # Wait up to 5 seconds for cleanup
                 except Exception:
@@ -850,29 +789,21 @@ class LspQueryHelper:
         if loop.is_running():
             loop.call_soon_threadsafe(loop.stop)
 
-    def get_definition_path_for_reference(
-        self, reference: Reference, extension: str
-    ) -> str:
+    def get_definition_path_for_reference(self, reference: Reference, extension: str) -> str:
         lsp_caller = self._get_or_create_lsp_server(extension)
-        definitions = self._request_definition_with_exponential_backoff(
-            reference, lsp_caller, extension
-        )
+        definitions = self._request_definition_with_exponential_backoff(reference, lsp_caller, extension)
 
         if not definitions:
             return ""
 
         return definitions[0]["uri"]
 
-    def _request_definition_with_exponential_backoff(
-        self, reference: Reference, lsp, extension
-    ):
+    def _request_definition_with_exponential_backoff(self, reference: Reference, lsp, extension):
         timeout = 10
         for _ in range(1, 3):
             try:
                 definitions = lsp.request_definition(
-                    file_path=PathCalculator.get_relative_path_from_uri(
-                        root_uri=self.root_uri, uri=reference.uri
-                    ),
+                    file_path=PathCalculator.get_relative_path_from_uri(root_uri=self.root_uri, uri=reference.uri),
                     line=reference.range.start.line,
                     column=reference.range.start.character,
                 )
@@ -884,9 +815,7 @@ class LspQueryHelper:
                     f"Error requesting definitions for {self.root_uri}, {reference.start_dict}, attempting to restart LSP server with timeout {timeout}"
                 )
                 self._restart_lsp_for_extension(extension)
-                lsp = self._get_or_create_lsp_server(
-                    extension=extension, timeout=timeout
-                )
+                lsp = self._get_or_create_lsp_server(extension=extension, timeout=timeout)
 
         logger.exception("Failed to get references, returning empty list")
         return []

@@ -70,7 +70,6 @@ class DocumentationCreator:
     def create_documentation(
         self,
         target_paths: Optional[List[str]] = None,
-        save_to_database: bool = True,
         generate_embeddings: bool = False,
     ) -> DocumentationResult:
         """
@@ -94,10 +93,6 @@ class DocumentationCreator:
                 result = self._create_targeted_documentation(target_paths, generate_embeddings=generate_embeddings)
             else:
                 result = self._create_full_documentation(generate_embeddings=generate_embeddings)
-
-            # Step 4: Save to database if requested
-            if save_to_database and result.documentation_nodes:
-                self._save_documentation_to_database(result.documentation_nodes, result.source_nodes)
 
             # Add timing and metadata
             result.processing_time_seconds = time.time() - start_time
@@ -327,6 +322,9 @@ class DocumentationCreator:
             logger.info(f"Full documentation completed: {total_processed} nodes processed")
 
             return DocumentationResult(
+                information_nodes=result.information_nodes,
+                documentation_nodes=result.documentation_nodes,
+                source_nodes=result.source_nodes,
                 total_nodes_processed=total_processed,
                 analyzed_nodes=[
                     {

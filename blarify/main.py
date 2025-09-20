@@ -152,7 +152,6 @@ def test_documentation_only(root_path: str = None):
     # Create documentation using the simple method orchestration
     doc_result = documentation_creator.create_documentation(
         target_paths=None,  # Process entire codebase
-        save_to_database=True,  # Save to Neo4j
         generate_embeddings=False,  # Skip embeddings for now
     )
 

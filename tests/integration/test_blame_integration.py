@@ -12,7 +12,6 @@ from blarify.repositories.version_control.github import GitHub
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 
 # DTOs for mocking
@@ -30,7 +29,7 @@ class TestBlameBasedIntegration:
     async def test_blame_based_integration_workflow(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -47,9 +46,11 @@ class TestBlameBasedIntegration:
 
         # Step 2: Save graph to real Neo4j
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
 
         # Save the actual graph first
@@ -187,8 +188,12 @@ class TestBlameBasedIntegration:
             mock_github = Mock(spec=GitHub)
             mock_github.blame_commits_for_range = Mock(side_effect=mock_blame_response)
             mock_github.blame_commits_for_nodes = Mock(side_effect=mock_blame_for_nodes)
-            mock_github.fetch_commit_patch = Mock(return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch fetching
-            mock_github.extract_relevant_patch = Mock(return_value="@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch extraction
+            mock_github.fetch_commit_patch = Mock(
+                return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line"
+            )  # Add mock for patch fetching
+            mock_github.extract_relevant_patch = Mock(
+                return_value="@@ -1,1 +1,1 @@\n-old line\n+new line"
+            )  # Add mock for patch extraction
             mock_github_class.return_value = mock_github
 
             creator = GitHubCreator(
@@ -206,7 +211,10 @@ class TestBlameBasedIntegration:
             creator._query_nodes_by_ids = Mock(side_effect=mock_query_nodes_by_ids)  # type: ignore
 
             # Get some actual node IDs from the database to process
-            function_nodes = await neo4j_instance.execute_cypher("MATCH (n:FUNCTION) RETURN n.hashed_id as id LIMIT 3")
+            function_nodes = await test_data_isolation["container"].execute_cypher(
+                "MATCH (n:FUNCTION) WHERE n.entityId = $entity_id AND n.repoId = $repo_id RETURN n.hashed_id as id LIMIT 3",
+                {"entity_id": test_data_isolation["entity_id"], "repo_id": test_data_isolation["repo_id"]},
+            )
             node_ids = [node["id"] for node in function_nodes if node["id"]]
 
             # If no function nodes, use mock IDs
@@ -224,14 +232,14 @@ class TestBlameBasedIntegration:
         await graph_assertions.assert_node_exists("INTEGRATION", {"source_type": "commit"})
 
         # Check for MODIFIED_BY relationships
-        modified_by_rels = await neo4j_instance.execute_cypher("""
+        modified_by_rels = await test_data_isolation["container"].execute_cypher("""
             MATCH ()-[r:MODIFIED_BY]->(:INTEGRATION)
             RETURN count(r) as count
         """)
         assert modified_by_rels[0]["count"] > 0, "Should have MODIFIED_BY relationships"
 
         # Verify blame attribution
-        blame_rels = await neo4j_instance.execute_cypher("""
+        blame_rels = await test_data_isolation["container"].execute_cypher("""
             MATCH ()-[r:MODIFIED_BY]->(:INTEGRATION)
             WHERE r.attribution_method = 'blame'
             RETURN r.attribution_method as method, r.attribution_accuracy as accuracy, r.blamed_lines as lines
@@ -249,7 +257,7 @@ class TestBlameBasedIntegration:
     async def test_blame_accuracy_vs_patch_parsing(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -265,9 +273,11 @@ class TestBlameBasedIntegration:
         graph = builder.build()
 
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -349,8 +359,12 @@ class TestBlameBasedIntegration:
         with patch("blarify.integrations.github_creator.GitHub") as mock_github_class:
             mock_github = Mock(spec=GitHub)
             mock_github.blame_commits_for_nodes = Mock(return_value=blame_results)
-            mock_github.fetch_commit_patch = Mock(return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch fetching
-            mock_github.extract_relevant_patch = Mock(return_value="@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch extraction
+            mock_github.fetch_commit_patch = Mock(
+                return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line"
+            )  # Add mock for patch fetching
+            mock_github.extract_relevant_patch = Mock(
+                return_value="@@ -1,1 +1,1 @@\n-old line\n+new line"
+            )  # Add mock for patch extraction
             mock_github_class.return_value = mock_github
 
             creator = GitHubCreator(
@@ -374,10 +388,14 @@ class TestBlameBasedIntegration:
 
             # Verify each commit was created with correct author
             for commit_sha, author in [("commit123", "Alice"), ("commit456", "Bob"), ("commit789", "Charlie")]:
-                commits = await neo4j_instance.execute_cypher(f"""
+                commits = await test_data_isolation["container"].execute_cypher(
+                    f"""
                     MATCH (c:INTEGRATION {{external_id: '{commit_sha}', source_type: 'commit'}})
+                    WHERE c.entityId = $entity_id AND c.repoId = $repo_id
                     RETURN c.author as author
-                """)
+                """,
+                    {"entity_id": test_data_isolation["entity_id"], "repo_id": test_data_isolation["repo_id"]},
+                )
                 assert len(commits) > 0, f"Commit {commit_sha} should exist"
                 assert commits[0]["author"] == author
 
@@ -386,7 +404,7 @@ class TestBlameBasedIntegration:
     async def test_pr_association_through_blame(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -402,9 +420,11 @@ class TestBlameBasedIntegration:
         graph = builder.build()
 
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
             password="test-password",
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -466,8 +486,12 @@ class TestBlameBasedIntegration:
         with patch("blarify.integrations.github_creator.GitHub") as mock_github_class:
             mock_github = Mock(spec=GitHub)
             mock_github.blame_commits_for_nodes = Mock(return_value=blame_results)
-            mock_github.fetch_commit_patch = Mock(return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch fetching
-            mock_github.extract_relevant_patch = Mock(return_value="@@ -1,1 +1,1 @@\n-old line\n+new line")  # Add mock for patch extraction
+            mock_github.fetch_commit_patch = Mock(
+                return_value="diff --git a/test.py b/test.py\n--- a/test.py\n+++ b/test.py\n@@ -1,1 +1,1 @@\n-old line\n+new line"
+            )  # Add mock for patch fetching
+            mock_github.extract_relevant_patch = Mock(
+                return_value="@@ -1,1 +1,1 @@\n-old line\n+new line"
+            )  # Add mock for patch extraction
             mock_github_class.return_value = mock_github
 
             creator = GitHubCreator(
@@ -492,18 +516,25 @@ class TestBlameBasedIntegration:
         assert result.total_commits == 2
 
         # Verify in database
-        pr_count = await neo4j_instance.execute_cypher("""
+        pr_count = await test_data_isolation["container"].execute_cypher(
+            """
             MATCH (pr:INTEGRATION {source_type: 'pull_request', external_id: '100'})
+            WHERE pr.entityId = $entity_id AND pr.repoId = $repo_id
             RETURN count(pr) as count
-        """)
+        """,
+            {"entity_id": test_data_isolation["entity_id"], "repo_id": test_data_isolation["repo_id"]},
+        )
         assert pr_count[0]["count"] == 1, "Should have exactly one PR node"
 
         # Check PR → Commit relationships
-        pr_commit_rels = await neo4j_instance.execute_cypher("""
+        pr_commit_rels = await test_data_isolation["container"].execute_cypher(
+            """
             MATCH (pr:INTEGRATION {external_id: '100'})-[r:INTEGRATION_SEQUENCE]->(c:INTEGRATION)
-            WHERE c.source_type = 'commit'
+            WHERE c.source_type = 'commit' AND pr.entityId = $entity_id AND pr.repoId = $repo_id
             RETURN count(r) as count
-        """)
+        """,
+            {"entity_id": test_data_isolation["entity_id"], "repo_id": test_data_isolation["repo_id"]},
+        )
         assert pr_commit_rels[0]["count"] == 2, "PR should be linked to both commits"
 
         db_manager.close()

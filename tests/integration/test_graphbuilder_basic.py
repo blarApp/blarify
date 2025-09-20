@@ -12,7 +12,7 @@ from typing import Any
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
-from neo4j_container_manager.types import Neo4jContainerInstance
+from typing import Dict
 from tests.utils.graph_assertions import GraphAssertions
 
 
@@ -24,7 +24,7 @@ class TestGraphBuilderBasic:
     async def test_graphbuilder_creates_nodes_python_simple(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -46,11 +46,13 @@ class TestGraphBuilderBasic:
         assert isinstance(graph, Graph)
         assert graph is not None
 
-        # Save graph to Neo4j for validation
+        # Save graph to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -72,7 +74,7 @@ class TestGraphBuilderBasic:
     async def test_graphbuilder_hierarchy_only_mode(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -92,11 +94,13 @@ class TestGraphBuilderBasic:
         assert isinstance(graph, Graph)
         assert graph is not None
 
-        # Save graph to Neo4j for validation
+        # Save graph to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -108,7 +112,7 @@ class TestGraphBuilderBasic:
     async def test_graphbuilder_with_file_filtering(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -125,11 +129,13 @@ class TestGraphBuilderBasic:
         # Build the graph
         graph = builder.build()
 
-        # Save graph to Neo4j for validation
+        # Save graph to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -159,7 +165,7 @@ class TestGraphBuilderBasic:
     async def test_graphbuilder_creates_relationships(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -169,11 +175,13 @@ class TestGraphBuilderBasic:
         builder = GraphBuilder(root_path=str(python_examples_path))
         graph = builder.build()
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -192,7 +200,7 @@ class TestGraphBuilderBasic:
     async def test_graphbuilder_empty_directory(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -206,16 +214,22 @@ class TestGraphBuilderBasic:
         # Should still create a valid Graph object
         assert isinstance(graph, Graph)
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
-        # Should have minimal or no nodes
-        total_nodes = await graph_assertions.neo4j_instance.execute_cypher("MATCH (n) RETURN count(n) as count")
+        # Should have minimal or no nodes for this test's IDs
+        container = test_data_isolation["container"]
+        total_nodes = await container.execute_cypher(
+            "MATCH (n) WHERE (n.entityId = $eid OR n.entity_id = $eid) AND (n.repoId = $rid OR n.repo_id = $rid) RETURN count(n) as count",
+            {"eid": test_data_isolation["entity_id"], "rid": test_data_isolation["repo_id"]}
+        )
         node_count = total_nodes[0]["count"]
 
         # Empty directory should result in very few nodes
@@ -226,7 +240,7 @@ class TestGraphBuilderBasic:
     async def test_graphbuilder_debug_graph_summary(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -236,11 +250,13 @@ class TestGraphBuilderBasic:
         builder = GraphBuilder(root_path=str(python_examples_path))
         graph = builder.build()
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 

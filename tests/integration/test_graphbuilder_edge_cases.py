@@ -7,12 +7,11 @@ error conditions, and boundary cases.
 
 import pytest
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 
 
@@ -40,7 +39,7 @@ class TestGraphBuilderEdgeCases:
     async def test_graphbuilder_empty_file(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -59,11 +58,13 @@ class TestGraphBuilderEdgeCases:
         # Should create valid graph even with empty files
         assert isinstance(graph, Graph)
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -84,7 +85,7 @@ class TestGraphBuilderEdgeCases:
     async def test_graphbuilder_invalid_syntax_files(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -124,11 +125,13 @@ function brokenFunction() {
             graph = builder.build()
             assert isinstance(graph, Graph)
 
-            # Save to Neo4j if successful
+            # Save to Neo4j if successful with isolated IDs
             db_manager = Neo4jManager(
-                uri=neo4j_instance.uri,
+                uri=test_data_isolation["uri"],
                 user="neo4j",
-                password="test-password",
+                password=test_data_isolation["password"],
+                repo_id=test_data_isolation["repo_id"],
+                entity_id=test_data_isolation["entity_id"],
             )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -144,7 +147,7 @@ function brokenFunction() {
     async def test_graphbuilder_very_large_files(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -187,11 +190,13 @@ class LargeClass:
 
         assert isinstance(graph, Graph)
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -212,7 +217,7 @@ class LargeClass:
     async def test_graphbuilder_special_characters_in_paths(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -246,11 +251,13 @@ def unicode_function():
             graph = builder.build()
             assert isinstance(graph, Graph)
 
-            # Save to Neo4j
+            # Save to Neo4j with isolated IDs
             db_manager = Neo4jManager(
-                uri=neo4j_instance.uri,
+                uri=test_data_isolation["uri"],
                 user="neo4j",
-                password="test-password",
+                password=test_data_isolation["password"],
+                repo_id=test_data_isolation["repo_id"],
+                entity_id=test_data_isolation["entity_id"],
             )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -272,7 +279,7 @@ def unicode_function():
     async def test_graphbuilder_deeply_nested_directory(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -296,11 +303,13 @@ def deeply_nested_function():
 
         assert isinstance(graph, Graph)
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -319,7 +328,7 @@ def deeply_nested_function():
     async def test_graphbuilder_mixed_valid_invalid_files(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -360,11 +369,13 @@ class NoColon
             graph = builder.build()
             assert isinstance(graph, Graph)
 
-            # Save to Neo4j
+            # Save to Neo4j with isolated IDs
             db_manager = Neo4jManager(
-                uri=neo4j_instance.uri,
+                uri=test_data_isolation["uri"],
                 user="neo4j",
-                password="test-password",
+                password=test_data_isolation["password"],
+                repo_id=test_data_isolation["repo_id"],
+                entity_id=test_data_isolation["entity_id"],
             )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 

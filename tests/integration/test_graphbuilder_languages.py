@@ -12,7 +12,6 @@ from typing import Dict, Any
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph import Graph
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 
 
@@ -25,7 +24,7 @@ class TestGraphBuilderLanguages:
     async def test_graphbuilder_language_support(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
         language: str,
@@ -47,11 +46,13 @@ class TestGraphBuilderLanguages:
         assert isinstance(graph, Graph)
         assert graph is not None
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -85,7 +86,7 @@ class TestGraphBuilderLanguages:
     async def test_graphbuilder_python_specifics(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -95,11 +96,13 @@ class TestGraphBuilderLanguages:
         builder = GraphBuilder(root_path=str(python_path))
         graph = builder.build()
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -124,7 +127,7 @@ class TestGraphBuilderLanguages:
     async def test_graphbuilder_typescript_specifics(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -134,11 +137,13 @@ class TestGraphBuilderLanguages:
         builder = GraphBuilder(root_path=str(typescript_path))
         graph = builder.build()
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -157,7 +162,7 @@ class TestGraphBuilderLanguages:
     async def test_graphbuilder_ruby_specifics(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -167,11 +172,13 @@ class TestGraphBuilderLanguages:
         builder = GraphBuilder(root_path=str(ruby_path))
         graph = builder.build()
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -190,7 +197,7 @@ class TestGraphBuilderLanguages:
     async def test_graphbuilder_mixed_languages(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -199,11 +206,13 @@ class TestGraphBuilderLanguages:
         builder = GraphBuilder(root_path=str(test_code_examples_path))
         graph = builder.build()
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -233,7 +242,7 @@ class TestGraphBuilderLanguages:
     async def test_graphbuilder_inheritance_relationships(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -244,11 +253,13 @@ class TestGraphBuilderLanguages:
         builder = GraphBuilder(root_path=str(python_path))
         graph = builder.build()
 
-        # Save to Neo4j
+        # Save to Neo4j with isolated IDs
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
         )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
@@ -269,7 +280,7 @@ class TestGraphBuilderLanguages:
     async def test_graphbuilder_language_comparison(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -283,23 +294,32 @@ class TestGraphBuilderLanguages:
             builder = GraphBuilder(root_path=str(language_path))
             graph = builder.build()
 
-            # Save to fresh Neo4j instance
-            await neo4j_instance.clear_data()
+            # Save to fresh Neo4j instance with isolated IDs
+            # Note: We'll use a different repo_id for each language within the same test
+            language_repo_id = f"{test_data_isolation['repo_id']}_{language}"
+            
             db_manager = Neo4jManager(
-                uri=neo4j_instance.uri,
+                uri=test_data_isolation["uri"],
                 user="neo4j",
-                password="test-password",
+                password=test_data_isolation["password"],
+                repo_id=language_repo_id,
+                entity_id=test_data_isolation["entity_id"],
             )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
+            # Create a custom graph_assertions for this specific language data
+            custom_assertions = GraphAssertions(test_data_isolation["container"])
+            custom_assertions.entity_id = test_data_isolation["entity_id"]
+            custom_assertions.repo_id = language_repo_id
+
             # Collect metrics
-            summary = await graph_assertions.debug_print_graph_summary()
+            summary = await custom_assertions.debug_print_graph_summary()
 
             results[language] = {
                 "total_nodes": summary["total_nodes"],
                 "total_relationships": summary["total_relationships"],
-                "node_labels": await graph_assertions.get_node_labels(),
-                "relationship_types": await graph_assertions.get_relationship_types(),
+                "node_labels": await custom_assertions.get_node_labels(),
+                "relationship_types": await custom_assertions.get_relationship_types(),
             }
 
             db_manager.close()

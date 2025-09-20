@@ -14,7 +14,6 @@ from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.documentation.workflow_creator import WorkflowCreator
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.graph.graph_environment import GraphEnvironment
-from neo4j_container_manager.types import Neo4jContainerInstance
 from tests.utils.graph_assertions import GraphAssertions
 
 
@@ -26,7 +25,7 @@ class TestWorkflowCreatorIntegration:
     async def test_belongs_to_workflow_relationships_created(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -51,11 +50,11 @@ class TestWorkflowCreatorIntegration:
 
         # Step 2: Save graph to Neo4j
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            password=test_data_isolation["password"],
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -72,7 +71,7 @@ class TestWorkflowCreatorIntegration:
         MATCH (f:FUNCTION {name: 'main'})
         RETURN f.node_id as id
         """
-        main_results = await neo4j_instance.execute_cypher(main_query)
+        main_results = await test_data_isolation["container"].execute_cypher(main_query)
         assert len(main_results) > 0, "No 'main' function found in graph"
 
         main_id = main_results[0]["id"]
@@ -95,7 +94,7 @@ class TestWorkflowCreatorIntegration:
         WHERE w.entry_point_name CONTAINS 'main'
         RETURN w.node_id as workflow_id, w.entry_point_name as name
         """
-        workflow_results = await neo4j_instance.execute_cypher(workflow_query)
+        workflow_results = await test_data_isolation["container"].execute_cypher(workflow_query)
         assert len(workflow_results) > 0, "No workflow node found"
 
         workflow_id = workflow_results[0]["workflow_id"]
@@ -108,7 +107,7 @@ class TestWorkflowCreatorIntegration:
         RETURN n.name as participant_name, labels(n) as labels
         ORDER BY n.name
         """
-        participants = await neo4j_instance.execute_cypher(participant_query, {"workflow_id": workflow_id})
+        participants = await test_data_isolation["container"].execute_cypher(participant_query, {"workflow_id": workflow_id})
 
         # Extract participant names
         participant_names = [p["participant_name"] for p in participants]
@@ -128,13 +127,13 @@ class TestWorkflowCreatorIntegration:
         WHERE rel_count > 1
         RETURN n.name as node_name, rel_count
         """
-        duplicates = await neo4j_instance.execute_cypher(duplicate_query, {"workflow_id": workflow_id})
+        duplicates = await test_data_isolation["container"].execute_cypher(duplicate_query, {"workflow_id": workflow_id})
         assert len(duplicates) == 0, f"Found duplicate BELONGS_TO_WORKFLOW relationships: {duplicates}"
 
     async def test_multiple_workflows_with_shared_nodes(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -158,11 +157,11 @@ class TestWorkflowCreatorIntegration:
         assert graph is not None
 
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            password=test_data_isolation["password"],
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -190,7 +189,7 @@ class TestWorkflowCreatorIntegration:
         RETURN service_name, workflows, size(workflows) as workflow_count
         ORDER BY service_name
         """
-        shared_results = await neo4j_instance.execute_cypher(shared_service_query)
+        shared_results = await test_data_isolation["container"].execute_cypher(shared_service_query)
 
         # Both validate_data and format_response should be in multiple workflows
         for result in shared_results:
@@ -204,7 +203,7 @@ class TestWorkflowCreatorIntegration:
     async def test_cyclic_workflow_relationships(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -228,11 +227,11 @@ class TestWorkflowCreatorIntegration:
         assert graph is not None
 
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            password=test_data_isolation["password"],
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -247,7 +246,7 @@ class TestWorkflowCreatorIntegration:
         WHERE f.name IN ['factorial', 'is_even']
         RETURN f.node_id as id
         """
-        entry_results = await neo4j_instance.execute_cypher(entry_query)
+        entry_results = await test_data_isolation["container"].execute_cypher(entry_query)
         assert len(entry_results) > 0, "No recursive functions found in graph"
 
         entry_ids = [r["id"] for r in entry_results]
@@ -267,7 +266,7 @@ class TestWorkflowCreatorIntegration:
             MATCH (f:FUNCTION {name: 'factorial'})-[r:BELONGS_TO_WORKFLOW]->(w:WORKFLOW)
             RETURN count(r) as rel_count, w.entry_point_name as workflow_name
             """
-            factorial_results = await neo4j_instance.execute_cypher(factorial_query)
+            factorial_results = await test_data_isolation["container"].execute_cypher(factorial_query)
 
             if factorial_results:
                 for result in factorial_results:
@@ -284,7 +283,7 @@ class TestWorkflowCreatorIntegration:
             WHERE size(functions) = 2
             RETURN w.entry_point_name as workflow_name, functions
             """
-            mutual_results = await neo4j_instance.execute_cypher(mutual_query)
+            mutual_results = await test_data_isolation["container"].execute_cypher(mutual_query)
 
             # If mutual recursion workflow exists, both functions should belong to it
             if mutual_results:
@@ -300,13 +299,13 @@ class TestWorkflowCreatorIntegration:
             WHERE f.name IN ['factorial', 'is_even', 'is_odd']
             RETURN count(f) as func_count
             """
-            func_result = await neo4j_instance.execute_cypher(function_check)
+            func_result = await test_data_isolation["container"].execute_cypher(function_check)
             assert func_result[0]["func_count"] >= 2, "Recursive functions not found in graph"
 
     async def test_empty_workflow_no_relationships(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         temp_project_dir: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -339,11 +338,11 @@ def main():
         assert graph is not None
 
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            password=test_data_isolation["password"],
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -363,7 +362,7 @@ def main():
         MATCH (w:WORKFLOW)
         RETURN w.entry_point_name as name, w.total_execution_steps as steps
         """
-        workflows = await neo4j_instance.execute_cypher(workflow_query)
+        workflows = await test_data_isolation["container"].execute_cypher(workflow_query)
 
         # For empty workflows, we should either:
         # 1. Not create a workflow node at all, OR
@@ -377,7 +376,7 @@ def main():
                 WHERE w.entry_point_name = $workflow_name
                 RETURN count(n) as connected_nodes
                 """
-                results = await neo4j_instance.execute_cypher(relationship_query, {"workflow_name": workflow["name"]})
+                results = await test_data_isolation["container"].execute_cypher(relationship_query, {"workflow_name": workflow["name"]})
 
                 if results:
                     # Only the entry point itself should be connected
@@ -389,7 +388,7 @@ def main():
     async def test_workflow_relationships_with_targeted_node_path(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -412,11 +411,11 @@ def main():
         assert graph is not None
 
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            password=test_data_isolation["password"],
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -430,7 +429,7 @@ def main():
         MATCH (f:FUNCTION {name: 'main'})
         RETURN f.node_id as id
         """
-        main_results = await neo4j_instance.execute_cypher(main_query)
+        main_results = await test_data_isolation["container"].execute_cypher(main_query)
         assert len(main_results) > 0, "No 'main' function found"
 
         main_id = main_results[0]["id"]
@@ -450,7 +449,7 @@ def main():
         WHERE w.source_type = 'code_workflow_discovery'
         RETURN w.node_id as workflow_id, w.entry_point_name as entry_name
         """
-        workflows = await neo4j_instance.execute_cypher(workflow_query)
+        workflows = await test_data_isolation["container"].execute_cypher(workflow_query)
         assert len(workflows) > 0, "No workflow nodes found after targeted discovery"
 
         # Check that nodes in the path to utils.py have BELONGS_TO_WORKFLOW relationships
@@ -461,7 +460,7 @@ def main():
             RETURN n.name as name
             ORDER BY n.name
             """
-            participants = await neo4j_instance.execute_cypher(
+            participants = await test_data_isolation["container"].execute_cypher(
                 participant_query, {"workflow_id": workflow["workflow_id"]}
             )
 
@@ -475,7 +474,7 @@ def main():
     async def test_workflow_relationships_persistence(
         self,
         docker_check: Any,
-        neo4j_instance: Neo4jContainerInstance,
+        test_data_isolation: Dict[str, Any],
         test_code_examples_path: Path,
         graph_assertions: GraphAssertions,
     ) -> None:
@@ -496,11 +495,11 @@ def main():
 
         graph = builder.build()
         db_manager = Neo4jManager(
-            uri=neo4j_instance.uri,
+            uri=test_data_isolation["uri"],
             user="neo4j",
-            password="test-password",
-            entity_id="test-entity",
-            repo_id="test-repo",
+            password=test_data_isolation["password"],
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
         )
 
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
@@ -514,7 +513,7 @@ def main():
         MATCH (f:FUNCTION {name: 'main'})
         RETURN f.node_id as id
         """
-        main_results = await neo4j_instance.execute_cypher(main_query)
+        main_results = await test_data_isolation["container"].execute_cypher(main_query)
         assert len(main_results) > 0, "No 'main' function found"
 
         main_id = main_results[0]["id"]
@@ -532,7 +531,7 @@ def main():
         MATCH ()-[r:BELONGS_TO_WORKFLOW]->()
         RETURN count(r) as total_relationships
         """
-        result = await neo4j_instance.execute_cypher(relationship_query)
+        result = await test_data_isolation["container"].execute_cypher(relationship_query)
         total_relationships = result[0]["total_relationships"]
 
         assert total_relationships > 0, "No BELONGS_TO_WORKFLOW relationships found in database"
@@ -543,7 +542,7 @@ def main():
         RETURN type(r) as rel_type, r.scopeText as scope_text
         LIMIT 1
         """
-        prop_result = await neo4j_instance.execute_cypher(property_query)
+        prop_result = await test_data_isolation["container"].execute_cypher(property_query)
 
         if prop_result:
             assert prop_result[0]["rel_type"] == "BELONGS_TO_WORKFLOW", (

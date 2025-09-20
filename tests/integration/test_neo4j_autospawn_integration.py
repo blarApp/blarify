@@ -4,6 +4,7 @@
 import asyncio
 from argparse import Namespace
 from pathlib import Path
+from typing import Any, Generator
 
 import pytest
 
@@ -12,7 +13,11 @@ from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
 
 @pytest.mark.neo4j_integration
-def test_full_autospawn_workflow(docker_check, temp_project_dir, cleanup_blarify_neo4j):
+def test_full_autospawn_workflow(
+    docker_check: Any,
+    temp_project_dir: Path,
+    cleanup_blarify_neo4j: Generator[None, None, None],
+) -> None:
     """Test complete workflow with auto-spawned Neo4j container."""
     # Create test file
     test_file = temp_project_dir / "test.py"
@@ -52,7 +57,10 @@ def test_full_autospawn_workflow(docker_check, temp_project_dir, cleanup_blarify
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_indexes_created_automatically(docker_check, cleanup_blarify_neo4j):
+async def test_indexes_created_automatically(
+    docker_check: Any,
+    cleanup_blarify_neo4j: Generator[None, None, None],
+) -> None:
     """Test that ALL required indexes are created in auto-spawned container."""
     # Spawn a new container
     instance = await create.spawn_or_get_neo4j_container()
@@ -74,10 +82,10 @@ async def test_indexes_created_automatically(docker_check, cleanup_blarify_neo4j
 
     # Query to check indexes exist
     result = db_manager.query("SHOW INDEXES")
-    index_names = [r.get("name", "") for r in result if r.get("name")]
+    index_names: list[str] = [r.get("name", "") for r in result if r.get("name")]
 
     # Define required indexes
-    required_indexes = [
+    required_indexes: list[str] = [
         "functionNames",  # Fulltext index
         "node_text_index",  # Text index
         "node_id_NODE",  # Node ID index
@@ -86,14 +94,14 @@ async def test_indexes_created_automatically(docker_check, cleanup_blarify_neo4j
     ]
 
     # Check each required index exists
-    missing_indexes = []
+    missing_indexes: list[str] = []
     for required_index in required_indexes:
         if not any(required_index in name for name in index_names):
             missing_indexes.append(required_index)
 
     # Also check for constraint
     constraints_result = db_manager.query("SHOW CONSTRAINTS")
-    constraint_names = [r.get("name", "") for r in constraints_result if r.get("name")]
+    constraint_names: list[str] = [r.get("name", "") for r in constraints_result if r.get("name")]
 
     # Check unique constraint exists
     if not any("user_node_unique" in name for name in constraint_names):
@@ -109,7 +117,10 @@ async def test_indexes_created_automatically(docker_check, cleanup_blarify_neo4j
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_container_persists_and_is_reused(docker_check, cleanup_blarify_neo4j):
+async def test_container_persists_and_is_reused(
+    docker_check: Any,
+    cleanup_blarify_neo4j: Generator[None, None, None],
+) -> None:
     """Test that container remains running after command exits and is reused."""
     # First, spawn a new container
     instance1 = await create.spawn_or_get_neo4j_container()
@@ -135,7 +146,7 @@ async def test_container_persists_and_is_reused(docker_check, cleanup_blarify_ne
     assert await instance2.is_running()
 
 
-def test_credentials_are_persisted(tmp_path: Path, monkeypatch):
+def test_credentials_are_persisted(tmp_path: Path, monkeypatch: Any) -> None:
     """Test that credentials are saved and reused."""
     # Mock home directory
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -155,7 +166,7 @@ def test_credentials_are_persisted(tmp_path: Path, monkeypatch):
     assert oct(creds_file.stat().st_mode)[-3:] == "600"
 
 
-def test_manual_neo4j_config_prevents_spawn():
+def test_manual_neo4j_config_prevents_spawn() -> None:
     """Test that providing Neo4j config prevents container spawn."""
     args = Namespace(
         neo4j_uri="bolt://localhost:7687",
@@ -167,7 +178,7 @@ def test_manual_neo4j_config_prevents_spawn():
     assert not create.should_spawn_neo4j(args)
 
 
-def test_partial_neo4j_config_triggers_spawn():
+def test_partial_neo4j_config_triggers_spawn() -> None:
     """Test that partial Neo4j config still triggers container spawn."""
     # Only URI provided
     args1 = Namespace(

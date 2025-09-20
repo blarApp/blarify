@@ -29,18 +29,9 @@ class DocumentationResult(BaseModel):
     source_nodes: List[NodeWithContentDto] = Field(default_factory=list)
     """List of source code DTOs"""
 
-    semantic_relationships: List[Dict[str, Any]] = Field(default_factory=list)
-    """Semantic relationships between nodes"""
-
-    code_references: List[Dict[str, Any]] = Field(default_factory=list)
-    """Precise code location mappings"""
-
     # Analysis metadata
     analyzed_nodes: List[Dict[str, Any]] = Field(default_factory=list)
     """Analyzed code components"""
-
-    repo_structure: Dict[str, Any] = Field(default_factory=dict)
-    """Repository structure information"""
 
     # Processing statistics
     total_nodes_processed: int = 0

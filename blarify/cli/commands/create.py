@@ -222,24 +222,31 @@ def add_arguments(parser: ArgumentParser) -> None:
         parser: ArgumentParser to add arguments to
     """
     # Required arguments
-    parser.add_argument("path", help="Path to the repository to analyze")
     parser.add_argument("--entity-id", required=True, help="Entity identifier (e.g., company or organization name)")
 
     # Optional arguments
     parser.add_argument("--repo-id", help="Repository identifier (defaults to the repository path)")
-    parser.add_argument(
-        "--docs", action="store_true", help="Generate documentation using LLM (requires OPENAI_API_KEY)"
-    )
+    parser.add_argument("--docs", action="store_true", help="Generate documentation using LLM (requires API key)")
     parser.add_argument("--workflows", action="store_true", help="Discover and generate workflows")
+
+    # LLM configuration (optional - for documentation generation)
+    parser.add_argument(
+        "--openai-api-key", help="OpenAI API key for documentation generation (overrides environment keys)"
+    )
+    parser.add_argument(
+        "--llm-provider",
+        choices=["openai", "anthropic", "google"],
+        default="openai",
+        help="LLM provider to use for documentation generation",
+    )
 
     # Neo4j configuration (optional - will auto-spawn container if not provided)
     parser.add_argument(
         "--neo4j-uri",
-        default=os.getenv("NEO4J_URI", ""),
         help="Neo4j database URI (auto-spawns container if not provided)",
     )
-    parser.add_argument("--neo4j-username", default=os.getenv("NEO4J_USERNAME", ""), help="Neo4j username")
-    parser.add_argument("--neo4j-password", default=os.getenv("NEO4J_PASSWORD", ""), help="Neo4j password")
+    parser.add_argument("--neo4j-username", help="Neo4j username")
+    parser.add_argument("--neo4j-password", help="Neo4j password")
 
     # Graph building options
     parser.add_argument(
@@ -273,23 +280,56 @@ def execute(args: Namespace) -> int:
     """
     console = Console()
 
+    # Use current working directory as the repository path
+    repo_path = os.getcwd()
+
     # Validate repository path
-    if not os.path.exists(args.path):
-        console.print(f"[red]Error:[/red] Repository path does not exist: {args.path}")
+    if not os.path.exists(repo_path):
+        console.print(f"[red]Error:[/red] Repository path does not exist: {repo_path}")
         return 1
 
-    if not os.path.isdir(args.path):
-        console.print(f"[red]Error:[/red] Path is not a directory: {args.path}")
+    if not os.path.isdir(repo_path):
+        console.print(f"[red]Error:[/red] Path is not a directory: {repo_path}")
         return 1
 
     # Use path as repo_id if not specified
-    repo_id = args.repo_id or os.path.abspath(args.path)
+    repo_id = args.repo_id or os.path.abspath(repo_path)
 
     # Check for API key if documentation is requested
-    if args.docs and not os.getenv("OPENAI_API_KEY"):
-        console.print("[red]Error:[/red] OPENAI_API_KEY environment variable is required for documentation generation")
-        console.print("Please set it with: export OPENAI_API_KEY=your-api-key")
-        return 1
+    api_key = None
+    if args.docs:
+        # Priority: CLI argument > Environment variable(s)
+        api_key = getattr(args, "openai_api_key", None)
+
+        # If no CLI argument provided, check if any OpenAI keys exist in environment
+        if not api_key:
+            from blarify.agents.utils import discover_keys_for_provider
+
+            discovered_keys = discover_keys_for_provider("openai")
+
+            if not discovered_keys:
+                console.print("[red]Error:[/red] OpenAI API key is required for documentation generation")
+                console.print("You can provide it in one of these ways:")
+                console.print("  1. [bold]Single key (env var):[/bold] export OPENAI_API_KEY=your-api-key")
+                console.print("  2. [bold]Multiple keys for rotation:[/bold]")
+                console.print("     export OPENAI_API_KEY=your-first-key")
+                console.print("     export OPENAI_API_KEY_1=your-second-key")
+                console.print("     export OPENAI_API_KEY_2=your-third-key")
+                console.print("  3. [bold]CLI argument:[/bold] --openai-api-key your-api-key")
+                console.print("  4. [bold]Set it now:[/bold]", end=" ")
+
+                # Optional: Interactive prompt as fallback
+                try:
+                    import getpass
+
+                    api_key = getpass.getpass("Enter your OpenAI API key: ").strip()
+                    if not api_key:
+                        return 1
+                except (KeyboardInterrupt, EOFError):
+                    console.print("\n[yellow]Documentation generation cancelled.[/yellow]")
+                    return 1
+            else:
+                console.print(f"[green]✓[/green] Found {len(discovered_keys)} OpenAI API key(s) for rotation")
 
     # Check if we need to spawn Neo4j container
     if should_spawn_neo4j(args):
@@ -305,12 +345,13 @@ def execute(args: Namespace) -> int:
                     # We're in an async context (like pytest-asyncio)
                     # Create a new event loop in a thread
                     import concurrent.futures
+
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(asyncio.run, spawn_or_get_neo4j_container())
                         container_instance = future.result()
                 else:
                     raise
-            
+
             args.neo4j_uri = container_instance.uri
             args.neo4j_username = container_instance.config.username
             args.neo4j_password = container_instance.config.password
@@ -336,7 +377,7 @@ def execute(args: Namespace) -> int:
 
     # Start building process
     console.print("\n[bold blue]Blarify Graph Builder[/bold blue]")
-    console.print(f"Repository: [green]{args.path}[/green]")
+    console.print(f"Repository: [green]{repo_path}[/green]")
     console.print(f"Entity ID: [cyan]{args.entity_id}[/cyan]")
     console.print(f"Repo ID: [cyan]{repo_id}[/cyan]\n")
 
@@ -356,11 +397,11 @@ def execute(args: Namespace) -> int:
             graph_environment = GraphEnvironment(
                 environment=args.entity_id,  # environment parameter name
                 diff_identifier="0",  # diff_identifier parameter name
-                root_path=args.path,
+                root_path=repo_path,
             )
 
             builder = GraphBuilder(
-                root_path=args.path,
+                root_path=repo_path,
                 only_hierarchy=args.only_hierarchy,
                 extensions_to_skip=args.extensions_to_skip,
                 names_to_skip=args.names_to_skip,
@@ -384,7 +425,19 @@ def execute(args: Namespace) -> int:
             if args.docs:
                 progress.update(task, description="Generating documentation...")
 
+                # Temporarily set CLI-provided API key if specified (doesn't interfere with rotation)
+                original_api_key = os.environ.get("OPENAI_API_KEY")
+                temp_key_set = False
+
                 try:
+                    # If user provided a key via CLI, temporarily set it (this becomes the first key to try)
+                    if hasattr(args, "openai_api_key") and args.openai_api_key:
+                        os.environ["OPENAI_API_KEY"] = args.openai_api_key
+                        temp_key_set = True
+                    elif api_key:  # From interactive prompt
+                        os.environ["OPENAI_API_KEY"] = api_key
+                        temp_key_set = True
+
                     llm_provider = LLMProvider()
                     doc_creator = DocumentationCreator(
                         db_manager=db_manager,
@@ -393,7 +446,7 @@ def execute(args: Namespace) -> int:
                         max_workers=args.max_workers,
                     )
 
-                    doc_result = doc_creator.create_documentation(save_to_database=True)
+                    doc_result = doc_creator.create_documentation()
 
                     if doc_result.error:
                         console.print(
@@ -406,6 +459,14 @@ def execute(args: Namespace) -> int:
 
                 except Exception as e:
                     console.print(f"[yellow]Warning:[/yellow] Documentation generation failed: {e}")
+
+                finally:
+                    # Restore original environment variable state (preserve rotation system)
+                    if temp_key_set:
+                        if original_api_key is not None:
+                            os.environ["OPENAI_API_KEY"] = original_api_key
+                        else:
+                            os.environ.pop("OPENAI_API_KEY", None)
 
             # Phase 4: Generate workflows if requested
             if args.workflows:

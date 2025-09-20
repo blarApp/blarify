@@ -12,24 +12,38 @@ from neo4j_container_manager.types import Neo4jContainerInstance
 class GraphAssertions:
     """Utility class for making assertions about graph structure in Neo4j."""
 
-    def __init__(self, neo4j_instance: Neo4jContainerInstance):
-        """Initialize with a Neo4j container instance."""
+    def __init__(
+        self,
+        neo4j_instance: Neo4jContainerInstance,
+        entity_id: Optional[str] = None,
+        repo_id: Optional[str] = None,
+    ):
+        """Initialize with a Neo4j container instance and optional isolation IDs."""
         self.neo4j_instance = neo4j_instance
+        self.entity_id = entity_id
+        self.repo_id = repo_id
 
     async def assert_node_exists(self, label: str, properties: Optional[Dict[str, Any]] = None) -> None:
         """Assert that a node with given label and properties exists."""
         query = f"MATCH (n:{label})"
 
+        where_clauses = []
+        
+        # Add isolation filters if provided
+        if self.entity_id:
+            where_clauses.append(f"(n.entityId = '{self.entity_id}' OR n.entity_id = '{self.entity_id}')")
+        if self.repo_id:
+            where_clauses.append(f"(n.repoId = '{self.repo_id}' OR n.repo_id = '{self.repo_id}')")
+        
         if properties:
-            where_clauses = []
             for key, value in properties.items():
                 if isinstance(value, str):
                     where_clauses.append(f"n.{key} = '{value}'")
                 else:
                     where_clauses.append(f"n.{key} = {value}")
 
-            if where_clauses:
-                query += " WHERE " + " AND ".join(where_clauses)
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
 
         query += " RETURN count(n) as count"
 
@@ -44,16 +58,23 @@ class GraphAssertions:
         """Assert that exactly the expected number of nodes exist."""
         query = f"MATCH (n:{label})"
 
+        where_clauses = []
+        
+        # Add isolation filters if provided
+        if self.entity_id:
+            where_clauses.append(f"(n.entityId = '{self.entity_id}' OR n.entity_id = '{self.entity_id}')")
+        if self.repo_id:
+            where_clauses.append(f"(n.repoId = '{self.repo_id}' OR n.repo_id = '{self.repo_id}')")
+        
         if properties:
-            where_clauses = []
             for key, value in properties.items():
                 if isinstance(value, str):
                     where_clauses.append(f"n.{key} = '{value}'")
                 else:
                     where_clauses.append(f"n.{key} = {value}")
 
-            if where_clauses:
-                query += " WHERE " + " AND ".join(where_clauses)
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
 
         query += " RETURN count(n) as count"
 
@@ -305,6 +326,10 @@ class GraphAssertions:
 
 
 # Convenience function for creating assertions
-def create_graph_assertions(neo4j_instance: Neo4jContainerInstance) -> GraphAssertions:
+def create_graph_assertions(
+    neo4j_instance: Neo4jContainerInstance,
+    entity_id: Optional[str] = None,
+    repo_id: Optional[str] = None,
+) -> GraphAssertions:
     """Create a GraphAssertions instance for the given Neo4j instance."""
-    return GraphAssertions(neo4j_instance)
+    return GraphAssertions(neo4j_instance, entity_id, repo_id)

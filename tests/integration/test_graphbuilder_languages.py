@@ -153,9 +153,35 @@ class TestGraphBuilderLanguages:
         # Get all node labels to see what was created
         node_labels = await graph_assertions.get_node_labels()
 
+        # Get all relationship types to verify what relationships exist
+        relationship_types = await graph_assertions.get_relationship_types()
+
         # Should have basic structural elements
         basic_labels = {"FILE"}
         assert basic_labels.issubset(node_labels), f"Missing basic labels. Got: {node_labels}"
+
+        # Print debug info about what was created
+        print(f"🔍 Node labels found: {sorted(node_labels)}")
+        print(f"🔍 Relationship types found: {sorted(relationship_types)}")
+
+        # Should have structural relationships
+        expected_relationships = {"CONTAINS"}  # Basic structural relationships
+        assert expected_relationships.issubset(relationship_types), (
+            f"Missing basic relationships. Got: {relationship_types}"
+        )
+
+        assert "CALLS" in relationship_types, "Expected CALL relationships in TypeScript code"
+        call_count_query = """
+        MATCH (n)-[r:CALLS]->(m)
+        WHERE (n.entityId = $entity_id OR n.entity_id = $entity_id)
+           OR (m.entityId = $entity_id OR m.entity_id = $entity_id)
+        RETURN count(r) as call_count
+        """
+        call_result = await graph_assertions.neo4j_instance.execute_cypher(
+            call_count_query, {"entity_id": graph_assertions.entity_id}
+        )
+        call_count = call_result[0]["call_count"] if call_result else 0
+        assert call_count == 22, "Expected exactly 22 CALL relationships in TypeScript code"
 
         db_manager.close()
 
@@ -297,7 +323,7 @@ class TestGraphBuilderLanguages:
             # Save to fresh Neo4j instance with isolated IDs
             # Note: We'll use a different repo_id for each language within the same test
             language_repo_id = f"{test_data_isolation['repo_id']}_{language}"
-            
+
             db_manager = Neo4jManager(
                 uri=test_data_isolation["uri"],
                 user="neo4j",

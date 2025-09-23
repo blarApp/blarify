@@ -152,10 +152,10 @@ def create_scip_index(project_root: str, project_name: str = "project", language
                 '--output', os.path.join(project_root, 'index.scip')
             ]
         elif language.lower() in ['typescript', 'javascript']:
+            # scip-typescript has simpler command structure - no --project-name support
             cmd = [
                 'scip-typescript', 'index',
-                '--project-name', project_name,
-                '--output', os.path.join(project_root, 'index.scip')
+                '--output', 'index.scip'  # Must be just filename, not full path
             ]
         else:
             logger.error(f"❌ Unsupported language: {language}")

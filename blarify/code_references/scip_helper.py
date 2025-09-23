@@ -242,13 +242,13 @@ class ScipReferenceResolver:
                     "--quiet",
                 ]
             elif self.language in ["typescript", "javascript"]:
+                # scip-typescript has a simpler command structure without --project-name or --environment
+                # It outputs to index.scip by default, so we need to handle output differently
                 cmd = [
                     "scip-typescript",
                     "index",
-                    "--project-name",
-                    project_name,
                     "--output",
-                    self.scip_index_path,
+                    os.path.basename(self.scip_index_path),  # Only filename, not full path
                 ]
             else:
                 logger.error(f"Unsupported language for SCIP indexing: {self.language}")
@@ -257,6 +257,13 @@ class ScipReferenceResolver:
             result = subprocess.run(cmd, cwd=self.root_path, capture_output=True, text=True, timeout=300)
 
             if result.returncode == 0:
+                # For TypeScript, we may need to move the file if it was created with a different name
+                if self.language in ["typescript", "javascript"]:
+                    actual_output = os.path.join(self.root_path, os.path.basename(self.scip_index_path))
+                    if actual_output != self.scip_index_path and os.path.exists(actual_output):
+                        import shutil
+                        shutil.move(actual_output, self.scip_index_path)
+                
                 logger.info(f"✅ Generated {self.language} SCIP index at {self.scip_index_path}")
                 return True
             else:

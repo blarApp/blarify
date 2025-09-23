@@ -1,8 +1,8 @@
 """Hybrid reference resolver that uses SCIP when available, falls back to LSP.
 
-SCIP resolver is only used for Python projects since scip-python is specifically
-designed for Python code analysis. For non-Python projects (TypeScript, JavaScript,
-etc.), the resolver automatically uses LSP instead of SCIP.
+SCIP resolver is used for Python and TypeScript projects since scip-python and 
+scip-typescript are available for these languages. For other programming languages 
+(Java, C#, Go, etc.), the resolver automatically uses LSP instead of SCIP.
 """
 
 import logging
@@ -29,8 +29,9 @@ class ResolverMode(Enum):
 class HybridReferenceResolver:
     """Hybrid resolver that uses SCIP for speed and LSP as fallback.
 
-    SCIP is only used for Python projects since scip-python is specifically designed
-    for Python code analysis. For non-Python projects, LSP resolver is used instead.
+    SCIP is used for Python and TypeScript projects since dedicated indexers
+    (scip-python and scip-typescript) are available for these languages. For other
+    programming languages, LSP resolver is used instead.
     """
 
     def __init__(
@@ -69,18 +70,26 @@ class HybridReferenceResolver:
 
     def _setup_resolvers(self):
         """Determine which resolvers to use based on mode and availability."""
-        # First check if this is a Python project - SCIP only works with Python
+        # Check project language to determine if SCIP is applicable
         from blarify.utils.project_detector import ProjectDetector
         from blarify.utils.path_calculator import PathCalculator
 
         root_path = PathCalculator.uri_to_path(self.root_uri)
-        is_python_project = ProjectDetector.is_python_project(root_path)
+        detected_language = ProjectDetector.get_primary_language(root_path)
 
-        if not is_python_project:
-            logger.info("🚫 Non-Python project detected - SCIP resolver disabled (scip-python only works with Python)")
+        # SCIP is only supported for Python and TypeScript projects
+        scip_supported_languages = {"python", "typescript"}
+        is_scip_supported = detected_language in scip_supported_languages
+
+        if not is_scip_supported:
+            logger.info(f"🚫 {detected_language or 'Unknown'} project detected - SCIP resolver disabled (only Python and TypeScript are supported)")
             self._use_scip = False
             self._use_lsp = True
             return
+
+        # Set the language for the SCIP resolver
+        self.scip_resolver.language = detected_language
+        logger.info(f"🔧 Detected {detected_language} project - SCIP resolver enabled")
 
         if self.mode == ResolverMode.SCIP_ONLY:
             self._use_scip = self._try_setup_scip()
@@ -101,7 +110,7 @@ class HybridReferenceResolver:
             self._use_lsp = not self._use_scip  # Use LSP only if SCIP fails
 
         logger.info(
-            f"🔧 Hybrid resolver mode: {self.mode.value} | Python project: {is_python_project} | SCIP: {self._use_scip} | LSP: {self._use_lsp}"
+            f"🔧 Hybrid resolver mode: {self.mode.value} | Language: {detected_language} | SCIP: {self._use_scip} | LSP: {self._use_lsp}"
         )
 
     def _try_setup_scip(self) -> bool:
@@ -184,17 +193,18 @@ class HybridReferenceResolver:
         from blarify.utils.path_calculator import PathCalculator
 
         root_path = PathCalculator.uri_to_path(self.root_uri)
-        is_python_project = ProjectDetector.is_python_project(root_path)
+        detected_language = ProjectDetector.get_primary_language(root_path)
 
         info = {
             "mode": self.mode.value,
-            "is_python_project": is_python_project,
+            "detected_language": detected_language,
             "scip_enabled": self._use_scip,
             "lsp_enabled": self._use_lsp,
         }
 
         if self._use_scip:
             info["scip_stats"] = self.scip_resolver.get_statistics()
+            info["scip_language"] = getattr(self.scip_resolver, 'language', 'unknown')
 
         return info
 

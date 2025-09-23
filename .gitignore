@@ -18,6 +18,7 @@ static/
 easy/
 gadugi/
 .worktree/
+index.scip
 
 
 !blarify/vendor/**/*.json

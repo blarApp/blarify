@@ -1,10 +1,10 @@
 """Configuration management for MCP Server."""
 
-import os
 from typing import Literal, Optional
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
+
+from blarify.cli.project_config import ProjectConfig
 
 
 class MCPServerConfig(BaseModel):
@@ -58,36 +58,34 @@ class MCPServerConfig(BaseModel):
         return v
     
     @classmethod
-    def from_env(cls) -> "MCPServerConfig":
-        """Load configuration from environment variables."""
-        load_dotenv()
-        
-        config_dict = {}
-        
-        # Map environment variables to config fields
-        env_mapping = {
-            "NEO4J_URI": "neo4j_uri",
-            "NEO4J_USERNAME": "neo4j_username",
-            "NEO4J_PASSWORD": "neo4j_password",
-            "ROOT_PATH": "root_path",
-            "ENTITY_ID": "entity_id",
-            "DB_TYPE": "db_type",
-            "FALKOR_HOST": "falkor_host",
-            "FALKOR_PORT": "falkor_port",
-        }
-        
-        for env_var, field_name in env_mapping.items():
-            value = os.getenv(env_var)
-            if value is not None:
-                # Convert port to int if present
-                if field_name == "falkor_port":
-                    try:
-                        value = int(value)
-                    except ValueError:
-                        pass
-                config_dict[field_name] = value
-        
-        return cls(**config_dict)
+    def from_project(cls, repo_id: Optional[str] = None) -> "MCPServerConfig":
+        """Load configuration from stored project and credentials.
+
+        Args:
+            repo_id: Repository path/id. If None, tries to auto-detect from CWD.
+
+        Returns:
+            MCPServerConfig instance
+
+        Raises:
+            FileNotFoundError: If no projects or credentials found
+            KeyError: If specified project not found
+        """
+        # Load project configuration
+        project = ProjectConfig.load_project_config(repo_id)
+
+        # Load Neo4j credentials
+        creds = ProjectConfig.load_neo4j_credentials()
+
+        # Create config from loaded data
+        return cls(
+            neo4j_uri=project["neo4j_uri"],
+            neo4j_username=creds["username"],
+            neo4j_password=creds["password"],
+            root_path=project["repo_id"],
+            entity_id=project["entity_id"],
+            db_type="neo4j"  # Currently only Neo4j is auto-configured
+        )
     
     def validate_for_db_type(self) -> None:
         """Validate configuration based on selected database type."""

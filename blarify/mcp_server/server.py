@@ -1,7 +1,6 @@
 """MCP Server implementation for Blarify tools."""
 
 import argparse
-import asyncio
 import logging
 import os
 import sys
@@ -115,7 +114,7 @@ class BlarifyMCPServer:
 
         logger.info(f"Registered tool: {wrapper.name}")
 
-    async def run(self) -> None:
+    def run(self) -> None:
         """Run the MCP server."""
         try:
             logger.info("Initializing Blarify MCP Server...")
@@ -126,7 +125,7 @@ class BlarifyMCPServer:
             logger.info(f"Loaded {len(self.tool_wrappers)} tools")
             logger.info(f"Database type: {self.config.db_type}")
 
-            # Run the FastMCP server
+            # Run the FastMCP server (it handles its own event loop)
             self.mcp.run()
 
         except Exception as e:
@@ -197,8 +196,8 @@ def main() -> None:
         # Create and run server
         server = BlarifyMCPServer(config)
 
-        # Run the async server
-        asyncio.run(server.run())
+        # Run the server (FastMCP handles its own event loop)
+        server.run()
 
     except FileNotFoundError as e:
         logger.error(str(e))

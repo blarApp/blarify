@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "blarify"
-version = "1.3.0"
+version = "1.3.5"
 description = "A simple graph builder based on LSP calls"
 authors = ["Juan Vargas <juan@blar.io>", "Benjamín Errazuriz <benjamin@blar.io>"]
 readme = "README.md"

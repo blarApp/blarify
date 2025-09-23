@@ -1,12 +1,15 @@
 """MCP Server implementation for Blarify tools."""
 
+import argparse
 import asyncio
 import logging
+import os
 import sys
 from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
 
+from blarify.cli.project_config import ProjectConfig
 from blarify.mcp_server.config import MCPServerConfig
 from blarify.mcp_server.tools import MCPToolWrapper
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
@@ -34,9 +37,9 @@ logger = logging.getLogger(__name__)
 class BlarifyMCPServer:
     """MCP Server for Blarify tools."""
 
-    def __init__(self, config: Optional[MCPServerConfig] = None) -> None:
+    def __init__(self, config: MCPServerConfig) -> None:
         """Initialize the MCP server."""
-        self.config = config or MCPServerConfig.from_env()
+        self.config = config
         self.config.validate_for_db_type()
 
         # Initialize FastMCP server
@@ -140,9 +143,56 @@ class BlarifyMCPServer:
 
 def main() -> None:
     """Main entry point for the MCP server."""
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Blarify MCP Server - Expose Blarify tools via Model Context Protocol"
+    )
+    parser.add_argument(
+        "--project",
+        help="Path to the project repository (defaults to auto-detect from current directory)",
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List all available projects",
+    )
+
+    args = parser.parse_args()
+
+    # Handle --list flag
+    if args.list:
+        try:
+            projects = ProjectConfig.list_projects()
+            if not projects:
+                print("No projects found. Run 'blarify create' first to set up a project.")
+            else:
+                print("\nAvailable projects:")
+                for i, project in enumerate(projects, 1):
+                    print(f"  {i}. {project['repo_id']}")
+                    print(f"     Entity: {project['entity_id']}")
+                    print(f"     Neo4j: {project['neo4j_uri']}")
+                    print(f"     Created: {project.get('created_at', 'Unknown')}")
+                    print()
+            sys.exit(0)
+        except Exception as e:
+            logger.error(f"Error listing projects: {e}")
+            sys.exit(1)
+
     try:
-        # Load configuration from environment
-        config = MCPServerConfig.from_env()
+        # Load configuration from project
+        config = MCPServerConfig.from_project(args.project)
+
+        # Log which project is being used
+        if args.project:
+            logger.info(f"Using project: {args.project}")
+        else:
+            detected_project = ProjectConfig.find_project_by_path(os.getcwd())
+            if detected_project:
+                logger.info(f"Auto-detected project: {detected_project}")
+            else:
+                projects = ProjectConfig.list_projects()
+                if len(projects) == 1:
+                    logger.info(f"Using single configured project: {projects[0]['repo_id']}")
 
         # Create and run server
         server = BlarifyMCPServer(config)
@@ -150,6 +200,20 @@ def main() -> None:
         # Run the async server
         asyncio.run(server.run())
 
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        print(f"\nError: {e}")
+        print("\nTo set up a project, run: blarify create --entity-id <your-entity>")
+        print("Or list available projects with: blarify-mcp --list")
+        sys.exit(1)
+    except KeyError as e:
+        logger.error(str(e))
+        print(f"\nError: {e}")
+        print("\nAvailable options:")
+        print("  - Run from within a project directory")
+        print("  - Specify a project: blarify-mcp --project /path/to/project")
+        print("  - List projects: blarify-mcp --list")
+        sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Server shutdown requested")
         sys.exit(0)

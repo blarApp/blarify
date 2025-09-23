@@ -14,6 +14,7 @@ import sys
 import subprocess
 import urllib.request
 import logging
+from typing import Optional
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -35,6 +36,34 @@ def check_scip_python_installed():
         return False
     except subprocess.TimeoutExpired:
         logger.error("❌ scip-python command timed out")
+        return False
+
+def check_scip_typescript_installed():
+    """Check if scip-typescript is installed and available"""
+    try:
+        result = subprocess.run(['scip-typescript', '--version'], 
+                              capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            logger.info(f"✅ scip-typescript is installed: {result.stdout.strip()}")
+            return True
+        else:
+            logger.error("❌ scip-typescript is installed but not working properly")
+            return False
+    except FileNotFoundError:
+        logger.error("❌ scip-typescript not found. Install with: npm install -g @sourcegraph/scip-typescript")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.error("❌ scip-typescript command timed out")
+        return False
+
+def check_scip_indexer_installed(language: str):
+    """Check if the appropriate SCIP indexer is installed for the given language"""
+    if language.lower() == 'python':
+        return check_scip_python_installed()
+    elif language.lower() in ['typescript', 'javascript']:
+        return check_scip_typescript_installed()
+    else:
+        logger.error(f"❌ Unsupported language: {language}")
         return False
 
 def check_protoc_installed():
@@ -106,19 +135,31 @@ def generate_protobuf_bindings(project_root: str, proto_path: str):
         logger.error(f"❌ Error generating protobuf bindings: {e}")
         return False
 
-def create_scip_index(project_root: str, project_name: str = "project"):
-    """Create a SCIP index for the project"""
-    if not check_scip_python_installed():
-        logger.error("❌ Cannot create SCIP index without scip-python")
+def create_scip_index(project_root: str, project_name: str = "project", language: str = "python"):
+    """Create a SCIP index for the project using the appropriate language indexer"""
+    if not check_scip_indexer_installed(language):
+        logger.error(f"❌ Cannot create SCIP index without scip-{language}")
         return False
     
     try:
-        logger.info(f"📚 Creating SCIP index for project '{project_name}'...")
-        cmd = [
-            'scip-python', 'index',
-            '--project-name', project_name,
-            '--output', os.path.join(project_root, 'index.scip')
-        ]
+        logger.info(f"📚 Creating SCIP index for {language} project '{project_name}'...")
+        
+        # Choose the appropriate indexer command
+        if language.lower() == 'python':
+            cmd = [
+                'scip-python', 'index',
+                '--project-name', project_name,
+                '--output', os.path.join(project_root, 'index.scip')
+            ]
+        elif language.lower() in ['typescript', 'javascript']:
+            cmd = [
+                'scip-typescript', 'index',
+                '--project-name', project_name,
+                '--output', os.path.join(project_root, 'index.scip')
+            ]
+        else:
+            logger.error(f"❌ Unsupported language: {language}")
+            return False
         
         result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True)
         
@@ -126,7 +167,7 @@ def create_scip_index(project_root: str, project_name: str = "project"):
             index_path = os.path.join(project_root, 'index.scip')
             if os.path.exists(index_path):
                 size_mb = os.path.getsize(index_path) / (1024 * 1024)
-                logger.info(f"✅ Created SCIP index at {index_path} ({size_mb:.1f} MB)")
+                logger.info(f"✅ Created {language} SCIP index at {index_path} ({size_mb:.1f} MB)")
                 return True
             else:
                 logger.error("❌ SCIP index was not created")
@@ -159,19 +200,36 @@ def test_scip_bindings(project_root: str):
         logger.error(f"❌ Error testing SCIP bindings: {e}")
         return False
 
-def initialize_scip(project_root: str, project_name: str = None):
+def initialize_scip(project_root: str, project_name: Optional[str] = None, language: Optional[str] = None):
     """Main function to initialize SCIP for a project"""
     project_root = os.path.abspath(project_root)
     
     if not project_name:
         project_name = os.path.basename(project_root)
     
-    logger.info(f"🚀 Initializing SCIP for project '{project_name}' at {project_root}")
+    # Auto-detect language if not specified
+    if not language:
+        # Add project root to Python path for import
+        sys.path.insert(0, os.path.dirname(os.path.dirname(project_root)))
+        try:
+            from blarify.utils.project_detector import ProjectDetector
+            if ProjectDetector.is_python_project(project_root):
+                language = "python"
+            elif ProjectDetector.is_typescript_project(project_root):
+                language = "typescript"
+            else:
+                logger.error("❌ Could not detect project language. Please specify --language")
+                return False
+        except ImportError:
+            logger.warning("⚠️ Could not import ProjectDetector, defaulting to Python")
+            language = "python"
+    
+    logger.info(f"🚀 Initializing SCIP for {language} project '{project_name}' at {project_root}")
     
     # Step 1: Check prerequisites
     logger.info("1️⃣ Checking prerequisites...")
-    if not check_scip_python_installed():
-        logger.error("❌ SCIP initialization failed: scip-python not available")
+    if not check_scip_indexer_installed(language):
+        logger.error(f"❌ SCIP initialization failed: scip-{language} not available")
         return False
     
     # Step 2: Download scip.proto if needed
@@ -195,13 +253,13 @@ def initialize_scip(project_root: str, project_name: str = None):
     
     # Step 5: Create SCIP index
     logger.info("5️⃣ Creating SCIP index...")
-    if not create_scip_index(project_root, project_name):
+    if not create_scip_index(project_root, project_name, language):
         logger.error("❌ SCIP initialization failed: could not create index")
         return False
     
     logger.info("🎉 SCIP initialization completed successfully!")
-    logger.info("\n📋 Next steps:")
-    logger.info("   - Use ScipReferenceResolver in your code")
+    logger.info(f"\n📋 Next steps:")
+    logger.info(f"   - Use ScipReferenceResolver with {language} projects")
     logger.info("   - The SCIP index will be automatically regenerated when source files change")
     logger.info("   - Enjoy 330x faster reference resolution compared to LSP!")
     
@@ -210,22 +268,25 @@ def initialize_scip(project_root: str, project_name: str = None):
 def main():
     """CLI entry point"""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Initialize SCIP for a project")
-    parser.add_argument("project_root", nargs="?", default=".", 
+    parser.add_argument("project_root", nargs="?", default=".",
                        help="Project root directory (default: current directory)")
-    parser.add_argument("--project-name", 
+    parser.add_argument("--project-name",
                        help="Project name for SCIP index (default: directory name)")
+    parser.add_argument("--language", choices=["python", "typescript", "javascript"],
+                       help="Project language (default: auto-detect)")
     parser.add_argument("--verbose", "-v", action="store_true",
                        help="Enable verbose logging")
-    
+
     args = parser.parse_args()
-    
+
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    
-    success = initialize_scip(args.project_root, args.project_name)
+
+    success = initialize_scip(args.project_root, args.project_name, args.language)
     sys.exit(0 if success else 1)
+
 
 if __name__ == "__main__":
     main()

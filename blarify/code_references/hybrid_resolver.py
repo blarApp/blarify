@@ -1,7 +1,7 @@
 """Hybrid reference resolver that uses SCIP when available, falls back to LSP.
 
-SCIP resolver is used for Python and TypeScript projects since scip-python and 
-scip-typescript are available for these languages. For other programming languages 
+SCIP resolver is used for Python and TypeScript projects since scip-python and
+scip-typescript are available for these languages. For other programming languages
 (Java, C#, Go, etc.), the resolver automatically uses LSP instead of SCIP.
 """
 
@@ -82,7 +82,9 @@ class HybridReferenceResolver:
         is_scip_supported = detected_language in scip_supported_languages
 
         if not is_scip_supported:
-            logger.info(f"🚫 {detected_language or 'Unknown'} project detected - SCIP resolver disabled (only Python and TypeScript are supported)")
+            logger.info(
+                f"🚫 {detected_language or 'Unknown'} project detected - SCIP resolver disabled (only Python and TypeScript are supported)"
+            )
             self._use_scip = False
             self._use_lsp = True
             return
@@ -204,7 +206,7 @@ class HybridReferenceResolver:
 
         if self._use_scip:
             info["scip_stats"] = self.scip_resolver.get_statistics()
-            info["scip_language"] = getattr(self.scip_resolver, 'language', 'unknown')
+            info["scip_language"] = getattr(self.scip_resolver, "language", "unknown")
 
         return info
 

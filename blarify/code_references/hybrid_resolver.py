@@ -1,4 +1,9 @@
-"""Hybrid reference resolver that uses SCIP when available, falls back to LSP."""
+"""Hybrid reference resolver that uses SCIP when available, falls back to LSP.
+
+SCIP resolver is only used for Python projects since scip-python is specifically
+designed for Python code analysis. For non-Python projects (TypeScript, JavaScript,
+etc.), the resolver automatically uses LSP instead of SCIP.
+"""
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -22,7 +27,11 @@ class ResolverMode(Enum):
 
 
 class HybridReferenceResolver:
-    """Hybrid resolver that uses SCIP for speed and LSP as fallback."""
+    """Hybrid resolver that uses SCIP for speed and LSP as fallback.
+
+    SCIP is only used for Python projects since scip-python is specifically designed
+    for Python code analysis. For non-Python projects, LSP resolver is used instead.
+    """
 
     def __init__(
         self,
@@ -60,6 +69,19 @@ class HybridReferenceResolver:
 
     def _setup_resolvers(self):
         """Determine which resolvers to use based on mode and availability."""
+        # First check if this is a Python project - SCIP only works with Python
+        from blarify.utils.project_detector import ProjectDetector
+        from blarify.utils.path_calculator import PathCalculator
+
+        root_path = PathCalculator.uri_to_path(self.root_uri)
+        is_python_project = ProjectDetector.is_python_project(root_path)
+
+        if not is_python_project:
+            logger.info("🚫 Non-Python project detected - SCIP resolver disabled (scip-python only works with Python)")
+            self._use_scip = False
+            self._use_lsp = True
+            return
+
         if self.mode == ResolverMode.SCIP_ONLY:
             self._use_scip = self._try_setup_scip()
             self._use_lsp = False
@@ -78,7 +100,9 @@ class HybridReferenceResolver:
             self._use_scip = self._try_setup_scip()
             self._use_lsp = not self._use_scip  # Use LSP only if SCIP fails
 
-        logger.info(f"🔧 Hybrid resolver mode: {self.mode.value} | SCIP: {self._use_scip} | LSP: {self._use_lsp}")
+        logger.info(
+            f"🔧 Hybrid resolver mode: {self.mode.value} | Python project: {is_python_project} | SCIP: {self._use_scip} | LSP: {self._use_lsp}"
+        )
 
     def _try_setup_scip(self) -> bool:
         """Try to set up SCIP resolver."""
@@ -156,8 +180,15 @@ class HybridReferenceResolver:
 
     def get_resolver_info(self) -> Dict[str, Any]:
         """Get information about the current resolver configuration."""
+        from blarify.utils.project_detector import ProjectDetector
+        from blarify.utils.path_calculator import PathCalculator
+
+        root_path = PathCalculator.uri_to_path(self.root_uri)
+        is_python_project = ProjectDetector.is_python_project(root_path)
+
         info = {
             "mode": self.mode.value,
+            "is_python_project": is_python_project,
             "scip_enabled": self._use_scip,
             "lsp_enabled": self._use_lsp,
         }

@@ -10,10 +10,9 @@ while maintaining identical accuracy.
 
 import os
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 from pathlib import Path
 import time
-import json
 
 from blarify.graph.node import DefinitionNode
 from .types.Reference import Reference
@@ -22,37 +21,41 @@ from .lsp_helper import ProgressTracker
 logger = logging.getLogger(__name__)
 
 # Import SCIP protobuf bindings with multiple fallback paths
-SCIP_AVAILABLE = False
+scip_available = False
 scip = None
 
-# Try multiple import paths for maximum compatibility
-import_attempts = [
-    # Try package-relative import first
-    ("from blarify import scip_pb2 as scip", lambda: __import__("blarify.scip_pb2", fromlist=[""])),
-    # Try direct import from package directory
-    ("import scip_pb2 as scip", lambda: __import__("scip_pb2")),
-    # Try importing from current directory
-    ("from . import scip_pb2 as scip", lambda: __import__("scip_pb2", globals(), locals(), [], 1)),
-]
+if TYPE_CHECKING:
+    from blarify import scip_pb2 as scip
+    scip_available = True
+else:
+    # Try multiple import paths for maximum compatibility
+    import_attempts = [
+        # Try package-relative import first
+        ("from blarify import scip_pb2 as scip", lambda: __import__("blarify.scip_pb2", fromlist=[""])),
+        # Try direct import from package directory
+        ("import scip_pb2 as scip", lambda: __import__("scip_pb2")),
+        # Try importing from current directory
+        ("from . import scip_pb2 as scip", lambda: __import__("scip_pb2", globals(), locals(), [], 1)),
+    ]
 
-for description, import_func in import_attempts:
-    try:
-        scip = import_func()
-        SCIP_AVAILABLE = True
-        logger.debug(f"Successfully imported SCIP using: {description}")
-        break
-    except (ImportError, ModuleNotFoundError, ValueError) as e:
-        logger.debug(f"Import attempt failed ({description}): {e}")
-        continue
+    for description, import_func in import_attempts:
+        try:
+            scip = import_func()
+            scip_available = True
+            logger.debug(f"Successfully imported SCIP using: {description}")
+            break
+        except (ImportError, ModuleNotFoundError, ValueError) as e:
+            logger.debug(f"Import attempt failed ({description}): {e}")
+            continue
 
-if not SCIP_AVAILABLE:
+if not scip_available:
     # Create a mock scip module for type hints and graceful degradation
     class MockScip:
         class Index:
             def __init__(self):
                 pass
 
-            def ParseFromString(self, data):
+            def ParseFromString(self, data: bytes) -> None:
                 pass
 
             @property
@@ -89,9 +92,9 @@ if not SCIP_AVAILABLE:
 
         class SymbolRole:
             Definition = 1
-            ReadAccess = 2
+            ReadAccess = 8
             WriteAccess = 4
-            Import = 8
+            Import = 2
 
     scip = MockScip()
     logger.warning(
@@ -110,10 +113,10 @@ class ScipReferenceResolver:
         self.root_path = root_path
         self.scip_index_path = scip_index_path or os.path.join(root_path, "index.scip")
         self.language = language or self._detect_project_language()
-        self._index: Optional[scip.Index] = None
-        self._symbol_to_occurrences: Dict[str, List[scip.Occurrence]] = {}
-        self._document_by_path: Dict[str, scip.Document] = {}
-        self._occurrence_to_document: Dict[int, scip.Document] = {}  # Use id() as key
+        self._index: Optional["scip.Index"] = None
+        self._symbol_to_occurrences: Dict[str, List["scip.Occurrence"]] = {}
+        self._document_by_path: Dict[str, "scip.Document"] = {}
+        self._occurrence_to_document: Dict[int, "scip.Document"] = {}  # Use id() as key
         self._loaded = False
 
     def _detect_project_language(self) -> str:
@@ -122,9 +125,10 @@ class ScipReferenceResolver:
             # Try to import ProjectDetector to detect language
             import sys
             import os
+
             sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(self.root_path))))
             from blarify.utils.project_detector import ProjectDetector
-            
+
             if ProjectDetector.is_python_project(self.root_path):
                 return "python"
             elif ProjectDetector.is_typescript_project(self.root_path):
@@ -138,7 +142,7 @@ class ScipReferenceResolver:
 
     def ensure_loaded(self) -> bool:
         """Load the SCIP index if not already loaded."""
-        if not SCIP_AVAILABLE:
+        if not scip_available:
             logger.error("SCIP protobuf bindings are not available. Cannot load SCIP index.")
             return False
 
@@ -195,7 +199,7 @@ class ScipReferenceResolver:
         if os.path.exists(self.scip_index_path):
             # Check if index is newer than source files (simple heuristic)
             index_mtime = os.path.getmtime(self.scip_index_path)
-            
+
             # Get appropriate file extensions based on language
             if self.language == "python":
                 source_files = list(Path(self.root_path).rglob("*.py"))
@@ -225,6 +229,7 @@ class ScipReferenceResolver:
             if not os.path.exists(env_file):
                 with open(env_file, "w") as f:
                     import json
+
                     json.dump([], f)
 
         try:
@@ -262,8 +267,9 @@ class ScipReferenceResolver:
                     actual_output = os.path.join(self.root_path, os.path.basename(self.scip_index_path))
                     if actual_output != self.scip_index_path and os.path.exists(actual_output):
                         import shutil
+
                         shutil.move(actual_output, self.scip_index_path)
-                
+
                 logger.info(f"✅ Generated {self.language} SCIP index at {self.scip_index_path}")
                 return True
             else:
@@ -289,15 +295,8 @@ class ScipReferenceResolver:
         references = []
 
         for occurrence in occurrences:
-            # Skip definitions (we want references only)
-            if occurrence.symbol_roles & scip.SymbolRole.Definition:
-                continue
-
-            # Only include actual references (read/write access, imports)
-            if not (
-                occurrence.symbol_roles
-                & (scip.SymbolRole.ReadAccess | scip.SymbolRole.WriteAccess | scip.SymbolRole.Import)
-            ):
+            # Use the helper function to check if this is a reference
+            if not self._is_reference_occurrence(occurrence):
                 continue
 
             # Find the document for this occurrence
@@ -350,7 +349,10 @@ class ScipReferenceResolver:
 
             for node in batch:
                 symbol = node_to_symbol[node]
-                results[node] = self._get_references_for_symbol(symbol)
+                if symbol is not None:
+                    results[node] = self._get_references_for_symbol(symbol)
+                else:
+                    results[node] = []  # No symbol found for this node
                 progress.update(1)
 
             # Force progress update every batch
@@ -427,21 +429,52 @@ class ScipReferenceResolver:
 
         return node_to_symbol
 
+    def _is_reference_occurrence(self, occurrence: "scip.Occurrence") -> bool:
+        """Check if an occurrence is a reference (not a definition).
+
+        TypeScript and JavaScript SCIP indexers use symbol_roles=0 for references,
+        while Python uses proper ReadAccess/WriteAccess flags.
+
+        Args:
+            occurrence: The SCIP occurrence to check
+
+        Returns:
+            True if this is a reference occurrence, False otherwise
+        """
+        # Always skip definitions
+        if occurrence.symbol_roles & scip.SymbolRole.Definition:
+            return False
+
+        # Language-specific behavior
+        if self.language in ["typescript", "javascript"]:
+            # TypeScript/JavaScript: symbol_roles=0 indicates a reference
+            # Also accept explicit access flags if present
+            return (
+                occurrence.symbol_roles == 0
+                or (occurrence.symbol_roles & (
+                    scip.SymbolRole.ReadAccess |
+                    scip.SymbolRole.WriteAccess |
+                    scip.SymbolRole.Import
+                )) != 0
+            )
+        else:
+            # Python and other languages: require explicit access flags
+            return (
+                occurrence.symbol_roles & (
+                    scip.SymbolRole.ReadAccess |
+                    scip.SymbolRole.WriteAccess |
+                    scip.SymbolRole.Import
+                )
+            ) != 0
+
     def _get_references_for_symbol(self, symbol: str) -> List[Reference]:
         """Get references for a specific symbol (optimized version)."""
         occurrences = self._symbol_to_occurrences.get(symbol, [])
         references = []
 
         for occurrence in occurrences:
-            # Skip definitions (we want references only)
-            if occurrence.symbol_roles & scip.SymbolRole.Definition:
-                continue
-
-            # Only include actual references (read/write access, imports)
-            if not (
-                occurrence.symbol_roles
-                & (scip.SymbolRole.ReadAccess | scip.SymbolRole.WriteAccess | scip.SymbolRole.Import)
-            ):
+            # Use the new helper function to check if this is a reference
+            if not self._is_reference_occurrence(occurrence):
                 continue
 
             # Find the document for this occurrence
@@ -456,11 +489,11 @@ class ScipReferenceResolver:
 
         return references
 
-    def _find_document_for_occurrence(self, occurrence: scip.Occurrence) -> Optional[scip.Document]:
+    def _find_document_for_occurrence(self, occurrence: "scip.Occurrence") -> Optional["scip.Document"]:
         """Find the document containing an occurrence."""
         return self._occurrence_to_document.get(id(occurrence))
 
-    def _occurrence_to_reference(self, occurrence: scip.Occurrence, document: scip.Document) -> Optional[Reference]:
+    def _occurrence_to_reference(self, occurrence: "scip.Occurrence", document: "scip.Document") -> Optional[Reference]:
         """Convert a SCIP occurrence to a Reference object."""
         if not occurrence.range or len(occurrence.range) < 3:
             return None

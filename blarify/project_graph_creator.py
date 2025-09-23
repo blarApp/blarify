@@ -195,8 +195,6 @@ class ProjectGraphCreator:
                 all_nodes_to_process.append(node)
                 nodes_by_file[node] = file_node
 
-                logger.info(f"DEBUG: Processing node {node.name}")
-
         # Batch process all reference requests
         batch_start_time = time.time()
         batch_results = self.reference_query_helper.get_paths_where_nodes_are_referenced_batch(all_nodes_to_process)
@@ -218,8 +216,6 @@ class ProjectGraphCreator:
                     x=log_interval,
                     text=f"Processing relationships for {file_node.name}: {file_index + 1}/{total_files} -- {100 * file_index / total_files:.2f}%",
                 )
-
-            logger.debug(f"Processing node {node.name}")
 
             tree_sitter_helper = self._get_tree_sitter_for_file_extension(node.extension)
             relationships = self._create_node_relationships_from_references(

@@ -25,61 +25,27 @@ The Blarify MCP (Model Context Protocol) Server exposes Blarify's powerful graph
 
 ## Installation
 
-### Quick Setup with uvx (Recommended)
+### Quick Setup
 
-Simply add to your Claude Desktop config - no installation needed:
-
-```json
-{
-  "mcpServers": {
-    "blarify": {
-      "command": "uvx",
-      "args": ["blarify-mcp"],
-      "env": {
-        "ROOT_PATH": "/path/to/your/repository",
-        "ENTITY_ID": "your-entity",
-        "NEO4J_URI": "bolt://localhost:7687",
-        "NEO4J_USERNAME": "neo4j",
-        "NEO4J_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
-
-`uvx` will automatically handle the installation!
-
-### Alternative: Install with pip
-
+1. **Install Blarify**:
 ```bash
 pip install blarify
+# or
+uvx install blarify
 ```
 
-Then use `blarify-mcp` as the command in your config.
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file or set environment variables:
-
+2. **Create a graph for your repository**:
 ```bash
-# Neo4j Configuration
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your-password
-ROOT_PATH=/path/to/your/repository  # Same path used with 'blarify create'
-ENTITY_ID=your-entity
-
-# Database Type (neo4j or falkordb)
-DB_TYPE=neo4j
-
-# FalkorDB Configuration (if using FalkorDB)
-FALKOR_HOST=localhost
-FALKOR_PORT=6379
+cd /path/to/your/repository
+blarify create --entity-id your-company
 ```
 
-### Claude Desktop Configuration
+This automatically:
+- Sets up a Neo4j container (if needed)
+- Builds the code graph
+- Saves project configuration for MCP server
+
+3. **Configure Claude Desktop**:
 
 Add to your Claude Desktop configuration file:
 
@@ -91,19 +57,51 @@ Add to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "blarify": {
-      "command": "python",
-      "args": ["-m", "blarify.mcp_server"],
-      "env": {
-        "ROOT_PATH": "/path/to/your/repository",
-        "ENTITY_ID": "your-entity",
-        "NEO4J_URI": "bolt://localhost:7687",
-        "NEO4J_USERNAME": "neo4j",
-        "NEO4J_PASSWORD": "your-password",
-        "DB_TYPE": "neo4j"
-      }
+      "command": "blarify-mcp",
+      "args": ["--project", "/path/to/your/repository"]
     }
   }
 }
+```
+
+Or if you have only one project, simply:
+
+```json
+{
+  "mcpServers": {
+    "blarify": {
+      "command": "blarify-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+## Configuration
+
+The MCP server automatically uses the configuration saved by `blarify create`. No environment variables or `.env` files are needed!
+
+### Project Management
+
+**List available projects**:
+```bash
+blarify-mcp --list
+```
+
+**Start server with specific project**:
+```bash
+blarify-mcp --project /path/to/repository
+```
+
+**Start server from within project directory** (auto-detects):
+```bash
+cd /path/to/repository
+blarify-mcp
+```
+
+**If only one project exists**, the server will use it automatically:
+```bash
+blarify-mcp
 ```
 
 ## Usage
@@ -111,12 +109,18 @@ Add to your Claude Desktop configuration file:
 ### Running the Server Standalone
 
 ```bash
-# With environment variables
-python -m blarify.mcp_server
+# Auto-detect project from current directory
+cd /path/to/your/repository
+blarify-mcp
 
-# With custom .env file
-export DOTENV_PATH=/path/to/.env
-python -m blarify.mcp_server
+# Specify a project explicitly
+blarify-mcp --project /path/to/your/repository
+
+# List all available projects
+blarify-mcp --list
+
+# Using Python module directly
+python -m blarify.mcp_server --project /path/to/repository
 ```
 
 ### Programmatic Usage
@@ -127,15 +131,12 @@ from blarify.mcp_server.config import MCPServerConfig
 from blarify.mcp_server.server import BlarifyMCPServer
 
 async def main():
-    # Create configuration
-    config = MCPServerConfig(
-        root_path="/path/to/your/repository",
-        entity_id="my_entity",
-        neo4j_uri="bolt://localhost:7687",
-        neo4j_username="neo4j",
-        neo4j_password="password"
-    )
-    
+    # Load configuration from saved project
+    config = MCPServerConfig.from_project("/path/to/your/repository")
+
+    # Or auto-detect from current directory
+    config = MCPServerConfig.from_project()
+
     # Create and run server
     server = BlarifyMCPServer(config)
     await server.run()
@@ -205,28 +206,35 @@ config = MCPServerConfig(
 
 ## Prerequisites
 
-1. **Database Setup**: Ensure you have Neo4j or FalkorDB running and accessible
-2. **Graph Data**: Use the Blarify CLI to build and save a code graph to your database:
+1. **Build a Code Graph**: Use the Blarify CLI to create a graph for your repository:
 
 ```bash
 # Install Blarify
 pip install blarify
 
-# Build a graph for your repository
-blarify create /path/to/your/code --entity-id my-company
+# Build a graph for your repository (auto-spawns Neo4j if needed)
+cd /path/to/your/repository
+blarify create --entity-id my-company
 
 # With documentation and workflows
-blarify create /path/to/your/code --entity-id my-company --docs --workflows
+blarify create --entity-id my-company --docs --workflows
 
-# With custom database settings
-blarify create /path/to/your/code \
-  --entity-id my-company \
+# With existing Neo4j instance
+blarify create --entity-id my-company \
   --neo4j-uri bolt://localhost:7687 \
   --neo4j-username neo4j \
   --neo4j-password your-password
 ```
 
-The CLI will use the repository path as the repo_id by default, which matches the ROOT_PATH configuration for the MCP server.
+2. **Start the MCP Server**: After creating the graph, start the server:
+
+```bash
+# From the same directory
+blarify-mcp
+
+# Or from anywhere
+blarify-mcp --project /path/to/your/repository
+```
 
 ## Troubleshooting
 
@@ -242,8 +250,9 @@ If you get connection errors:
 
 If tools return empty results:
 1. Verify graph data exists in database
-2. Check ROOT_PATH and entity_id match what was used with `blarify create`
-3. Use Neo4j Browser to verify data
+2. Ensure you're using the correct project: `blarify-mcp --list`
+3. Re-run `blarify create` if needed
+4. Use Neo4j Browser to verify data
 
 ### Performance Issues
 

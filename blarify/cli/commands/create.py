@@ -10,6 +10,8 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict, Optional
 
+from blarify.cli.project_config import ProjectConfig
+
 from neo4j_container_manager import (
     Neo4jContainerManager,
     Neo4jContainerConfig,
@@ -57,7 +59,7 @@ def store_neo4j_credentials(creds: Dict[str, str]) -> None:
     creds_file = Path.home() / ".blarify" / "neo4j_credentials.json"
     creds_file.parent.mkdir(exist_ok=True)
     with open(creds_file, "w") as f:
-        json.dump(creds, f)
+        json.dump(creds, f, indent=2)
     creds_file.chmod(0o600)
 
 
@@ -496,6 +498,16 @@ def execute(args: Namespace) -> int:
         finally:
             db_manager.close()
 
+    # Save project configuration for MCP server
+    try:
+        ProjectConfig.save_project_config(
+            repo_id=repo_id,
+            entity_id=args.entity_id,
+            neo4j_uri=args.neo4j_uri
+        )
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/yellow] Failed to save project configuration: {e}")
+
     # Print summary
     elapsed_time = time.time() - start_time
     console.print(f"\n[green]✓[/green] Graph built successfully in {elapsed_time:.1f} seconds!")
@@ -509,10 +521,8 @@ def execute(args: Namespace) -> int:
 
     # Print next steps
     console.print("\n[bold]Next steps:[/bold]")
-    console.print("1. Configure your MCP server with:")
-    console.print(f"   ROOT_PATH={repo_id}")
-    console.print(f"   ENTITY_ID={args.entity_id}")
-    console.print("2. Start the MCP server: [cyan]blarify-mcp[/cyan]")
+    console.print("1. Start the MCP server from this directory: [cyan]blarify-mcp[/cyan]")
+    console.print(f"2. Or specify the project: [cyan]blarify-mcp --project {repo_id}[/cyan]")
     console.print("3. Use with Claude Desktop or other MCP clients\n")
 
     return 0

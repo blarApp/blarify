@@ -106,14 +106,35 @@ if not SCIP_AVAILABLE:
 class ScipReferenceResolver:
     """Fast reference resolution using SCIP (Source Code Intelligence Protocol) index."""
 
-    def __init__(self, root_path: str, scip_index_path: Optional[str] = None):
+    def __init__(self, root_path: str, scip_index_path: Optional[str] = None, language: Optional[str] = None):
         self.root_path = root_path
         self.scip_index_path = scip_index_path or os.path.join(root_path, "index.scip")
+        self.language = language or self._detect_project_language()
         self._index: Optional[scip.Index] = None
         self._symbol_to_occurrences: Dict[str, List[scip.Occurrence]] = {}
         self._document_by_path: Dict[str, scip.Document] = {}
         self._occurrence_to_document: Dict[int, scip.Document] = {}  # Use id() as key
         self._loaded = False
+
+    def _detect_project_language(self) -> str:
+        """Auto-detect the project language."""
+        try:
+            # Try to import ProjectDetector to detect language
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(self.root_path))))
+            from blarify.utils.project_detector import ProjectDetector
+            
+            if ProjectDetector.is_python_project(self.root_path):
+                return "python"
+            elif ProjectDetector.is_typescript_project(self.root_path):
+                return "typescript"
+            else:
+                logger.warning("Could not detect project language, defaulting to Python")
+                return "python"
+        except ImportError:
+            logger.warning("Could not import ProjectDetector, defaulting to Python")
+            return "python"
 
     def ensure_loaded(self) -> bool:
         """Load the SCIP index if not already loaded."""
@@ -174,43 +195,69 @@ class ScipReferenceResolver:
         if os.path.exists(self.scip_index_path):
             # Check if index is newer than source files (simple heuristic)
             index_mtime = os.path.getmtime(self.scip_index_path)
-            source_files = list(Path(self.root_path).rglob("*.py"))
+            
+            # Get appropriate file extensions based on language
+            if self.language == "python":
+                source_files = list(Path(self.root_path).rglob("*.py"))
+            elif self.language in ["typescript", "javascript"]:
+                source_files = []
+                for ext in ["*.ts", "*.tsx", "*.js", "*.jsx"]:
+                    source_files.extend(list(Path(self.root_path).rglob(ext)))
+            else:
+                source_files = list(Path(self.root_path).rglob("*.py"))  # Default to Python
 
             if source_files:
                 newest_source = max(os.path.getmtime(f) for f in source_files)
                 if index_mtime > newest_source:
-                    logger.info("📚 SCIP index is up to date")
+                    logger.info(f"📚 SCIP index for {self.language} is up to date")
                     return True
 
-        logger.info("🔄 Generating SCIP index...")
+        logger.info(f"🔄 Generating SCIP index for {self.language}...")
         return self._generate_index(project_name)
 
     def _generate_index(self, project_name: str) -> bool:
-        """Generate SCIP index using scip-python."""
+        """Generate SCIP index using the appropriate language indexer."""
         import subprocess
 
-        env_file = os.path.join(self.root_path, "empty-env.json")
-        if not os.path.exists(env_file):
-            with open(env_file, "w") as f:
-                json.dump([], f)
+        # Create empty-env.json for Python projects (required by scip-python)
+        if self.language == "python":
+            env_file = os.path.join(self.root_path, "empty-env.json")
+            if not os.path.exists(env_file):
+                with open(env_file, "w") as f:
+                    import json
+                    json.dump([], f)
 
         try:
-            cmd = [
-                "scip-python",
-                "index",
-                "--project-name",
-                project_name,
-                "--output",
-                self.scip_index_path,
-                "--environment",
-                env_file,
-                "--quiet",
-            ]
+            # Choose the appropriate indexer command based on language
+            if self.language == "python":
+                cmd = [
+                    "scip-python",
+                    "index",
+                    "--project-name",
+                    project_name,
+                    "--output",
+                    self.scip_index_path,
+                    "--environment",
+                    os.path.join(self.root_path, "empty-env.json"),
+                    "--quiet",
+                ]
+            elif self.language in ["typescript", "javascript"]:
+                cmd = [
+                    "scip-typescript",
+                    "index",
+                    "--project-name",
+                    project_name,
+                    "--output",
+                    self.scip_index_path,
+                ]
+            else:
+                logger.error(f"Unsupported language for SCIP indexing: {self.language}")
+                return False
 
             result = subprocess.run(cmd, cwd=self.root_path, capture_output=True, text=True, timeout=300)
 
             if result.returncode == 0:
-                logger.info(f"✅ Generated SCIP index at {self.scip_index_path}")
+                logger.info(f"✅ Generated {self.language} SCIP index at {self.scip_index_path}")
                 return True
             else:
                 logger.error(f"Failed to generate SCIP index: {result.stderr.strip()}")

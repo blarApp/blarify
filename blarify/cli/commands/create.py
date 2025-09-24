@@ -103,8 +103,8 @@ async def get_existing_container(manager: Neo4jContainerManager) -> Optional[Neo
     """Try to get an existing container."""
     try:
         containers = getattr(manager, "_running_containers", {})
-        if "blarify-neo4j-dev" in containers:
-            container = containers["blarify-neo4j-dev"]
+        if "neo4j-blarify-mcp" in containers:
+            container = containers["neo4j-blarify-mcp"]
             if await container.is_running():
                 return container
     except Exception:
@@ -115,7 +115,7 @@ async def get_existing_container(manager: Neo4jContainerManager) -> Optional[Neo
         import docker
 
         client = docker.from_env()
-        container = client.containers.get("blarify-neo4j-dev")
+        container = client.containers.get("neo4j-blarify-mcp")
         if container.status == "running":
             # Get the actual port mappings from the running container
             port_bindings = container.attrs["NetworkSettings"]["Ports"]
@@ -139,7 +139,7 @@ async def get_existing_container(manager: Neo4jContainerManager) -> Optional[Neo
 
             # Create config for the existing container
             config = Neo4jContainerConfig(
-                environment=Environment.DEVELOPMENT,
+                environment=Environment.MCP,
                 password=creds["password"],
                 username="neo4j",
                 neo4j_version="5.25.1",  # We assume the version
@@ -151,7 +151,7 @@ async def get_existing_container(manager: Neo4jContainerManager) -> Optional[Neo
 
             # Create volume info
             volume = VolumeInfo(
-                name="blarify-neo4j-dev-data",
+                name="neo4j-blarify-mcp-data",
                 mount_path="/data",
                 cleanup_on_stop=False,  # Development container persists
             )
@@ -159,7 +159,7 @@ async def get_existing_container(manager: Neo4jContainerManager) -> Optional[Neo
             # Create the instance
             instance = Neo4jContainerInstance(
                 config=config,
-                container_id="blarify-neo4j-dev",
+                container_id="neo4j-blarify-mcp",
                 ports=ports,
                 volume=volume,
                 status=ContainerStatus.RUNNING,

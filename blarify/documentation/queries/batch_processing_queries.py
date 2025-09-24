@@ -53,16 +53,14 @@ def get_processable_nodes_with_descriptions_query() -> LiteralString:
 
     // Check hierarchy children are all processed
     OPTIONAL MATCH (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->(hier_child:NODE)
-    WHERE hier_child.processing_run_id = $run_id
     WITH n, collect(DISTINCT hier_child) as hier_children
-    WHERE ALL(child IN hier_children WHERE child.processing_status = 'completed' OR child.processing_status IS NULL)
+    WHERE ALL(child IN hier_children WHERE child.processing_status = 'completed' AND child.processing_run_id = $run_id)
     
     // Check call stack children are all processed (for functions)
     OPTIONAL MATCH (n)-[:CALLS|USES]->(call_child:NODE)
-    WHERE 'FUNCTION' IN labels(n) AND call_child.processing_run_id = $run_id
     WITH n, hier_children, collect(DISTINCT call_child) as call_children
-    WHERE ALL(child IN call_children WHERE child.processing_status = 'completed' OR child.processing_status IS NULL)
-    
+    WHERE ALL(child IN call_children WHERE child.processing_status = 'completed' AND child.processing_run_id = $run_id)
+
     // Now get the descriptions - no entity/repo filter needed
     OPTIONAL MATCH (hier_doc:DOCUMENTATION)-[:DESCRIBES]->(hier_child)
     WHERE hier_child IN hier_children

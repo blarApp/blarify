@@ -147,6 +147,13 @@ class Neo4jContainerManager:
                 if "apoc" in config.plugins:
                     environment["NEO4J_dbms_security_procedures_unrestricted"] = "apoc.*"
                     environment["NEO4J_dbms_security_procedures_allowlist"] = "apoc.*"
+                if "graph-data-science" in config.plugins:
+                    environment["NEO4J_dbms_security_procedures_unrestricted"] = (
+                        environment.get("NEO4J_dbms_security_procedures_unrestricted", "") + ",gds.*"
+                    )
+                    environment["NEO4J_dbms_security_procedures_allowlist"] = (
+                        environment.get("NEO4J_dbms_security_procedures_allowlist", "") + ",gds.*"
+                    )
 
             # Prepare port bindings
             ports_config = {

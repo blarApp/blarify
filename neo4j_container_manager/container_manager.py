@@ -172,6 +172,16 @@ class Neo4jContainerManager:
                 volumes_config[volume.name] = {"bind": "/data", "mode": "rw"}
 
             # Prepare Docker run kwargs
+            labels = {
+                "blarify.component": "neo4j-container-manager",
+                "blarify.environment": config.environment.value,
+                "blarify.test_id": config.test_id or "",
+            }
+
+            # Add specific label for containers created by pytest tests
+            if config.test_id and (config.test_id.startswith("test_") or config.test_id.startswith("module_")):
+                labels["blarify.pytest_test"] = "true"
+
             docker_run_kwargs = {
                 "image": f"neo4j:{config.neo4j_version}",
                 "name": config.container_name,
@@ -180,11 +190,7 @@ class Neo4jContainerManager:
                 "volumes": volumes_config,
                 "detach": True,
                 "remove": False,
-                "labels": {
-                    "blarify.component": "neo4j-container-manager",
-                    "blarify.environment": config.environment.value,
-                    "blarify.test_id": config.test_id or "",
-                },
+                "labels": labels,
             }
 
             # Add Docker resource constraints if specified
@@ -315,10 +321,16 @@ class Neo4jContainerManager:
             except Exception:
                 results[container_id] = False
 
-        # Find and clean up any orphaned containers
+        # Find and clean up any orphaned test containers
         try:
+            # Only get containers that are specifically marked as pytest test containers
             containers = self._docker_client.containers.list(
-                filters={"label": "blarify.component=neo4j-container-manager"}
+                filters={
+                    "label": [
+                        "blarify.component=neo4j-container-manager",
+                        "blarify.pytest_test=true"
+                    ]
+                }
             )
 
             for container in containers:

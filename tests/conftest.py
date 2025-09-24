@@ -300,6 +300,7 @@ async def cleanup_blarify_neo4j():
         from docker import errors
 
         client = docker.from_env()
+        # Only clean up development containers, not MCP containers
         try:
             container = client.containers.get("blarify-neo4j-dev")
             container.stop()
@@ -307,7 +308,7 @@ async def cleanup_blarify_neo4j():
         except errors.NotFound:
             pass
 
-        # Also remove the volume to ensure clean state
+        # Also remove the development volume to ensure clean state
         try:
             volume = client.volumes.get("blarify-neo4j-dev-data")
             volume.remove()
@@ -329,6 +330,7 @@ async def cleanup_blarify_neo4j():
         from docker import errors
 
         client = docker.from_env()
+        # Only clean up development containers, not MCP containers
         try:
             container = client.containers.get("blarify-neo4j-dev")
             container.stop()
@@ -336,7 +338,7 @@ async def cleanup_blarify_neo4j():
         except errors.NotFound:
             pass
 
-        # Also remove the volume to ensure clean state
+        # Also remove the development volume to ensure clean state
         try:
             volume = client.volumes.get("blarify-neo4j-dev-data")
             volume.remove()

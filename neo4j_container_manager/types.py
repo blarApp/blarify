@@ -150,6 +150,7 @@ class Environment(str, Enum):
 
     TEST = "test"
     DEVELOPMENT = "development"
+    MCP = "mcp"
 
 
 class ContainerStatus(str, Enum):
@@ -301,6 +302,8 @@ class Neo4jContainerConfig:
         """Generate a unique container name based on configuration."""
         if self.environment == Environment.TEST:
             return f"blarify-neo4j-test-{self.test_id}"
+        elif self.environment == Environment.MCP:
+            return "neo4j-blarify-mcp"
         else:
             return "blarify-neo4j-dev"
 
@@ -309,6 +312,8 @@ class Neo4jContainerConfig:
         """Generate a unique volume name based on configuration."""
         if self.environment == Environment.TEST:
             return f"blarify-neo4j-test-{self.test_id}-data"
+        elif self.environment == Environment.MCP:
+            return "neo4j-blarify-mcp-data"
         else:
             return "blarify-neo4j-dev-data"
 

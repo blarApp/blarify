@@ -1,23 +1,25 @@
-from .directory_explorer_tool import DirectoryExplorerTool
-from .find_nodes_by_code import FindNodesByCode
-from .find_nodes_by_name_and_type import FindNodesByNameAndType
-from .find_nodes_by_path import FindNodesByPath
-from .get_relationship_flowchart_tool import GetRelationshipFlowchart
-from .get_code_by_id_tool import GetCodeByIdTool
+from .find_symbols import FindSymbols
+from .search_documentation import SearchDocumentation
+from .get_code_analysis import GetCodeAnalysis
+from .get_expanded_context import GetExpandedContext
+from .get_blame_info import GetBlameInfo
+from .get_dependency_graph import GetDependencyGraph
+
+# Keep backward compatibility imports for tools not part of main 6
 from .get_file_context_tool import GetFileContextByIdTool
-from .get_blame_by_id_tool import GetBlameByIdTool
 from .get_commit_by_id_tool import GetCommitByIdTool
 from .get_node_workflows_tool import GetNodeWorkflowsTool
 
 __all__ = [
-    "GetCodeByIdTool",
+    # Main 6 refactored tools
+    "FindSymbols",
+    "SearchDocumentation",
+    "GetCodeAnalysis",
+    "GetExpandedContext",
+    "GetBlameInfo",
+    "GetDependencyGraph",
+    # Additional tools kept for backward compatibility
     "GetFileContextByIdTool",
-    "GetBlameByIdTool",
     "GetCommitByIdTool",
-    "DirectoryExplorerTool",
-    "FindNodesByCode",
-    "FindNodesByNameAndType",
-    "FindNodesByPath",
-    "GetRelationshipFlowchart",
     "GetNodeWorkflowsTool",
 ]

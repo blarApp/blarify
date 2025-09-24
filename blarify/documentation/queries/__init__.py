@@ -7,6 +7,7 @@ from .batch_processing_queries import (
     mark_nodes_completed_query,
     get_leaf_nodes_under_node_query,
     get_child_descriptions_query,
+    get_remaining_pending_functions_query,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "mark_nodes_completed_query",
     "get_leaf_nodes_under_node_query",
     "get_child_descriptions_query",
+    "get_remaining_pending_functions_query",
 ]

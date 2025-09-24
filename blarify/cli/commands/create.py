@@ -448,7 +448,7 @@ def execute(args: Namespace) -> int:
                         max_workers=args.max_workers,
                     )
 
-                    doc_result = doc_creator.create_documentation()
+                    doc_result = doc_creator.create_documentation(generate_embeddings=True)
 
                     if doc_result.error:
                         console.print(

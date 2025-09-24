@@ -210,3 +210,74 @@ def get_child_descriptions_query() -> LiteralString:
            child.end_line as end_line,
            child_doc.content as description
     """
+
+
+def get_remaining_pending_functions_query() -> LiteralString:
+    """
+    Get all pending FUNCTION nodes with their child descriptions.
+
+    This query is used when normal processing is blocked (likely due to cycles).
+    It retrieves pending FUNCTION nodes along with descriptions from any completed children,
+    without requiring ALL children to be completed.
+
+    Key difference from get_processable_nodes_with_descriptions_query:
+    - Does NOT check if all children are completed
+    - Only processes FUNCTION nodes
+    - Returns same structure (hier_descriptions and call_descriptions)
+    """
+    return """
+    MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
+    MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL*0..]->(n:FUNCTION)
+    WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id) AND NOT n:DOCUMENTATION
+
+    // Get hierarchy children (if any) - don't check completion status
+    OPTIONAL MATCH (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->(hier_child:NODE)
+    WITH n, collect(DISTINCT hier_child) as hier_children
+
+    // Get call children (if any) - don't check completion status
+    OPTIONAL MATCH (n)-[:CALLS]->(call_child:NODE)
+    WITH n, hier_children, collect(DISTINCT call_child) as call_children
+
+    // Get descriptions from completed children only
+    OPTIONAL MATCH (hier_doc:DOCUMENTATION)-[:DESCRIBES]->(hier_child)
+    WHERE hier_child IN hier_children
+      AND hier_child.processing_status = 'completed'
+      AND hier_child.processing_run_id = $run_id
+    WITH n, call_children,
+         collect(DISTINCT {
+             id: hier_child.node_id,
+             name: hier_child.name,
+             labels: labels(hier_child),
+             path: hier_child.path,
+             description: hier_doc.content
+         }) as hier_descriptions
+
+    OPTIONAL MATCH (call_doc:DOCUMENTATION)-[:DESCRIBES]->(call_child)
+    WHERE call_child IN call_children
+      AND call_child.processing_status = 'completed'
+      AND call_child.processing_run_id = $run_id
+    WITH n, hier_descriptions,
+         collect(DISTINCT {
+             id: call_child.node_id,
+             name: call_child.name,
+             labels: labels(call_child),
+             path: call_child.path,
+             description: call_doc.content
+         }) as call_descriptions
+
+    WITH n, hier_descriptions, call_descriptions
+    LIMIT $batch_size
+
+    SET n.processing_status = 'in_progress',
+        n.processing_run_id = $run_id
+
+    RETURN n.node_id as id,
+           n.name as name,
+           labels(n) as labels,
+           n.path as path,
+           n.start_line as start_line,
+           n.end_line as end_line,
+           coalesce(n.text, '') as content,
+           hier_descriptions,
+           call_descriptions
+    """

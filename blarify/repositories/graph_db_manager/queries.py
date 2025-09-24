@@ -2058,23 +2058,6 @@ def get_call_stack_children(db_manager: AbstractDbManager, node_id: str) -> List
         return []
 
 
-def get_function_cycle_detection_query() -> LiteralString:
-    """
-    Query to detect if a function participates in a call cycle.
-
-    Returns:
-        Cypher query string for cycle detection
-    """
-    return """
-    MATCH path = (start:FUNCTION {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[:CALLS*1..10]->(start)
-    WITH path, [n IN nodes(path) | n.name] as function_names
-    RETURN DISTINCT function_names, length(path) as cycle_length
-    ORDER BY cycle_length
-    LIMIT 10
-    """
-
-
 def get_existing_documentation_for_node_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving existing documentation for a specific code node.
@@ -2140,36 +2123,6 @@ def get_existing_documentation_for_node(db_manager: AbstractDbManager, node_id: 
         logger.exception(f"Error retrieving existing documentation for node '{node_id}': {e}")
         return None
 
-
-def detect_function_cycles(db_manager: AbstractDbManager, node_id: str) -> List[List[str]]:
-    """
-    Detect if a function participates in call cycles.
-
-    Args:
-        db_manager: Database manager instance
-        entity_id: Entity/company ID
-        repo_id: Repository ID
-        node_id: Function node ID to check for cycles
-
-    Returns:
-        List of cycle paths (each path is a list of function names)
-    """
-    try:
-        query = get_function_cycle_detection_query()
-        parameters = {"node_id": node_id}
-
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
-
-        cycles = []
-        for record in query_result:
-            cycle_path = record["function_names"]
-            cycles.append(cycle_path)
-
-        return cycles
-
-    except Exception as e:
-        logger.exception(f"Error detecting cycles for function '{node_id}': {e}")
-        return []
 
 
 def find_entry_points_for_node_path_query() -> LiteralString:

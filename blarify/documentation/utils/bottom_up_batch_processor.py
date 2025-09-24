@@ -435,9 +435,7 @@ class BottomUpBatchProcessor:
     def _has_pending_nodes(self, root_node: NodeWithContentDto) -> bool:
         """Check if there are still pending nodes under the root node."""
         query = check_pending_nodes_query()
-        params = {
-            "root_node_id": root_node.id
-        }
+        params = {"root_node_id": root_node.id}
 
         result = self.db_manager.query(query, params)
         if result:
@@ -683,14 +681,16 @@ class BottomUpBatchProcessor:
         self, parent_content: str, child_descriptions: List[DocumentationNode]
     ) -> str:
         """
-        Replace skeleton comments with LLM-generated descriptions.
+        Replace skeleton comments with LLM-generated descriptions and add a section
+        for child descriptions that don't have corresponding skeleton comments.
 
         Args:
             parent_content: The parent node's content with skeleton comments
             child_descriptions: List of child descriptions to insert
 
         Returns:
-            Enhanced content with descriptions replacing skeleton comments
+            Enhanced content with descriptions replacing skeleton comments and an
+            additional section listing other important relationships and dependencies
         """
         if not parent_content:
             return ""
@@ -707,9 +707,13 @@ class BottomUpBatchProcessor:
         # Example: # Code replaced for brevity, see node: 6fd101f9571073a44fed7c085c94eec2
         skeleton_pattern = r"# Code replaced for brevity, see node: ([a-f0-9]+)"
 
+        # Track which child descriptions were used in skeleton replacements
+        used_child_ids = set()
+
         def replace_comment(match: re.Match[str]) -> str:
             node_id = match.group(1)
             if node_id in child_lookup:
+                used_child_ids.add(node_id)
                 description = child_lookup[node_id]
                 # Format as a proper docstring
                 # Indent the description to match the original comment's indentation
@@ -720,5 +724,21 @@ class BottomUpBatchProcessor:
 
         # Replace all skeleton comments with descriptions
         enhanced_content = re.sub(skeleton_pattern, replace_comment, enhanced_content)
+
+        # Add section for child descriptions that weren't replaced in skeleton comments
+        unused_descriptions = []
+        for desc in child_descriptions:
+            if desc.source_id and desc.source_id not in used_child_ids:
+                # Get the name from source_name or extract from source_path
+                name = desc.source_name or (desc.source_path.split("/")[-1] if desc.source_path else "Unknown")
+                unused_descriptions.append(f"{name}: {desc.content}")
+
+        # Append the additional relationships section if there are unused descriptions
+        if unused_descriptions:
+            enhanced_content += "\n\n# " + "-" * 60 + "\n"
+            enhanced_content += "# Other important relationships and dependencies:\n"
+            enhanced_content += "# " + "-" * 60 + "\n"
+            for description in unused_descriptions:
+                enhanced_content += f"# {description}\n"
 
         return enhanced_content

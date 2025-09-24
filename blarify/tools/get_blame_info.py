@@ -8,7 +8,9 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from blarify.tools.utils import resolve_reference_id
 
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.integrations.github_creator import GitHubCreator
@@ -17,13 +19,34 @@ from blarify.repositories.graph_db_manager import AbstractDbManager
 logger = logging.getLogger(__name__)
 
 
-class NodeIdInput(BaseModel):
-    """Input schema for GetBlameByIdTool."""
+class FlexibleInput(BaseModel):
+    """Input schema for GetBlameInfo."""
 
-    node_id: str = Field(description="The node id (an UUID like hash id) of the node to get blame information for.")
+    reference_id: Optional[str] = Field(
+        None,
+        description="Reference ID (32-char handle) for the symbol"
+    )
+    file_path: Optional[str] = Field(
+        None,
+        description="Path to the file containing the symbol"
+    )
+    symbol_name: Optional[str] = Field(
+        None,
+        description="Name of the function/class/method"
+    )
+
+    @model_validator(mode='after')
+    def validate_inputs(self):
+        if self.reference_id:
+            if len(self.reference_id) != 32:
+                raise ValueError("Reference ID must be a 32 character string")
+            return self
+        if not (self.file_path and self.symbol_name):
+            raise ValueError("Provide either reference_id OR (file_path AND symbol_name)")
+        return self
 
 
-class GetBlameByIdTool(BaseTool):
+class GetBlameInfo(BaseTool):
     """Tool for retrieving GitHub-style blame information for a code node.
 
     This tool displays blame information in a format similar to GitHub's blame view,
@@ -31,9 +54,12 @@ class GetBlameByIdTool(BaseTool):
     integration nodes on-demand if they don't exist.
     """
 
-    name: str = "get_blame_by_id"
-    description: str = "Get historical Git change information for a code node, showing commit history and which commits modified each line of code over time. Great to compare old versions and understand code evolution."
-    args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
+    name: str = "get_blame_info"
+    description: str = (
+        "Get GitHub-style blame information showing who last modified each line. "
+        "Useful for understanding code evolution and finding responsible developers."
+    )
+    args_schema: type[BaseModel] = FlexibleInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Database manager for graph operations")
     repo_owner: str = Field(description="GitHub repository owner")
@@ -54,7 +80,7 @@ class GetBlameByIdTool(BaseTool):
         auto_create_integration: bool = True,
         handle_validation_error: bool = False,
     ):
-        """Initialize GetBlameByIdTool.
+        """Initialize GetBlameInfo.
 
         Args:
             db_manager: Database manager for graph operations
@@ -85,19 +111,31 @@ class GetBlameByIdTool(BaseTool):
 
     def _run(
         self,
-        node_id: str,
+        reference_id: Optional[str] = None,
+        file_path: Optional[str] = None,
+        symbol_name: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool to get blame information.
 
         Args:
-            node_id: The ID of the node to get blame for
+            reference_id: Direct reference ID (32-char hash)
+            file_path: Path to file containing symbol
+            symbol_name: Name of symbol (function/class)
             run_manager: Optional callback manager
 
         Returns:
             GitHub-style formatted blame information as a string
         """
         try:
+            # Resolve the reference ID from inputs
+            node_id = resolve_reference_id(
+                self.db_manager,
+                reference_id=reference_id,
+                file_path=file_path,
+                symbol_name=symbol_name
+            )
+
             # Get node information
             node_info = self._get_node_info(node_id)
             if not node_info:
@@ -128,7 +166,7 @@ class GetBlameByIdTool(BaseTool):
             return self._format_github_style_blame(node_info, blame_data)
 
         except Exception as e:
-            logger.error(f"Error getting blame for node {node_id}: {e}")
+            logger.error(f"Error getting blame: {e}")
             return f"Error: Failed to get blame information - {str(e)}"
 
     def _get_node_info(self, node_id: str) -> Optional[Dict[str, Any]]:

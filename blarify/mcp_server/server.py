@@ -17,16 +17,15 @@ from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
 # Import all Blarify tools
 from blarify.tools import (
-    DirectoryExplorerTool,
-    FindNodesByCode,
-    FindNodesByNameAndType,
-    FindNodesByPath,
-    GetBlameByIdTool,
-    GetCodeByIdTool,
+    FindSymbols,
+    GetBlameInfo,
+    GetCodeAnalysis,
     GetCommitByIdTool,
+    GetDependencyGraph,
+    GetExpandedContext,
     GetFileContextByIdTool,
     GetNodeWorkflowsTool,
-    GetRelationshipFlowchart,
+    SearchDocumentation,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -76,20 +75,27 @@ class BlarifyMCPServer:
 
         # Create instances of all tools
         tools = [
-            DirectoryExplorerTool(db_manager=self.db_manager),
-            FindNodesByCode(db_manager=self.db_manager),
-            FindNodesByNameAndType(db_manager=self.db_manager),
-            FindNodesByPath(db_manager=self.db_manager),
-            GetBlameByIdTool(
+            FindSymbols(db_manager=self.db_manager),
+            SearchDocumentation(
+                db_manager=self.db_manager,
+                company_id=self.config.company_id,
+                repo_id=self.config.repo_id,
+            ),
+            GetCodeAnalysis(db_manager=self.db_manager),
+            GetExpandedContext(
+                db_manager=self.db_manager,
+                company_id=self.config.company_id,
+            ),
+            GetBlameInfo(
                 db_manager=self.db_manager,
                 repo_owner="",  # Will be configured via environment
                 repo_name="",  # Will be configured via environment
             ),
-            GetCodeByIdTool(db_manager=self.db_manager),
+            GetDependencyGraph(db_manager=self.db_manager),
+            # Keep additional tools for backward compatibility
             GetCommitByIdTool(db_manager=self.db_manager),
             GetFileContextByIdTool(db_manager=self.db_manager),
             GetNodeWorkflowsTool(db_manager=self.db_manager),  # type: ignore[arg-type]
-            GetRelationshipFlowchart(db_manager=self.db_manager),
         ]
 
         # Wrap each tool for MCP

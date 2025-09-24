@@ -25,22 +25,19 @@ class VectorSearchInput(BaseModel):
     top_k: int = Field(default=5, description="Number of top results to return (default: 5)", ge=1, le=20)
 
 
-class SearchDocumentationVectorTool(BaseTool):
+class SearchDocumentation(BaseTool):
     """Tool for searching documentation nodes using vector similarity."""
 
-    name: str = "search_documentation_vector"
+    name: str = "search_documentation"
     description: str = (
-        "Search documentation nodes using semantic similarity. "
-        "The codebase is structured as a graph with nodes representing classes, functions, files, and folders. "
-        "Each node has natural language documentation that describes its purpose and functionality. "
-        "This tool searches these documentation descriptions to find semantically related code nodes "
-        "based on meaning rather than exact keywords. "
-        "Returns top-k most similar documentation nodes with relevance scores."
+        "Semantic search through AI-generated documentation for all symbols. "
+        "Returns relevant symbols with reference IDs (tool handles), "
+        "file paths, and documentation summaries."
     )
 
     args_schema: type[BaseModel] = VectorSearchInput  # type: ignore[assignment]
 
-    db_manager: AbstractDbManager = Field(description="Neo4j manager for database queries")
+    db_manager: AbstractDbManager = Field(description="Database manager for queries")
     company_id: str = Field(description="Company/entity ID for data isolation")
     repo_id: str = Field(description="Repository ID for filtering results")
 

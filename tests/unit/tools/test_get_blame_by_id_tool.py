@@ -6,11 +6,11 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from blarify.tools.get_blame_by_id_tool import GetBlameByIdTool
+from blarify.tools.get_blame_info import GetBlameInfo
 
 
 class TestGetBlameByIdTool:
-    """Test suite for GetBlameByIdTool."""
+    """Test suite for GetBlameInfo (formerly GetBlameByIdTool)."""
 
     @pytest.fixture
     def mock_db_manager(self) -> Mock:
@@ -18,9 +18,9 @@ class TestGetBlameByIdTool:
         return Mock()
 
     @pytest.fixture
-    def tool(self, mock_db_manager: Mock) -> GetBlameByIdTool:
+    def tool(self, mock_db_manager: Mock) -> GetBlameInfo:
         """Create a GetBlameByIdTool instance with mocked dependencies."""
-        return GetBlameByIdTool(
+        return GetBlameInfo(
             db_manager=mock_db_manager,
             repo_owner="test-owner",
             repo_name="test-repo",
@@ -86,7 +86,7 @@ class TestGetBlameByIdTool:
 
     def test_run_with_existing_blame_data(
         self,
-        tool: GetBlameByIdTool,
+        tool: GetBlameInfo,
         mock_db_manager: Mock,
         sample_node_info: Dict[str, Any],
         sample_blame_data: List[Dict[str, Any]],
@@ -99,7 +99,7 @@ class TestGetBlameByIdTool:
         ]
 
         # Run the tool
-        result = tool._run(node_id="a" * 32)
+        result = tool._run(reference_id="a" * 32)
 
         # Verify the output format
         assert "Git Blame for: get_reference_type (FUNCTION)" in result
@@ -129,7 +129,7 @@ class TestGetBlameByIdTool:
 
     def test_run_with_no_existing_blame_creates_integration(
         self,
-        tool: GetBlameByIdTool,
+        tool: GetBlameInfo,
         mock_db_manager: Mock,
         sample_node_info: Dict[str, Any],
         sample_blame_data: List[Dict[str, Any]],
@@ -165,7 +165,7 @@ class TestGetBlameByIdTool:
 
     def test_run_with_node_not_found(
         self,
-        tool: GetBlameByIdTool,
+        tool: GetBlameInfo,
         mock_db_manager: Mock,
     ) -> None:
         """Test handling when node is not found."""
@@ -181,7 +181,7 @@ class TestGetBlameByIdTool:
 
     def test_run_with_no_code(
         self,
-        tool: GetBlameByIdTool,
+        tool: GetBlameInfo,
         mock_db_manager: Mock,
     ) -> None:
         """Test handling when node has no code."""
@@ -223,7 +223,7 @@ class TestGetBlameByIdTool:
 
     def test_calculate_author_lines(
         self,
-        tool: GetBlameByIdTool,
+        tool: GetBlameInfo,
         sample_blame_data: List[Dict[str, Any]],
     ) -> None:
         """Test calculation of lines per author."""
@@ -236,7 +236,7 @@ class TestGetBlameByIdTool:
 
     def test_build_line_blame_map(
         self,
-        tool: GetBlameByIdTool,
+        tool: GetBlameInfo,
         sample_blame_data: List[Dict[str, Any]],
     ) -> None:
         """Test building line-to-blame mapping."""
@@ -322,7 +322,7 @@ class TestGetBlameByIdTool:
 
     def test_exception_handling(
         self,
-        tool: GetBlameByIdTool,
+        tool: GetBlameInfo,
         mock_db_manager: Mock,
     ) -> None:
         """Test exception handling in _run method."""

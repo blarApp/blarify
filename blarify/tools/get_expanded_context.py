@@ -4,7 +4,9 @@ from typing import Any, Dict, Optional
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
+
+from blarify.tools.utils import resolve_reference_id
 
 
 # Pydantic Response Models (replacement for blarify DTOs)
@@ -195,18 +197,29 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
     return relation_str
 
 
-class NodeIdInput(BaseModel):
-    node_id: str = Field(
-        description="The node id (an UUID like hash id) of the node to get the code and/or the diff text."
+class FlexibleInput(BaseModel):
+    reference_id: Optional[str] = Field(
+        None,
+        description="Reference ID (32-char handle) for the symbol"
+    )
+    file_path: Optional[str] = Field(
+        None,
+        description="Path to the file containing the symbol"
+    )
+    symbol_name: Optional[str] = Field(
+        None,
+        description="Name of the function/class/method"
     )
 
-    @field_validator("node_id", mode="before")
-    @classmethod
-    def format_node_id(cls, value: Any) -> Any:
-        if isinstance(value, str) and len(value) == 32:
-            return value
-        error_msg = "Node id must be a 32 character string UUID like hash id"
-        raise ValueError(error_msg)
+    @model_validator(mode='after')
+    def validate_inputs(self):
+        if self.reference_id:
+            if len(self.reference_id) != 32:
+                raise ValueError("Reference ID must be a 32 character string")
+            return self
+        if not (self.file_path and self.symbol_name):
+            raise ValueError("Provide either reference_id OR (file_path AND symbol_name)")
+        return self
 
 
 def add_get_file_context_method(db_manager: Any) -> None:
@@ -233,13 +246,16 @@ def add_get_file_context_method(db_manager: Any) -> None:
         db_manager.get_file_context_by_id = types.MethodType(get_file_context_by_id, db_manager)
 
 
-class GetCodeWithContextTool(BaseTool):
-    name: str = "get_code_with_context"
-    description: str = "Searches for node by id in the Neo4j database and returns both the node code details and the full file context with expanded child nodes"
+class GetExpandedContext(BaseTool):
+    name: str = "get_expanded_context"
+    description: str = (
+        "Get the full file context with expanded code for deep understanding. "
+        "Includes surrounding code and embedded reference IDs for navigation."
+    )
 
-    args_schema: type[BaseModel] = NodeIdInput
+    args_schema: type[BaseModel] = FlexibleInput  # type: ignore[assignment]
 
-    db_manager: Any = Field(description="Neo4jManager object to interact with the database")
+    db_manager: Any = Field(description="Database manager for queries")
     company_id: str = Field(description="Company ID to search for in the Neo4j database")
 
     def __init__(
@@ -259,10 +275,20 @@ class GetCodeWithContextTool(BaseTool):
 
     def _run(
         self,
-        node_id: str,
+        reference_id: Optional[str] = None,
+        file_path: Optional[str] = None,
+        symbol_name: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Returns both node code details and file context with expanded child nodes."""
+        # Resolve the reference ID from inputs
+        node_id = resolve_reference_id(
+            self.db_manager,
+            reference_id=reference_id,
+            file_path=file_path,
+            symbol_name=symbol_name
+        )
+
         try:
             node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id(
                 node_id=node_id, company_id=self.company_id

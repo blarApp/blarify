@@ -1,14 +1,15 @@
-"""Unit tests for GetCodeByIdTool auto-generation functionality."""
+"""Unit tests for GetCodeAnalysis auto-generation functionality."""
 
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
-from blarify.tools.get_code_by_id_tool import GetCodeByIdTool, NodeSearchResultDTO
+from blarify.tools.get_code_analysis import GetCodeAnalysis
+from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 
 
-class TestGetCodeByIdToolAutoGenerate:
-    """Test suite for GetCodeByIdTool auto-generation features."""
+class TestGetCodeAnalysisAutoGenerate:
+    """Test suite for GetCodeAnalysis auto-generation features."""
 
     @pytest.fixture
     def mock_db_manager(self) -> Mock:
@@ -52,13 +53,13 @@ class TestGetCodeByIdToolAutoGenerate:
 
     def test_auto_generate_default_enabled(self, mock_db_manager: Mock) -> None:
         """Test that auto_generate is enabled by default."""
-        tool = GetCodeByIdTool(db_manager=mock_db_manager)
+        tool = GetCodeAnalysis(db_manager=mock_db_manager)
         assert tool.auto_generate_documentation is True
         assert tool._documentation_creator is not None  # type: ignore[reportPrivateUsage]
 
     def test_auto_generate_explicitly_disabled(self, mock_db_manager: Mock) -> None:
         """Test that auto_generate can be explicitly disabled."""
-        tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=False)
+        tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=False)
         assert tool.auto_generate_documentation is False
         # DocumentationCreator is still created even when auto_generate is disabled
 
@@ -76,7 +77,7 @@ class TestGetCodeByIdToolAutoGenerate:
         mock_doc_creator_instance = Mock()
         mock_doc_creator_class.return_value = mock_doc_creator_instance
 
-        tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=True)
+        tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=True)
 
         # Verify DocumentationCreator was instantiated with correct parameters
         mock_doc_creator_class.assert_called_once_with(
@@ -94,7 +95,7 @@ class TestGetCodeByIdToolAutoGenerate:
         """Test that generation is not triggered when documentation already exists."""
         mock_db_manager.get_node_by_id.return_value = mock_node_result_with_docs
 
-        tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=True)
+        tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=True)
 
         with patch.object(tool, "_generate_documentation_for_node") as mock_generate:
             result = tool._run("test_node_123")  # type: ignore[reportPrivateUsage]  # type: ignore[reportPrivateUsage]
@@ -128,7 +129,7 @@ class TestGetCodeByIdToolAutoGenerate:
             updated_result,  # Second call in _generate_documentation_for_node after generation
         ]
 
-        tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=True)
+        tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=True)
 
         result = tool._run("test_node_123")  # type: ignore[reportPrivateUsage]
 
@@ -152,7 +153,7 @@ class TestGetCodeByIdToolAutoGenerate:
             # Simulate generation failure
             mock_doc_creator_instance.create_documentation.side_effect = Exception("Generation failed")
 
-            tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=True)
+            tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=True)
 
             result = tool._run("test_node_123")  # type: ignore[reportPrivateUsage]  # type: ignore[reportPrivateUsage]
 
@@ -163,7 +164,7 @@ class TestGetCodeByIdToolAutoGenerate:
         """Test that generation is not attempted when auto_generate is False."""
         mock_db_manager.get_node_by_id.return_value = mock_node_result
 
-        tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=False)
+        tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=False)
 
         result = tool._run("test_node_123")  # type: ignore[reportPrivateUsage]
 
@@ -188,7 +189,7 @@ class TestGetCodeByIdToolAutoGenerate:
             mock_result.error = None
             mock_doc_creator_instance.create_documentation.return_value = mock_result
 
-            tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=True)
+            tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=True)
 
             result = tool._run("test_node_123")  # type: ignore[reportPrivateUsage]  # type: ignore[reportPrivateUsage]
 
@@ -210,7 +211,7 @@ class TestGetCodeByIdToolAutoGenerate:
             mock_result.error = None
             mock_doc_creator_instance.create_documentation.return_value = mock_result
 
-            tool = GetCodeByIdTool(db_manager=mock_db_manager, auto_generate_documentation=True)
+            tool = GetCodeAnalysis(db_manager=mock_db_manager, auto_generate_documentation=True)
 
             result = tool._run("test_node_123")  # type: ignore[reportPrivateUsage]  # type: ignore[reportPrivateUsage]
 

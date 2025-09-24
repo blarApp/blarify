@@ -31,13 +31,14 @@ class Input(BaseModel):
     )
 
 
-class FindNodesByNameAndType(BaseTool):
-    name: str = "find_nodes_by_name_and_type"
+class FindSymbols(BaseTool):
+    name: str = "find_symbols"
     description: str = (
-        "Find nodes by exact name and type in the graph database. Precise and narrow search using exact matches. "
-        "File names need to include the extension, but classes or functions only need the name."
+        "Find functions, classes, or methods by exact name. "
+        "Returns a list of matching symbols with their reference IDs "
+        "(efficient handles for other tools), file paths, and code previews."
     )
-    db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
+    db_manager: AbstractDbManager = Field(description="Database manager for queries")
 
     args_schema: type[BaseModel] = Input  # type: ignore[assignment]
 
@@ -47,7 +48,7 @@ class FindNodesByNameAndType(BaseTool):
         type: str,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> dict[str, Any] | str:
-        """Retrieves all nodes that contain the given text."""
+        """Find symbols by exact name and type."""
 
         dto_nodes = self.db_manager.get_node_by_name_and_type(
             name=name,

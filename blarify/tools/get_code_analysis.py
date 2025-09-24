@@ -4,9 +4,10 @@ from typing import Any, Optional, List
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.tools.utils import resolve_reference_id
 from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
 from blarify.repositories.graph_db_manager.dtos.edge_dto import EdgeDTO
 from blarify.graph.relationship.relationship_type import RelationshipType
@@ -17,26 +18,42 @@ logger = logging.getLogger(__name__)
 # We use DTOs directly from the database manager
 
 
-class NodeIdInput(BaseModel):
-    node_id: str = Field(
-        description="The node id (an UUID like hash id) of the node to get the code and/or the diff text."
+class FlexibleInput(BaseModel):
+    reference_id: Optional[str] = Field(
+        None,
+        description="Reference ID (32-char handle) for the symbol"
+    )
+    file_path: Optional[str] = Field(
+        None,
+        description="Path to the file containing the symbol"
+    )
+    symbol_name: Optional[str] = Field(
+        None,
+        description="Name of the function/class/method"
     )
 
-    @field_validator("node_id", mode="before")
-    @classmethod
-    def format_node_id(cls, value: Any) -> Any:
-        if isinstance(value, str) and len(value) == 32:
-            return value
-        raise ValueError("Node id must be a 32 character string UUID like hash id")
+    @model_validator(mode='after')
+    def validate_inputs(self):
+        if self.reference_id:
+            if len(self.reference_id) != 32:
+                raise ValueError("Reference ID must be a 32 character string")
+            return self
+        if not (self.file_path and self.symbol_name):
+            raise ValueError("Provide either reference_id OR (file_path AND symbol_name)")
+        return self
 
 
-class GetCodeByIdTool(BaseTool):
-    name: str = "get_code_by_id"
-    description: str = "Searches for node by id in the Neo4j database"
+class GetCodeAnalysis(BaseTool):
+    name: str = "get_code_analysis"
+    description: str = (
+        "Get complete code implementation with relationships and dependencies. "
+        "Shows which functions call this one and which ones it calls, "
+        "with reference IDs for navigation."
+    )
 
-    args_schema: type[BaseModel] = NodeIdInput  # type: ignore[assignment]
+    args_schema: type[BaseModel] = FlexibleInput  # type: ignore[assignment]
 
-    db_manager: AbstractDbManager = Field(description="Neo4jManager object to interact with the database")
+    db_manager: AbstractDbManager = Field(description="Database manager for queries")
 
     def __init__(
         self,
@@ -154,14 +171,23 @@ CODE for {node_result.node_name}:
 
     def _run(
         self,
-        node_id: str,
+        reference_id: Optional[str] = None,
+        file_path: Optional[str] = None,
+        symbol_name: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
-        """Returns a function code given a node_id. returns the node text and the neighbors of the node."""
+        """Returns code analysis for a symbol with relationships."""
         try:
-            node_result: NodeSearchResultDTO = self.db_manager.get_node_by_id(node_id=node_id)
-        except ValueError:
-            return f"No code found for the given query: {node_id}"
+            # Resolve the reference ID from inputs
+            node_id = resolve_reference_id(
+                self.db_manager,
+                reference_id=reference_id,
+                file_path=file_path,
+                symbol_name=symbol_name
+            )
+            node_result = self.db_manager.get_node_by_id(node_id=node_id)
+        except ValueError as e:
+            return f"No code found: {str(e)}"
 
         # Format the output nicely like the script example
         output = "=" * 80 + "\n"

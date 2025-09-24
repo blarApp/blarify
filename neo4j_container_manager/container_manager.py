@@ -7,6 +7,7 @@ using the Docker SDK directly for full control over configuration.
 """
 
 import asyncio
+import json
 import uuid
 from typing import Dict, List, Optional, Any
 
@@ -142,18 +143,22 @@ class Neo4jContainerManager:
 
             # Add plugins if specified
             if config.plugins:
-                plugins_str = " ".join(config.plugins)
-                environment["NEO4JLABS_PLUGINS"] = f'["{plugins_str}"]'
+                environment["NEO4J_PLUGINS"] = json.dumps(config.plugins)  # e.g. ["apoc","graph-data-science"]
+
+                # Build allowlists for APOC/GDS safely
+                allow = []
+                unrestrict = []
                 if "apoc" in config.plugins:
-                    environment["NEO4J_dbms_security_procedures_unrestricted"] = "apoc.*"
-                    environment["NEO4J_dbms_security_procedures_allowlist"] = "apoc.*"
+                    allow.append("apoc.*")
+                    unrestrict.append("apoc.*")
                 if "graph-data-science" in config.plugins:
-                    environment["NEO4J_dbms_security_procedures_unrestricted"] = (
-                        environment.get("NEO4J_dbms_security_procedures_unrestricted", "") + ",gds.*"
-                    )
-                    environment["NEO4J_dbms_security_procedures_allowlist"] = (
-                        environment.get("NEO4J_dbms_security_procedures_allowlist", "") + ",gds.*"
-                    )
+                    allow.append("gds.*")
+                    unrestrict.append("gds.*")
+
+                if allow:
+                    environment["NEO4J_dbms_security_procedures_allowlist"] = ",".join(allow)
+                if unrestrict:
+                    environment["NEO4J_dbms_security_procedures_unrestricted"] = ",".join(unrestrict)
 
             # Prepare port bindings
             ports_config = {

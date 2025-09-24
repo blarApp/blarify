@@ -22,7 +22,6 @@ from blarify.documentation.utils.bottom_up_batch_processor import (
 from blarify.graph.graph_environment import GraphEnvironment
 from tests.integration.test_helpers import (
     create_test_file_node,
-    create_test_folder_node,
     create_test_function_node,
     insert_nodes_and_edges,
     create_contains_edge,
@@ -269,8 +268,31 @@ async def test_as_completed_thread_harvesting(test_data_isolation: Dict[str, Any
 
 @pytest.mark.asyncio
 @pytest.mark.neo4j_integration
-async def test_batch_processing_maintains_bottom_up_order(test_data_isolation: Dict[str, Any]):
-    """Test that batch processing maintains bottom-up order (leaves first)."""
+async def test_batch_processing_maintains_bottom_up_order(
+    docker_check: Any,
+    test_data_isolation: Dict[str, Any],
+    test_code_examples_path,
+    graph_assertions,
+):
+    """Test that batch processing maintains bottom-up order (leaves first) with real Python code structure."""
+    from blarify.prebuilt.graph_builder import GraphBuilder
+    from blarify.graph.graph import Graph
+
+    # Use the Python examples directory that contains class_with_inheritance.py
+    python_examples_path = test_code_examples_path / "python"
+
+    # Step 1: Create GraphBuilder and build the code graph (like in the real test)
+    builder = GraphBuilder(
+        root_path=str(python_examples_path),
+        extensions_to_skip=[".pyc", ".pyo"],
+        names_to_skip=["__pycache__"],
+    )
+
+    graph = builder.build()
+    assert isinstance(graph, Graph)
+    assert graph is not None
+
+    # Step 2: Save graph to Neo4j
     db_manager = Neo4jManager(
         uri=test_data_isolation["uri"],
         user="neo4j",
@@ -279,81 +301,8 @@ async def test_batch_processing_maintains_bottom_up_order(test_data_isolation: D
         repo_id=test_data_isolation["repo_id"],
     )
 
-    # Create graph environment
-    graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path="/")
-
-    # Create proper hierarchy: Folder -> Files -> Functions
-    root_folder = create_test_folder_node(
-        path="/root",
-        name="root",
-        graph_environment=graph_env,
-    )
-
-    # Create files in the root folder
-    file1 = create_test_file_node(
-        path="/root/file1.py",
-        name="file1.py",
-        content="# File 1 content",
-        entity_id=test_data_isolation["entity_id"],
-        repo_id=test_data_isolation["repo_id"],
-        graph_environment=graph_env,
-    )
-
-    file2 = create_test_file_node(
-        path="/root/file2.py",
-        name="file2.py",
-        content="# File 2 content",
-        entity_id=test_data_isolation["entity_id"],
-        repo_id=test_data_isolation["repo_id"],
-        graph_environment=graph_env,
-    )
-
-    # Create functions inside file1 (functions are the deepest level)
-    func1 = create_test_function_node(
-        path="/root/file1.py",  # Path should be the file path, not include function name
-        name="func1",
-        content="def func1(): pass",
-        parent=file1,
-        entity_id=test_data_isolation["entity_id"],
-        repo_id=test_data_isolation["repo_id"],
-        graph_environment=graph_env,
-    )
-
-    func2 = create_test_function_node(
-        path="/root/file1.py",  # Path should be the file path, not include function name
-        name="func2",
-        content="def func2(): pass",
-        parent=file1,
-        entity_id=test_data_isolation["entity_id"],
-        repo_id=test_data_isolation["repo_id"],
-        graph_environment=graph_env,
-    )
-
-    # Create function inside file2
-    func3 = create_test_function_node(
-        path="/root/file2.py",  # Path should be the file path, not include function name
-        name="func3",
-        content="def func3(): pass",
-        parent=file2,
-        entity_id=test_data_isolation["entity_id"],
-        repo_id=test_data_isolation["repo_id"],
-        graph_environment=graph_env,
-    )
-
-    # Proper hierarchy: Folder contains Files, Files contain Functions
-    nodes = [root_folder, file1, file2, func1, func2, func3]
-    edges = [
-        # Folder contains files
-        create_contains_edge(root_folder.hashed_id, file1.hashed_id),
-        create_contains_edge(root_folder.hashed_id, file2.hashed_id),
-        # Files contain functions
-        create_contains_edge(file1.hashed_id, func1.hashed_id),
-        create_contains_edge(file1.hashed_id, func2.hashed_id),
-        create_contains_edge(file2.hashed_id, func3.hashed_id),
-    ]
-
-    # Insert nodes and edges into database
-    insert_nodes_and_edges(db_manager, nodes, edges)
+    # Save the code graph from GraphBuilder
+    db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
     # Track processing levels
     processing_levels: Dict[str, int] = {}
@@ -367,14 +316,20 @@ async def test_batch_processing_maintains_bottom_up_order(test_data_isolation: D
             # Determine level based on node hierarchy:
             # Level 0: Root folder
             # Level 1: Files
-            # Level 2: Functions (deepest/leaves)
+            # Level 2: Classes
+            # Level 3: Methods/Functions (deepest/leaves)
 
-            # Check if it's a function by looking at the name (func1, func2, func3)
-            if node_name in ["func1", "func2", "func3"]:  # Functions are the deepest level
+            # Check if it's a method/function (deepest level)
+            if node_name in ["__init__", "process", "batch_process", "create_processor", "example_usage"]:
+                level = 3
+            # Check if it's a class
+            elif node_name in ["BaseProcessor", "TextProcessor", "AdvancedTextProcessor"]:
                 level = 2
-            elif node_path.endswith(".py"):  # Files are intermediate level
+            # Check if it's a file
+            elif node_path.endswith(".py"):
                 level = 1
-            else:  # Root folder is the top level
+            # Root folder is the top level
+            else:
                 level = 0
             processing_levels[node_path] = level
             processing_order.append(node_path)
@@ -386,12 +341,23 @@ async def test_batch_processing_maintains_bottom_up_order(test_data_isolation: D
     processor = BottomUpBatchProcessor(
         db_manager=db_manager,
         agent_caller=mock_llm,
-        graph_environment=graph_env,
+        graph_environment=builder.graph_environment,  # Use the graph environment from builder
         max_workers=3,
     )
 
-    # Process the hierarchy - start from root folder
-    result = processor.process_node("/root")
+    # Process the hierarchy - start from a file we know exists
+    # Instead of processing the folder, let's process a specific file
+    # This will trigger bottom-up processing that includes the file and its contents
+
+    # Construct the node path as it would be stored in the database
+    # The node path follows the pattern: /{environment}/{diff_identifier}/relative_path
+    # Using the same graph environment as the builder
+    relative_file_path = "python/class_with_inheritance.py"
+    node_path = (
+        f"/{builder.graph_environment.environment}/{builder.graph_environment.diff_identifier}/{relative_file_path}"
+    )
+
+    result = processor.process_node(node_path)
     assert result.error is None
 
     # Verify bottom-up order: higher level nodes (leaves) processed first

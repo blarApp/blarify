@@ -513,8 +513,287 @@ class TestDocumentationCreation:
 
             assert embedding_size == 1536, f"Expected embedding size 1536, got {embedding_size}"
 
-            print(f"\\n✓ Successfully added embeddings to {embedded_count} existing documentation nodes")
-            print(f"✓ Each embedding has {embedding_size} dimensions (text-embedding-ada-002)")
+        # Clean up
+        db_manager.close()
+
+    async def test_parent_nodes_aggregate_child_documentation(
+        self,
+        docker_check: Any,
+        test_data_isolation: Dict[str, Any],
+        test_code_examples_path: Path,
+        graph_assertions: GraphAssertions,
+    ) -> None:
+        """
+        Test that parent nodes properly aggregate documentation from their children.
+
+        This test verifies that:
+        - Folder nodes receive summaries of their file children
+        - File nodes receive descriptions of their classes and functions
+        - Class nodes receive descriptions of their methods
+        - The _create_child_descriptions_summary method is called with correct parameters
+        """
+        # Use the Python examples directory which has rich hierarchy
+        python_examples_path = test_code_examples_path / "python"
+
+        # Step 1: Create GraphBuilder and build the code graph
+        builder = GraphBuilder(
+            root_path=str(python_examples_path),
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+        )
+
+        graph = builder.build()
+        assert isinstance(graph, Graph)
+        assert graph is not None
+
+        # Step 2: Save graph to Neo4j
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password="test-password",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
+        )
+
+        # Save the code graph
+        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+
+        # Step 3: Create mock LLM provider with hierarchy-aware responses
+        def hierarchy_aware_response(input_dict: Dict[str, Any]) -> str:
+            """Return unique, traceable descriptions based on node type and name."""
+            node_name = input_dict.get("node_name", "")
+            node_path = input_dict.get("node_path", "")
+            node_labels = input_dict.get("node_labels", "")
+
+            # Return specific descriptions for known nodes
+            if "BaseProcessor" == node_name:
+                return "Abstract base class for all processors with template method pattern"
+            elif "TextProcessor" == node_name and "CLASS" in node_labels:
+                return "Concrete text processor implementation with prefix support"
+            elif "AdvancedTextProcessor" == node_name:
+                return "Advanced processor extending TextProcessor with suffix support"
+            elif "create_processor" == node_name:
+                return "Factory function for creating processor instances"
+            elif "example_usage" in node_name:
+                return "Example demonstrating processor usage"
+            elif "process" in node_name and "FUNCTION" in node_labels:
+                if "batch" in node_name:
+                    return "Method for batch processing multiple items"
+                else:
+                    return "Core method for processing single data items"
+            elif "get_name" in node_name:
+                return "Method to retrieve processor name"
+            elif "__init__" in node_name:
+                return f"Constructor for {node_path.split('/')[-1].split('.')[0]}"
+            elif "class_with_inheritance.py" in node_path:
+                return "Python module demonstrating class inheritance patterns"
+            elif "simple_module.py" in node_path:
+                return "Simple Python module with basic functionality"
+            elif "imports_example.py" in node_path:
+                return "Module showing various import patterns"
+            elif "urls_example.py" in node_path:
+                return "Django-style URL configuration module"
+            elif "FOLDER" in node_labels:
+                return f"Directory containing Python modules at {node_path}"
+            else:
+                return f"Generic documentation for {node_name} at {node_path}"
+
+        llm_provider = make_llm_mock(dumb_response=hierarchy_aware_response)
+
+        # Step 4: Spy on key methods to verify they're called correctly
+        from unittest.mock import patch
+        from blarify.documentation.utils.bottom_up_batch_processor import BottomUpBatchProcessor
+
+        # Store original methods
+        original_summary = BottomUpBatchProcessor._create_child_descriptions_summary  # type: ignore[attr-defined]
+        original_replace = BottomUpBatchProcessor._replace_skeleton_comments_with_descriptions  # type: ignore[attr-defined]
+
+        summary_calls_capture: List[Dict[str, Any]] = []
+        replace_calls_capture: List[Dict[str, Any]] = []
+
+        def capture_summary_call(self: Any, child_descriptions: List[Any]) -> str:
+            """Wrapper to capture calls while still executing the method."""
+            summary_calls_capture.append(
+                {
+                    "child_descriptions": child_descriptions,
+                    "child_names": [d.source_name for d in child_descriptions],
+                    "child_paths": [d.source_path for d in child_descriptions],
+                    "child_contents": [d.content for d in child_descriptions],
+                }
+            )
+            return original_summary(self, child_descriptions)
+
+        def capture_replace_call(self: Any, parent_content: str, child_descriptions: List[Any]) -> str:
+            """Wrapper to capture calls while still executing the method."""
+            replace_calls_capture.append(
+                {
+                    "parent_content_snippet": parent_content[:100] if parent_content else None,
+                    "child_descriptions": child_descriptions,
+                    "child_names": [d.source_name for d in child_descriptions],
+                    "child_contents": [d.content for d in child_descriptions],
+                }
+            )
+            return original_replace(self, parent_content, child_descriptions)
+
+        # Patch the methods
+        with patch.object(BottomUpBatchProcessor, "_create_child_descriptions_summary", capture_summary_call):
+            with patch.object(
+                BottomUpBatchProcessor, "_replace_skeleton_comments_with_descriptions", capture_replace_call
+            ):
+                # Create DocumentationCreator
+                doc_creator = DocumentationCreator(
+                    db_manager=db_manager,
+                    agent_caller=llm_provider,
+                    graph_environment=builder.graph_environment,
+                )
+
+                # Generate documentation
+                result = doc_creator.create_documentation()
+
+                # Verify documentation was created successfully
+                assert result is not None
+                assert result.error is None, f"Documentation creation failed: {result.error}"
+
+        # Step 5: Verify _create_child_descriptions_summary was called for folders
+        # Should have at least one folder call (the python folder)
+        assert len(summary_calls_capture) > 0, "Should have called _create_child_descriptions_summary for folder nodes"
+
+        # Find the python folder call
+        python_folder_calls = [
+            call
+            for call in summary_calls_capture
+            if any("class_with_inheritance.py" in name for name in call["child_names"])
+        ]
+
+        assert len(python_folder_calls) > 0, "Should have processed the python folder"
+
+        # Verify the content of the python folder call
+        python_folder_call = python_folder_calls[0]
+
+        # Check that all expected files are present as children
+        expected_files = ["class_with_inheritance.py", "simple_module.py", "imports_example.py", "urls_example.py"]
+        for expected_file in expected_files:
+            assert expected_file in python_folder_call["child_names"], f"Missing {expected_file} in folder children"
+
+        # Verify the descriptions match our mock responses
+        for idx, child_name in enumerate(python_folder_call["child_names"]):
+            child_content = python_folder_call["child_contents"][idx]
+            if "class_with_inheritance.py" in child_name:
+                assert "inheritance patterns" in child_content, f"Wrong content for {child_name}"
+            elif "simple_module.py" in child_name:
+                assert "basic functionality" in child_content, f"Wrong content for {child_name}"
+            elif "imports_example.py" in child_name:
+                assert "import patterns" in child_content, f"Wrong content for {child_name}"
+            elif "urls_example.py" in child_name:
+                assert "Django" in child_content or "URL configuration" in child_content, (
+                    f"Wrong content for {child_name}"
+                )
+
+        # Step 6: Verify _replace_skeleton_comments_with_descriptions for files
+        # Find calls for class_with_inheritance.py
+        class_file_calls = [
+            call
+            for call in replace_calls_capture
+            if "BaseProcessor" in call["child_names"] and "TextProcessor" in call["child_names"]
+        ]
+
+        assert len(class_file_calls) > 0, "Should have processed class_with_inheritance.py file"
+
+        class_file_call = class_file_calls[0]
+
+        # Verify all classes and functions are present
+        expected_entities = [
+            "BaseProcessor",
+            "TextProcessor",
+            "AdvancedTextProcessor",
+            "create_processor",
+            "example_usage",
+        ]
+        for entity in expected_entities:
+            assert entity in class_file_call["child_names"], f"Missing {entity} in file children"
+
+        # Verify specific content
+        for idx, child_name in enumerate(class_file_call["child_names"]):
+            child_content = class_file_call["child_contents"][idx]
+            if child_name == "BaseProcessor":
+                assert "Abstract base class" in child_content and "template method" in child_content
+            elif child_name == "TextProcessor":
+                assert "Concrete text processor" in child_content and "prefix" in child_content
+            elif child_name == "AdvancedTextProcessor":
+                assert "Advanced processor" in child_content and "suffix" in child_content
+            elif child_name == "create_processor":
+                assert "Factory function" in child_content
+            elif child_name == "example_usage":
+                assert "Example demonstrating" in child_content
+
+        # Step 7: Verify class documentation includes methods
+        # Find calls for TextProcessor class
+        text_processor_calls = [
+            call
+            for call in replace_calls_capture
+            if "process" in call["child_names"] and "batch_process" in call["child_names"]
+        ]
+
+        assert len(text_processor_calls) > 0, "Should have processed TextProcessor class with its methods"
+
+        text_processor_call = text_processor_calls[0]
+
+        # Verify methods are included
+        expected_methods = ["__init__", "process", "batch_process"]
+        for method in expected_methods:
+            assert method in text_processor_call["child_names"], f"Missing {method} in TextProcessor methods"
+
+        # Verify method descriptions
+        for idx, child_name in enumerate(text_processor_call["child_names"]):
+            child_content = text_processor_call["child_contents"][idx]
+            if child_name == "process":
+                assert "processing single data" in child_content
+            elif child_name == "batch_process":
+                assert "batch processing multiple" in child_content
+            elif child_name == "__init__":
+                assert "Constructor" in child_content
+
+        # Step 8: Query database to verify final documentation structure
+        # Check folder documentation
+        folder_docs = await test_data_isolation["container"].execute_cypher("""
+            MATCH (f:FOLDER)
+            OPTIONAL MATCH (d:DOCUMENTATION)-[:DESCRIBES]->(f)
+            RETURN f.name as name, d.content as content, d.children_count as children_count
+        """)
+
+        for doc in folder_docs:
+            if doc["name"] == "python":
+                assert doc["children_count"] >= 4, (
+                    f"Python folder should have at least 4 children, got {doc['children_count']}"
+                )
+                assert "Python modules" in doc["content"], "Folder documentation should mention Python modules"
+
+        # Check file documentation
+        file_docs = await test_data_isolation["container"].execute_cypher("""
+            MATCH (f:FILE {name: 'class_with_inheritance.py'})
+            OPTIONAL MATCH (d:DOCUMENTATION)-[:DESCRIBES]->(f)
+            RETURN f.name as name, d.content as content, d.children_count as children_count
+        """)
+
+        assert len(file_docs) > 0, "Should have documentation for class_with_inheritance.py"
+        file_doc = file_docs[0]
+        assert file_doc["children_count"] >= 5, (
+            f"File should have at least 5 children (3 classes + 2 functions), got {file_doc['children_count']}"
+        )
+
+        # Check class documentation
+        class_docs = await test_data_isolation["container"].execute_cypher("""
+            MATCH (c:CLASS {name: 'TextProcessor'})
+            OPTIONAL MATCH (d:DOCUMENTATION)-[:DESCRIBES]->(c)
+            RETURN c.name as name, d.content as content, d.children_count as children_count
+        """)
+
+        assert len(class_docs) > 0, "Should have documentation for TextProcessor class"
+        class_doc = class_docs[0]
+        assert class_doc["children_count"] >= 3, (
+            f"TextProcessor should have at least 3 methods, got {class_doc['children_count']}"
+        )
+        assert "Concrete text processor" in class_doc["content"], "Class documentation should have correct content"
 
         # Clean up
         db_manager.close()

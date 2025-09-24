@@ -187,6 +187,11 @@ def create_function_definition_edge(parent_node_id: str, child_node_id: str) -> 
     return {"type": "FUNCTION_DEFINITION", "sourceId": parent_node_id, "targetId": child_node_id}
 
 
+def create_class_definition_edge(parent_node_id: str, child_node_id: str) -> Dict[str, Any]:
+    """Create a CLASS_DEFINITION relationship between two nodes."""
+    return {"type": "CLASS_DEFINITION", "sourceId": parent_node_id, "targetId": child_node_id}
+
+
 def create_calls_edge(caller_node_id: str, callee_node_id: str) -> Dict[str, Any]:
     """Create a CALLS relationship between two function nodes."""
     return {"type": "CALLS", "sourceId": caller_node_id, "targetId": callee_node_id}

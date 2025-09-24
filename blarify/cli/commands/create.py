@@ -193,7 +193,7 @@ async def spawn_or_get_neo4j_container() -> Neo4jContainerInstance:
         password=creds["password"],
         username="neo4j",
         neo4j_version="5.25.1",
-        plugins=["apoc", "graph-data-science"],
+        plugins=["apoc", "gds"],
         custom_config={
             "dbms.security.procedures.unrestricted": "apoc.*,gds.*",
             "dbms.security.procedures.allowlist": "apoc.*,gds.*",
@@ -500,11 +500,7 @@ def execute(args: Namespace) -> int:
 
     # Save project configuration for MCP server
     try:
-        ProjectConfig.save_project_config(
-            repo_id=repo_id,
-            entity_id=args.entity_id,
-            neo4j_uri=args.neo4j_uri
-        )
+        ProjectConfig.save_project_config(repo_id=repo_id, entity_id=args.entity_id, neo4j_uri=args.neo4j_uri)
     except Exception as e:
         console.print(f"[yellow]Warning:[/yellow] Failed to save project configuration: {e}")
 

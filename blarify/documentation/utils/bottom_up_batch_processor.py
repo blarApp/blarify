@@ -20,17 +20,16 @@ from blarify.agents.prompt_templates import (
     LEAF_NODE_ANALYSIS_TEMPLATE,
     PARENT_NODE_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
-    FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE,
 )
 from blarify.documentation.queries.batch_processing_queries import (
     get_child_descriptions_query,
     get_leaf_nodes_under_node_query,
+    get_remaining_pending_functions_query,
 )
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.dtos.node_with_content_dto import NodeWithContentDto
 from blarify.repositories.graph_db_manager.queries import (
     get_node_by_path,
-    detect_function_cycles,
 )
 from blarify.graph.node.documentation_node import DocumentationNode
 from blarify.graph.relationship.relationship_creator import RelationshipCreator
@@ -180,9 +179,9 @@ class BottomUpBatchProcessor:
 
         total_processed = 0
         max_iterations = 1000  # Safety limit
-        iteration = 0
 
-        # process all leaf nodes first
+        # Phase 1: Process all leaf nodes first
+        iteration = 0
         while iteration < max_iterations:
             iteration += 1
 
@@ -191,32 +190,51 @@ class BottomUpBatchProcessor:
             if leaf_count == 0:
                 break
             total_processed += leaf_count
+            logger.debug(f"Processed {leaf_count} leaf nodes in iteration {iteration}")
 
+        # Phase 2: Process parent nodes and handle cycles
         iteration = 0
+        consecutive_stuck_iterations = 0
 
-        # Then process parent nodes with descriptions
         while iteration < max_iterations:
             iteration += 1
 
-            # Then process parent nodes with descriptions
+            # Try to process parent nodes with completed children
             parent_count = self._process_parent_batch(root_node)
             if parent_count > 0:
                 total_processed += parent_count
+                consecutive_stuck_iterations = 0  # Reset stuck counter
+                logger.debug(f"Processed {parent_count} parent nodes in iteration {iteration}")
                 continue
 
             # Check if any nodes remain
             if not self._has_pending_nodes(root_node):
+                logger.debug("No pending nodes remaining")
                 break
 
-            # If we have pending nodes but can't process them, there might be a cycle issue
-            # This could also mean the root node is the only one left
-            logger.warning(f"Iteration {iteration}: Pending nodes exist but none processable - checking for root node")
-            break
+            # If we're stuck (no parents processable but nodes remain),
+            # process remaining functions (likely in cycles)
+            consecutive_stuck_iterations += 1
 
-        # Process root node
+            if consecutive_stuck_iterations >= 2:
+                # Process remaining functions with whatever descriptions are available
+                logger.info("Detected potential cycles - processing remaining functions")
+                remaining_count = self._process_remaining_functions_batch(root_node)
+
+                if remaining_count > 0:
+                    total_processed += remaining_count
+                    consecutive_stuck_iterations = 0  # Reset after progress
+                    logger.debug(f"Processed {remaining_count} remaining functions")
+                else:
+                    # No functions left, might just be the root node
+                    logger.debug("No remaining functions to process")
+                    break
+
+        # Phase 3: Process root node if needed
         root_count = self._process_root_node(root_node)
         if root_count > 0:
             total_processed += root_count
+            logger.debug("Processed root node")
 
         return total_processed
 
@@ -331,6 +349,84 @@ class BottomUpBatchProcessor:
                         documentation_nodes.append(doc_node)
                 except Exception as e:
                     logger.error(f"Error processing parent node: {e}")
+
+        # Save batch immediately
+        if documentation_nodes:
+            self._save_documentation_batch(documentation_nodes)
+
+        return len(batch_results)
+
+    def _process_remaining_functions_batch(self, root_node: NodeWithContentDto) -> int:
+        """
+        Process remaining FUNCTION nodes that may be in cycles.
+
+        This method processes functions without requiring all their children to be completed,
+        using whatever child descriptions are available.
+        """
+        # Get remaining functions from database
+        query = get_remaining_pending_functions_query()
+        params = {
+            "run_id": self.processing_run_id,
+            "batch_size": self.batch_size,
+            "root_node_id": root_node.id,
+        }
+
+        batch_results = self.db_manager.query(query, params)
+        if not batch_results:
+            return 0
+
+        logger.debug(f"Processing {len(batch_results)} remaining functions (potential cycles)")
+
+        # Process batch with thread pool
+        documentation_nodes = []
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
+
+            for node_data in batch_results:
+                # Extract node info
+                node = NodeWithContentDto(
+                    id=node_data["id"],
+                    name=node_data["name"],
+                    labels=node_data["labels"],
+                    path=node_data["path"],
+                    start_line=node_data.get("start_line"),
+                    end_line=node_data.get("end_line"),
+                    content=node_data.get("content", ""),
+                )
+
+                # Extract child descriptions (may be incomplete due to cycles)
+                hier_descriptions = node_data.get("hier_descriptions", [])
+                call_descriptions = node_data.get("call_descriptions", [])
+
+                # Convert descriptions to DocumentationNode-like objects for processing
+                child_descriptions = []
+                for desc in hier_descriptions + call_descriptions:
+                    if desc and desc.get("description"):
+                        # Create minimal DocumentationNode for child context
+                        child_doc = DocumentationNode(
+                            content=desc["description"],
+                            info_type="child_description",
+                            source_path=desc.get("path", ""),
+                            source_name=desc.get("name", ""),
+                            source_id=desc.get("id", ""),
+                            source_labels=desc.get("labels", []),
+                            source_type="child",
+                            graph_environment=self.graph_environment,
+                        )
+                        child_descriptions.append(child_doc)
+
+                # Reuse _process_parent_node for processing (no special cycle handling)
+                future = executor.submit(self._process_parent_node, node, child_descriptions)
+                futures.append((future, node.id))
+
+            # Harvest results
+            for future in as_completed([f[0] for f in futures]):
+                try:
+                    doc_node = future.result(timeout=30)
+                    if doc_node:
+                        documentation_nodes.append(doc_node)
+                except Exception as e:
+                    logger.error(f"Error processing remaining function: {e}")
 
         # Save batch immediately
         if documentation_nodes:
@@ -519,33 +615,18 @@ class BottomUpBatchProcessor:
             if is_function_with_calls:
                 # Use function calls context for functions
                 child_calls_context = self._create_function_calls_context(child_descriptions)
-                # Check for cycles
-                cycles = detect_function_cycles(self.db_manager, node.id)
 
-                if cycles:
-                    system_prompt, input_prompt = FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE.get_prompts()
-                    cycle_participants = self._format_cycle_participants(cycles)
-                    prompt_dict = {
-                        "node_name": node.name,
-                        "node_labels": " | ".join(node.labels),
-                        "node_path": node.path,
-                        "start_line": str(node.start_line) if node.start_line else "Unknown",
-                        "end_line": str(node.end_line) if node.end_line else "Unknown",
-                        "node_content": node.content or "",
-                        "cycle_participants": cycle_participants,
-                        "child_calls_context": child_calls_context,
-                    }
-                else:
-                    system_prompt, input_prompt = FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE.get_prompts()
-                    prompt_dict = {
-                        "node_name": node.name,
-                        "node_labels": " | ".join(node.labels),
-                        "node_path": node.path,
-                        "start_line": str(node.start_line) if node.start_line else "Unknown",
-                        "end_line": str(node.end_line) if node.end_line else "Unknown",
-                        "node_content": node.content or "",
-                        "child_calls_context": child_calls_context,
-                    }
+                # Always use FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE (no cycle checking)
+                system_prompt, input_prompt = FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE.get_prompts()
+                prompt_dict = {
+                    "node_name": node.name,
+                    "node_labels": " | ".join(node.labels),
+                    "node_path": node.path,
+                    "start_line": str(node.start_line) if node.start_line else "Unknown",
+                    "end_line": str(node.end_line) if node.end_line else "Unknown",
+                    "node_content": node.content or "",
+                    "child_calls_context": child_calls_context,
+                }
             else:
                 # Parent node (class, file, folder)
                 system_prompt, input_prompt = PARENT_NODE_ANALYSIS_TEMPLATE.get_prompts()
@@ -664,18 +745,6 @@ class BottomUpBatchProcessor:
             context_parts.append(f"- **{function_name}**: {desc.content}")
 
         return "\nCalled functions and dependencies:\n" + "\n".join(context_parts)
-
-    def _format_cycle_participants(self, cycles: List[List[str]]) -> str:
-        """Format cycle information for LLM analysis."""
-        if not cycles:
-            return "No cycles detected"
-
-        cycle_info = []
-        for i, cycle in enumerate(cycles):
-            cycle_str = " -> ".join(cycle)
-            cycle_info.append(f"Cycle {i + 1}: {cycle_str}")
-
-        return "; ".join(cycle_info)
 
     def _replace_skeleton_comments_with_descriptions(
         self, parent_content: str, child_descriptions: List[DocumentationNode]

@@ -5,13 +5,14 @@ from typing import LiteralString
 
 def get_leaf_nodes_batch_query() -> LiteralString:
     """
-    Get batch of leaf nodes (FUNCTION nodes with no CALLS or FILE nodes with no children).
+    Get batch of leaf nodes (FUNCTION nodes with no CALLS, FILE nodes with no children, or FOLDER nodes with no children).
 
     Returns nodes that:
     - Have no processing_status (implicitly pending)
     - Are either:
       - FUNCTION nodes with no outgoing CALLS relationships
       - FILE nodes with no FUNCTION_DEFINITION, CLASS_DEFINITION relationships and no CALLS
+      - FOLDER nodes with no CONTAINS relationships
     - Sets them to in_progress and assigns run_id before returning
     """
     return """
@@ -21,10 +22,18 @@ def get_leaf_nodes_batch_query() -> LiteralString:
         // FUNCTION nodes with no calls
         ('FUNCTION' IN labels(n) AND NOT (n)-[:CALLS]->(:NODE))
         OR
+        ('CLASS' IN labels(n) 
+          AND NOT (n)-[:CALLS]->(:NODE)
+          AND NOT (n)-[:FUNCTION_DEFINITION|CLASS_DEFINITION]->(:NODE))
+        OR
         // FILE nodes with no hierarchical children and no calls
         ('FILE' IN labels(n) 
          AND NOT (n)-[:FUNCTION_DEFINITION|CLASS_DEFINITION]->(:NODE)
          AND NOT (n)-[:CALLS]->(:NODE))
+        OR
+        // FOLDER nodes with no hierarchical children
+        ('FOLDER' IN labels(n) 
+         AND NOT (n)-[:CONTAINS]->(:NODE))
       )
     WITH n LIMIT $batch_size
     SET n.processing_status = 'in_progress',
@@ -48,7 +57,7 @@ def get_processable_nodes_with_descriptions_query() -> LiteralString:
     """
     return """
     MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
-    MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL*1..]->(n:NODE)
+    MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL*0..]->(n:NODE)
     WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id) AND NOT n:DOCUMENTATION
 
     // Check hierarchy children are all processed
@@ -57,7 +66,7 @@ def get_processable_nodes_with_descriptions_query() -> LiteralString:
     WHERE ALL(child IN hier_children WHERE child.processing_status = 'completed' AND child.processing_run_id = $run_id)
     
     // Check call stack children are all processed (for functions)
-    OPTIONAL MATCH (n)-[:CALLS|USES]->(call_child:NODE)
+    OPTIONAL MATCH (n)-[:CALLS]->(call_child:NODE)
     WITH n, hier_children, collect(DISTINCT call_child) as call_children
     WHERE ALL(child IN call_children WHERE child.processing_status = 'completed' AND child.processing_run_id = $run_id)
 
@@ -141,6 +150,7 @@ def get_leaf_nodes_under_node_query() -> LiteralString:
     Leaf definition mirrors get_leaf_nodes_batch_query:
     - FUNCTION nodes with no outgoing CALLS relationships
     - FILE nodes with no FUNCTION_DEFINITION, CLASS_DEFINITION children and no CALLS
+    - FOLDER nodes with no CONTAINS children
 
     Scope is limited to descendants of the provided root node within the same
     entity/repo. This query does not update processing state.
@@ -160,6 +170,10 @@ def get_leaf_nodes_under_node_query() -> LiteralString:
                 ('FILE' IN labels(n)
                  AND NOT (n)-[:FUNCTION_DEFINITION|CLASS_DEFINITION]->(:NODE)
                  AND NOT (n)-[:CALLS]->(:NODE))
+                OR
+                // FOLDER nodes with no hierarchical children
+                ('FOLDER' IN labels(n) 
+                 AND NOT (n)-[:CONTAINS]->(:NODE))
             )
         WITH n LIMIT $batch_size
         SET n.processing_status = 'in_progress',

@@ -29,7 +29,7 @@ The workhorse component that:
 - Processes nodes in bottom-up order using database queries
 - Handles parallel processing with thread pool management
 - Prevents memory exhaustion through batch-based approach
-- Manages cycle detection for recursive functions
+- Handles cycles implicitly through stuck detection mechanism
 
 #### 3. Query-Based Processing (`queries/batch_processing_queries.py`)
 Database queries for:
@@ -102,11 +102,12 @@ The system uses two navigation strategies based on node type:
 - Automatic fallback to sequential processing when at capacity
 - Per-node futures for coordination between threads
 
-#### Cycle Detection and Handling
-- Detects function call cycles (`recursive_dfs_processor.py:536-547`)
-- Special handling for recursive functions
-- Provides cycle context to LLM for better analysis
-- Prevents infinite recursion through path tracking
+#### Cycle Handling (Implicit)
+- Automatically detects when processing is stuck due to cycles
+- Uses consecutive stuck iteration counter to identify circular dependencies
+- Forces processing of remaining functions with partial context when cycles detected
+- All functions treated uniformly without special cycle templates
+- Prevents infinite loops through three-phase processing algorithm
 
 #### Skeleton Comment Replacement
 - Replaces skeleton comments with LLM descriptions (`recursive_dfs_processor.py:716-761`)
@@ -153,6 +154,25 @@ class DocumentationResult:
 
 ## Processing Pipeline
 
+### Query-Based Batch Processing Algorithm
+
+The BottomUpBatchProcessor uses a three-phase algorithm to handle all code structures including cycles:
+
+**Phase 1: Process Leaf Nodes**
+- Process all leaf nodes (functions without calls, empty files/folders)
+- Continue until no more leaf nodes remain
+
+**Phase 2: Process Parents and Handle Cycles**
+- Attempt to process parent nodes with completed children
+- Track consecutive iterations without progress
+- When stuck for 2+ iterations (likely cycles):
+  - Process remaining FUNCTION nodes with whatever child descriptions are available
+  - This unblocks the processing pipeline
+- Continue until all nodes are processed
+
+**Phase 3: Process Root Node**
+- Process the root node with all child descriptions
+
 ### 1. Entry Point Discovery
 ```python
 # For targeted documentation
@@ -183,7 +203,6 @@ Different templates for different node types:
 - **LEAF_NODE_ANALYSIS_TEMPLATE**: For nodes without children
 - **PARENT_NODE_ANALYSIS_TEMPLATE**: For nodes with hierarchical children
 - **FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE**: For functions calling others
-- **FUNCTION_WITH_CYCLE_ANALYSIS_TEMPLATE**: For recursive functions
 
 ### 4. Parallel Processing Strategy
 
@@ -309,10 +328,11 @@ def process_blarify_documentation(graph_manager, entity_id, repoId, root_path):
 - Prevents hanging on complex analyses
 - Returns error descriptions when timeout occurs
 
-### Cycle Prevention
-- Detects processing path cycles
-- Filters recursive calls from children
-- Provides cycle context to LLM
+### Cycle Handling
+- No explicit cycle detection needed
+- Stuck detection mechanism identifies when cycles block progress
+- Forces processing with partial context to break deadlocks
+- Ensures all nodes eventually get processed
 
 ## Configuration
 
@@ -382,9 +402,9 @@ result = doc_creator.create_documentation(
 **Symptom**: Out of memory errors
 **Solution**: Process in smaller batches using targeted mode
 
-#### Cycle Detection Performance
-**Symptom**: Slow processing for highly interconnected code
-**Solution**: Limit depth of call stack analysis
+#### Processing Stuck on Cycles
+**Symptom**: Processing appears stuck with pending nodes
+**Solution**: Automatic - the stuck detection mechanism will force processing after 2 iterations
 
 ### Debug Logging
 

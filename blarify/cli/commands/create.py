@@ -193,7 +193,7 @@ async def spawn_or_get_neo4j_container() -> Neo4jContainerInstance:
         password=creds["password"],
         username="neo4j",
         neo4j_version="5.25.1",
-        plugins=["apoc", "gds"],
+        plugins=["apoc", "graph-data-science"],
         custom_config={
             "dbms.security.procedures.unrestricted": "apoc.*,gds.*",
             "dbms.security.procedures.allowlist": "apoc.*,gds.*",

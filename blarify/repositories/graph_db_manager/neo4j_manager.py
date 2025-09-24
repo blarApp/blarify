@@ -238,7 +238,9 @@ class Neo4jManager(AbstractDbManager):
         }
 
         # Convert to DTO
-        node_result = Neo4jNodeSearchResultAdapter.adapt(node_data=(node_info, outbound_relations, inbound_relations, workflows))
+        node_result = Neo4jNodeSearchResultAdapter.adapt(
+            node_data=(node_info, outbound_relations, inbound_relations, workflows)
+        )
 
         return node_result
 
@@ -336,7 +338,7 @@ class Neo4jManager(AbstractDbManager):
         """Create all required indexes for optimal Blarify performance."""
         try:
             self.create_function_name_index()
-            self.create_node_text_index()
+            # self.create_node_text_index()
             self.create_node_id_index()
             self.create_entityId_index()
             self.create_unique_constraint()

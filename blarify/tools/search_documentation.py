@@ -38,24 +38,18 @@ class SearchDocumentation(BaseTool):
     args_schema: type[BaseModel] = VectorSearchInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Database manager for queries")
-    company_id: str = Field(description="Company/entity ID for data isolation")
-    repo_id: str = Field(description="Repository ID for filtering results")
 
     def __init__(
         self,
         db_manager: Any,
-        company_id: str,
-        repo_id: Optional[str] = None,
         handle_validation_error: bool = False,
     ):
         """Initialize the vector search tool."""
         super().__init__(
             db_manager=db_manager,
-            company_id=company_id,
-            repo_id=repo_id,
             handle_validation_error=handle_validation_error,
         )
-        logger.info(f"SearchDocumentationVectorTool initialized for repo: {repo_id}")
+        logger.info("SearchDocumentationVectorTool initialized")
 
     def _run(
         self,

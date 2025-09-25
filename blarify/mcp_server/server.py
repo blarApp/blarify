@@ -76,16 +76,9 @@ class BlarifyMCPServer:
         # Create instances of all tools
         tools = [
             FindSymbols(db_manager=self.db_manager),
-            SearchDocumentation(
-                db_manager=self.db_manager,
-                company_id=self.config.company_id,
-                repo_id=self.config.repo_id,
-            ),
+            SearchDocumentation(db_manager=self.db_manager),
             GetCodeAnalysis(db_manager=self.db_manager),
-            GetExpandedContext(
-                db_manager=self.db_manager,
-                company_id=self.config.company_id,
-            ),
+            GetExpandedContext(db_manager=self.db_manager),
             GetBlameInfo(
                 db_manager=self.db_manager,
                 repo_owner="",  # Will be configured via environment

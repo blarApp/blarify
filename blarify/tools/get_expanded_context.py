@@ -226,9 +226,9 @@ def add_get_file_context_method(db_manager: Any) -> None:
     """Dynamically add get_file_context_by_id method to Neo4jManager if it doesn't exist."""
     if not hasattr(db_manager, "get_file_context_by_id"):
 
-        def get_file_context_by_id(self, node_id: str, company_id: str) -> list[tuple[str, str]]:
+        def get_file_context_by_id(self, node_id: str) -> list[tuple[str, str]]:
             query = """
-            MATCH path = (ancestor)-[:FUNCTION_DEFINITION|CLASS_DEFINITION*0..]->(n:NODE {node_id: $node_id, entityId: $entity_id})
+            MATCH path = (ancestor)-[:FUNCTION_DEFINITION|CLASS_DEFINITION*0..]->(n:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
             WITH path
             ORDER BY length(path) DESC
             LIMIT 1
@@ -236,7 +236,8 @@ def add_get_file_context_method(db_manager: Any) -> None:
             UNWIND chain AS entry
             RETURN entry.id AS node_id, entry.txt AS text
             """
-            params = {"node_id": node_id, "entity_id": company_id}
+            # entity_id is automatically added by the db_manager
+            params = {"node_id": node_id}
             results = self.query(query, params=params, result_format="data")
             return [(rec["node_id"], rec["text"]) for rec in results]
 
@@ -256,12 +257,10 @@ class GetExpandedContext(BaseTool):
     args_schema: type[BaseModel] = FlexibleInput  # type: ignore[assignment]
 
     db_manager: Any = Field(description="Database manager for queries")
-    company_id: str = Field(description="Company ID to search for in the Neo4j database")
 
     def __init__(
         self,
         db_manager: Any,
-        company_id: str,
         handle_validation_error: bool = False,
     ):
         # Add the get_file_context_by_id method if it doesn't exist
@@ -269,7 +268,6 @@ class GetExpandedContext(BaseTool):
 
         super().__init__(
             db_manager=db_manager,
-            company_id=company_id,
             handle_validation_error=handle_validation_error,
         )
 
@@ -291,7 +289,7 @@ class GetExpandedContext(BaseTool):
 
         try:
             node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id(
-                node_id=node_id, company_id=self.company_id
+                node_id=node_id
             )
         except ValueError:
             return f"No code found for the given query: {node_id}"
@@ -336,7 +334,7 @@ class GetExpandedContext(BaseTool):
             output += "-" * 80 + "\n"
 
             try:
-                file_context = self.db_manager.get_file_context_by_id(node_id=node_id, company_id=self.company_id)
+                file_context = self.db_manager.get_file_context_by_id(node_id=node_id)
                 file_context_result = assemble_source_from_chain(file_context)
                 if file_context_result is not None:
                     output += file_context_result + "\n"

@@ -189,7 +189,7 @@ async def spawn_or_get_neo4j_container() -> Neo4jContainerInstance:
     # Create new container
     creds = get_or_create_neo4j_credentials()
     config = Neo4jContainerConfig(
-        environment=Environment.DEVELOPMENT,
+        environment=Environment.MCP,
         password=creds["password"],
         username="neo4j",
         neo4j_version="5.25.1",

@@ -127,17 +127,30 @@ class SearchDocumentation(BaseTool):
 
         for i, result in enumerate(results, 1):
             node_id = result.get("node_id", "Unknown")
-            name = result.get("name", "Unnamed")
-            score = result.get("score", 0.0)
+            title = result.get("title", "Unnamed")
+            score = result.get("similarity_score", 0.0)
             content = result.get("content", "No content available")
+            source_path = result.get("source_path", "")
+            source_labels = result.get("source_labels", [])
+
+            # Build a descriptive name from title or source info
+            if title and title != "Unnamed":
+                name = title
+            elif source_labels and isinstance(source_labels, list):
+                # Use source labels to build a name (e.g., "Class: ClassName" or "Function: functionName")
+                name = " | ".join(source_labels) if source_labels else "Documentation"
+            else:
+                name = "Documentation Node"
 
             # Truncate content if too long
             if len(content) > 500:
                 content = content[:497] + "..."
 
             output += f"### {i}. {name}\n"
+            if source_path:
+                output += f"**File:** {source_path}\n"
             output += f"**Relevance Score:** {score:.3f}\n"
-            output += f"**Node ID:** {node_id}\n"
+            output += f"**ID:** {node_id}\n"
             output += "**Content:**\n"
             output += f"```\n{content}\n```\n"
             output += "-" * 40 + "\n\n"

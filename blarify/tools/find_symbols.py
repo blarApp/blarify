@@ -25,18 +25,16 @@ def mark_deleted_or_added_lines(text: str) -> str:
 
 
 class Input(BaseModel):
-    name: str = Field(description="Name to search for in the Neo4j database", min_length=1)
-    type: str = Field(
-        description="Type to search for in the Neo4j database (values: 'FUNCTION', 'CLASS', 'FILE', 'FOLDER')"
-    )
+    name: str = Field(description="Name of the symbol to search for (exact match)", min_length=1)
+    type: str = Field(description="Type of symbol to search for. Must be one of: 'FUNCTION', 'CLASS', 'FILE', 'FOLDER'")
 
 
 class FindSymbols(BaseTool):
     name: str = "find_symbols"
     description: str = (
-        "Find functions, classes, or methods by exact name. "
-        "Returns a list of matching symbols with their reference IDs "
-        "(efficient handles for other tools), file paths, and code previews."
+        "Search for code symbols (functions, classes, files, or folders) by exact name. "
+        "Returns matching symbols with their IDs, file locations, and code previews. "
+        "Both 'name' and 'type' parameters are required."
     )
     db_manager: AbstractDbManager = Field(description="Database manager for queries")
 

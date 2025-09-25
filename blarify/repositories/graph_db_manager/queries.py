@@ -2316,7 +2316,7 @@ def vector_similarity_search_query() -> LiteralString:
     CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
     YIELD node, score
     WHERE score >= $min_similarity
-    RETURN node.node_id as node_id,
+    RETURN node.source_node_id as node_id,
            node.title as title,
            node.content as content,
            score as similarity_score,

@@ -8,7 +8,7 @@ import logging
 
 from blarify.repositories.graph_db_manager.adapters.node_search_result_adapter import Neo4jNodeSearchResultAdapter
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
-from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
+from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import ReferenceSearchResultDTO
 from blarify.repositories.graph_db_manager.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
 from blarify.repositories.graph_db_manager.queries import get_node_by_id_query, get_node_by_name_and_type_query
 
@@ -192,7 +192,7 @@ class Neo4jManager(AbstractDbManager):
     def get_node_by_id(
         self,
         node_id: str,
-    ) -> NodeSearchResultDTO:
+    ) -> ReferenceSearchResultDTO:
         """
         Retrieve a node by its ID with related inbound and outbound relationships.
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from .edge_dto import EdgeDTO
 
 
-class NodeSearchResultDTO(BaseModel):
+class ReferenceSearchResultDTO(BaseModel):
     """Data Transfer Object for node search results."""
 
     model_config = ConfigDict(frozen=True)

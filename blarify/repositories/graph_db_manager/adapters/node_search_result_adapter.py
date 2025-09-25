@@ -1,4 +1,4 @@
-from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import EdgeDTO, NodeSearchResultDTO
+from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import EdgeDTO, ReferenceSearchResultDTO
 from typing import Any, Dict, List, Tuple, Union
 
 
@@ -6,7 +6,12 @@ class Neo4jNodeSearchResultAdapter:
     """Adapter to convert Neo4j query results to NodeSearchResultDTO."""
 
     @staticmethod
-    def adapt(node_data: Union[Tuple[Dict[str, Any], List[Any], List[Dict[str, Any]]], Tuple[Dict[str, Any], List[Any], List[Dict[str, Any]], List[Dict[str, Any]]]]) -> NodeSearchResultDTO:
+    def adapt(
+        node_data: Union[
+            Tuple[Dict[str, Any], List[Any], List[Dict[str, Any]]],
+            Tuple[Dict[str, Any], List[Any], List[Dict[str, Any]], List[Dict[str, Any]]],
+        ],
+    ) -> ReferenceSearchResultDTO:
         """
         Adapt Neo4j query results to NodeSearchResultDTO.
 
@@ -51,7 +56,7 @@ class Neo4jNodeSearchResultAdapter:
                         )
                     )
 
-        return NodeSearchResultDTO(
+        return ReferenceSearchResultDTO(
             node_id=node_info.get("node_id", ""),
             node_name=node_info.get("node_name", ""),
             node_labels=node_info.get("labels", []),

@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, LiteralString
 
-from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
+from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import ReferenceSearchResultDTO
 
 
 class AbstractDbManager:
@@ -40,7 +40,7 @@ class AbstractDbManager:
     def get_node_by_id(
         self,
         node_id: str,
-    ) -> NodeSearchResultDTO:
+    ) -> ReferenceSearchResultDTO:
         """
         Retrieve a node from the database by its ID.
 

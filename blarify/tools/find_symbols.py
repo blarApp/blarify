@@ -47,10 +47,13 @@ class FindSymbols(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> dict[str, Any] | str:
         """Find symbols by exact name and type."""
+        node_type = type.upper()
+        if node_type not in {"FUNCTION", "CLASS", "FILE", "FOLDER"}:
+            return "Invalid type. Must be one of: 'FUNCTION', 'CLASS', 'FILE', 'FOLDER'"
 
         dto_nodes = self.db_manager.get_node_by_name_and_type(
             name=name,
-            node_type=type,
+            node_type=node_type,
         )
 
         # Convert DTOs to response models

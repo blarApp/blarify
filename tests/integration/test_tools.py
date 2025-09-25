@@ -191,16 +191,16 @@ class TestToolsIntegration:
             assert "Vector search unavailable: OPENAI_API_KEY not configured" in result
 
     async def test_get_code_analysis_tool(self):
-        """Test GetCodeAnalysis tool retrieves code with analysis."""
+        """Test GetCodeAnalysis tool retrieves code with analysis for a class node."""
         tool = GetCodeAnalysis(db_manager=self.db_manager)
 
-        # Get nodes to find a valid node_id
+        # Get a class node to test with using test isolation
         with self.db_manager.driver.session() as session:
             result = session.run(
                 """
-                MATCH (n:FUNCTION)
+                MATCH (n:CLASS)
                 WHERE n.entityId = $entity_id AND n.repoId = $repo_id
-                RETURN n.node_id as node_id
+                RETURN n.node_id as node_id, n.name as class_name
                 LIMIT 1
                 """,
                 entity_id=self.test_isolation["entity_id"],
@@ -210,14 +210,17 @@ class TestToolsIntegration:
 
             if record:
                 node_id = record["node_id"]
+                class_name = record["class_name"]
 
-                # Analyze the function
+                # Analyze the class
                 result = tool._run(reference_id=node_id)
 
-                # Verify results contain expected content (the tool returns formatted code)
+                # Verify results contain expected content for a class
                 assert "FILE:" in result or "No code found" in result
                 if "FILE:" in result:
                     assert node_id in result
+                    assert "CLASS" in result  # Should show CLASS in labels
+                    assert class_name in result  # Should show the class name
 
     async def test_get_expanded_context_tool(self):
         """Test GetExpandedContext tool retrieves full file context."""

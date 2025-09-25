@@ -198,20 +198,11 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
 
 
 class FlexibleInput(BaseModel):
-    reference_id: Optional[str] = Field(
-        None,
-        description="Reference ID (32-char handle) for the symbol"
-    )
-    file_path: Optional[str] = Field(
-        None,
-        description="Path to the file containing the symbol"
-    )
-    symbol_name: Optional[str] = Field(
-        None,
-        description="Name of the function/class/method"
-    )
+    reference_id: Optional[str] = Field(None, description="Reference ID (32-char handle) for the symbol")
+    file_path: Optional[str] = Field(None, description="Path to the file containing the symbol")
+    symbol_name: Optional[str] = Field(None, description="Name of the function/class/method")
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_inputs(self):
         if self.reference_id:
             if len(self.reference_id) != 32:
@@ -238,7 +229,7 @@ def add_get_file_context_method(db_manager: Any) -> None:
             """
             # entity_id is automatically added by the db_manager
             params = {"node_id": node_id}
-            results = self.query(query, params=params, result_format="data")
+            results = self.query(query, parameters=params)
             return [(rec["node_id"], rec["text"]) for rec in results]
 
         # Bind the method to the instance
@@ -281,16 +272,11 @@ class GetExpandedContext(BaseTool):
         """Returns both node code details and file context with expanded child nodes."""
         # Resolve the reference ID from inputs
         node_id = resolve_reference_id(
-            self.db_manager,
-            reference_id=reference_id,
-            file_path=file_path,
-            symbol_name=symbol_name
+            self.db_manager, reference_id=reference_id, file_path=file_path, symbol_name=symbol_name
         )
 
         try:
-            node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id(
-                node_id=node_id
-            )
+            node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id(node_id=node_id)
         except ValueError:
             return f"No code found for the given query: {node_id}"
 
@@ -385,7 +371,7 @@ class GetExpandedContext(BaseTool):
             output += "-" * 80 + "\n"
 
         # Display documentation if available
-        if node_result.documentation_nodes:
+        if hasattr(node_result, "documentation_nodes") and node_result.documentation_nodes:
             doc_nodes = [doc for doc in node_result.documentation_nodes if doc.get("node_id")]
             if doc_nodes:
                 output += "📚 DOCUMENTATION:\n"
@@ -393,15 +379,16 @@ class GetExpandedContext(BaseTool):
                 for doc in doc_nodes:
                     output += f"📖 Doc ID: {doc.get('node_id', 'Unknown')}\n"
                     output += f"📄 Name: {doc.get('node_name', 'Unknown')}\n"
-
                     # Show content or description
                     content = doc.get("content", "") or doc.get("description", "")
                     if content:
                         output += f"📝 Content:\n{content}\n"
                     else:
                         output += "📝 Content: (No content available)\n"
-
                     output += "\n"
+                output += "-" * 80 + "\n"
+            else:
+                output += "📚 DOCUMENTATION: None found\n"
                 output += "-" * 80 + "\n"
         else:
             output += "📚 DOCUMENTATION: None found\n"

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Vector Search Tool for Documentation Nodes
+Vector Search Tool for Documentation
 
-Searches Documentation nodes using semantic similarity with existing embeddings in Neo4j.
+Searches documentation using semantic similarity with existing embeddings in Neo4j.
 """
 
 import logging
@@ -27,7 +27,7 @@ class VectorSearchInput(BaseModel):
 
 
 class SearchDocumentation(BaseTool):
-    """Tool for searching documentation nodes using vector similarity."""
+    """Tool for searching documentation using vector similarity."""
 
     name: str = "search_documentation"
     description: str = (
@@ -39,7 +39,9 @@ class SearchDocumentation(BaseTool):
     args_schema: type[BaseModel] = VectorSearchInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Database manager for queries")
-    embedding_service: Optional[EmbeddingService] = Field(default=None, description="Embedding service for query vectorization")
+    embedding_service: Optional[EmbeddingService] = Field(
+        default=None, description="Embedding service for query vectorization"
+    )
 
     def __init__(
         self,
@@ -66,7 +68,7 @@ class SearchDocumentation(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """
-        Search for documentation nodes using vector similarity.
+        Search for documentation using vector similarity.
 
         Args:
             query: The search query text
@@ -91,7 +93,7 @@ class SearchDocumentation(BaseTool):
             parameters = {
                 "query_embedding": query_embedding,
                 "top_k": top_k,
-                "min_similarity": 0.7  # Default minimum similarity threshold
+                "min_similarity": 0.7,  # Default minimum similarity threshold
             }
             results = self.db_manager.query(vector_query, parameters)
 
@@ -122,7 +124,7 @@ class SearchDocumentation(BaseTool):
         output = "=" * 80 + "\n"
         output += "📚 DOCUMENTATION SEARCH RESULTS\n"
         output += f'🔍 Query: "{query}"\n'
-        output += f"📊 Found {len(results)} relevant documentation nodes\n"
+        output += f"📊 Found {len(results)} relevant documentation entries\n"
         output += "=" * 80 + "\n\n"
 
         for i, result in enumerate(results, 1):
@@ -140,7 +142,7 @@ class SearchDocumentation(BaseTool):
                 # Use source labels to build a name (e.g., "Class: ClassName" or "Function: functionName")
                 name = " | ".join(source_labels) if source_labels else "Documentation"
             else:
-                name = "Documentation Node"
+                name = "Documentation Entry"
 
             # Truncate content if too long
             if len(content) > 500:

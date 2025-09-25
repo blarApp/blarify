@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.repositories.graph_db_manager.queries import vector_similarity_search_query
+from blarify.services.embedding_service import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class SearchDocumentation(BaseTool):
     args_schema: type[BaseModel] = VectorSearchInput  # type: ignore[assignment]
 
     db_manager: AbstractDbManager = Field(description="Database manager for queries")
+    embedding_service: Optional[EmbeddingService] = Field(default=None, description="Embedding service for query vectorization")
 
     def __init__(
         self,
@@ -49,6 +51,12 @@ class SearchDocumentation(BaseTool):
             db_manager=db_manager,
             handle_validation_error=handle_validation_error,
         )
+        # Initialize embedding service
+        try:
+            self.embedding_service = EmbeddingService()
+        except ValueError as e:
+            logger.warning(f"Could not initialize embedding service: {e}")
+            self.embedding_service = None
         logger.info("SearchDocumentationVectorTool initialized")
 
     def _run(
@@ -69,9 +77,22 @@ class SearchDocumentation(BaseTool):
             Formatted string with search results
         """
         try:
+            # Check if embedding service is available
+            if not self.embedding_service:
+                return "Vector search unavailable: OPENAI_API_KEY not configured"
+
+            # Generate embedding for the query
+            query_embedding = self.embedding_service.embed_single_text(query)
+            if not query_embedding:
+                return f"Failed to generate embedding for query: '{query}'"
+
             # Perform vector search using Neo4j manager
             vector_query = vector_similarity_search_query()
-            parameters = {"query": query, "top_k": top_k}
+            parameters = {
+                "query_embedding": query_embedding,
+                "top_k": top_k,
+                "min_similarity": 0.7  # Default minimum similarity threshold
+            }
             results = self.db_manager.query(vector_query, parameters)
 
             if not results:

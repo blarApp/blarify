@@ -20,7 +20,7 @@ class EdgeResponse(BaseModel):
 
 
 class NodeSearchResultResponse(BaseModel):
-    """Node search result response model."""
+    """Code element search result response model."""
 
     node_id: str
     node_name: str
@@ -32,7 +32,7 @@ class NodeSearchResultResponse(BaseModel):
     # Enhanced fields for relationships
     inbound_relations: Optional[list[EdgeResponse]] = None
     outbound_relations: Optional[list[EdgeResponse]] = None
-    # Documentation nodes that describe this code node
+    # Documentation references that describe this code element
     documentation_nodes: Optional[list[dict]] = None
 
 
@@ -107,7 +107,7 @@ def assemble_source_from_chain(chain) -> str:
         str: The fully assembled source code with all placeholders replaced.
     """
     if not chain:
-        raise ValueError("No nodes returned from Neo4j chain query")
+        raise ValueError("No code references returned from query")
 
     if len(chain) == 1:
         # Ensure we return a string, not None
@@ -127,7 +127,7 @@ def assemble_source_from_chain(chain) -> str:
 
 
 def format_code_with_line_numbers(
-    code: str, start_line: Optional[int] = None, child_nodes: Optional[list[dict]] = None
+    code: str, start_line: Optional[int] = None, child_references: Optional[list[dict]] = None
 ) -> str:
     """Format code with line numbers, finding and replacing collapse placeholders with correct line numbers."""
     if not code:
@@ -136,17 +136,17 @@ def format_code_with_line_numbers(
     lines = code.split("\n")
     line_start = start_line if start_line is not None else 1
 
-    # If no child nodes, return simple formatting
-    if not child_nodes:
+    # If no child references, return simple formatting
+    if not child_references:
         formatted_lines = []
         for i, line in enumerate(lines):
             line_number = line_start + i
             formatted_lines.append(f"{line_number:4d} | {line}")
         return "\n".join(formatted_lines)
 
-    # Create a mapping from node_id to child node info
+    # Create a mapping from node_id to child reference info
     node_id_map = {}
-    for child in child_nodes:
+    for child in child_references:
         node_id = child.get("node_id")
         if node_id:
             node_id_map[node_id] = child
@@ -161,7 +161,7 @@ def format_code_with_line_numbers(
         if match:
             node_id = match.group(1)
             if node_id in node_id_map:
-                # This is a collapse placeholder - use the actual end_line from the child node
+                # This is a collapse placeholder - use the actual end_line from the child reference
                 child = node_id_map[node_id]
                 end_line = child.get("end_line")
                 if end_line:
@@ -269,7 +269,7 @@ class GetExpandedContext(BaseTool):
         symbol_name: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
-        """Returns both node code details and file context with expanded child nodes."""
+        """Returns both code details and file context with expanded child references."""
         # Resolve the reference ID from inputs
         node_id = resolve_reference_id(
             self.db_manager, reference_id=reference_id, file_path=file_path, symbol_name=symbol_name
@@ -280,7 +280,7 @@ class GetExpandedContext(BaseTool):
         except ValueError:
             return f"No code found for the given query: {node_id}"
 
-        # Get child nodes for context expansion
+        # Get child references for context expansion
         child_nodes = None
         if node_result.code:
             pattern = re.compile(r"# Code replaced for brevity, see node: ([a-f0-9]+)")
@@ -288,18 +288,18 @@ class GetExpandedContext(BaseTool):
 
             if node_ids:
                 try:
-                    # Get the child nodes by their IDs
+                    # Get the child references by their IDs
                     child_nodes = self.db_manager.get_nodes_by_ids(node_ids)
                 except Exception:
-                    # If we can't get child nodes, continue without them
+                    # If we can't get child references, continue without them
                     child_nodes = None
 
         # Format the output with both detailed information and file context
         output = "=" * 80 + "\n"
         output += f"📄 FILE: {node_result.node_name}\n"
         output += "=" * 80 + "\n"
-        output += f"🏷️  Labels: {', '.join(node_result.node_labels)}\n"
-        output += f"🆔 Node ID: {node_id}\n"
+        output += f"🏷️  Type: {', '.join(node_result.node_labels)}\n"
+        output += f"🆔 ID: {node_id}\n"
         output += "-" * 80 + "\n"
         output += "📝 CODE (with line numbers):\n"
         output += "-" * 80 + "\n"
@@ -307,7 +307,7 @@ class GetExpandedContext(BaseTool):
         # Print the code with line numbers (collapsed version)
         if node_result.code:
             formatted_code = format_code_with_line_numbers(
-                code=node_result.code, start_line=node_result.start_line, child_nodes=child_nodes
+                code=node_result.code, start_line=node_result.start_line, child_references=child_nodes
             )
             output += formatted_code + "\n"
         else:
@@ -316,7 +316,7 @@ class GetExpandedContext(BaseTool):
         # Add file context section with expanded code
         if "FILE" not in node_result.node_labels:
             output += "-" * 80 + "\n"
-            output += "📂 FILE CONTEXT (with expanded child nodes):\n"
+            output += "📂 FILE CONTEXT (with expanded child elements):\n"
             output += "-" * 80 + "\n"
 
             try:
@@ -346,8 +346,8 @@ class GetExpandedContext(BaseTool):
                 if inbound_filtered:
                     output += "📥 Inbound Relations:\n"
                     for rel in inbound_filtered:
-                        node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
-                        output += f"  • {rel.node_name} ({node_types}) -> {rel.relationship_type} -> {node_result.node_name} ID:({rel.node_id})\n"
+                        symbol_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                        output += f"  • {rel.node_name} ({symbol_types}) -> {rel.relationship_type} -> {node_result.node_name} ID:({rel.node_id})\n"
                     output += "\n"
 
             # Display outbound relations
@@ -356,8 +356,8 @@ class GetExpandedContext(BaseTool):
                 if outbound_filtered:
                     output += "📤 Outbound Relations:\n"
                     for rel in outbound_filtered:
-                        node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
-                        output += f"  • {node_result.node_name} -> {rel.relationship_type} -> {rel.node_name} ID:({rel.node_id}) ({node_types})\n"
+                        symbol_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                        output += f"  • {node_result.node_name} -> {rel.relationship_type} -> {rel.node_name} ID:({rel.node_id}) ({symbol_types})\n"
                     output += "\n"
 
             # Check if we actually displayed any relationships
@@ -372,11 +372,11 @@ class GetExpandedContext(BaseTool):
 
         # Display documentation if available
         if hasattr(node_result, "documentation_nodes") and node_result.documentation_nodes:
-            doc_nodes = [doc for doc in node_result.documentation_nodes if doc.get("node_id")]
-            if doc_nodes:
+            doc_entries = [doc for doc in node_result.documentation_nodes if doc.get("node_id")]
+            if doc_entries:
                 output += "📚 DOCUMENTATION:\n"
                 output += "-" * 80 + "\n"
-                for doc in doc_nodes:
+                for doc in doc_entries:
                     output += f"📖 Doc ID: {doc.get('node_id', 'Unknown')}\n"
                     output += f"📄 Name: {doc.get('node_name', 'Unknown')}\n"
                     # Show content or description

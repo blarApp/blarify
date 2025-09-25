@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.tools.utils import resolve_reference_id
-from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import NodeSearchResultDTO
+from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import ReferenceSearchResultDTO
 from blarify.repositories.graph_db_manager.dtos.edge_dto import EdgeDTO
 from blarify.graph.relationship.relationship_type import RelationshipType
 
@@ -19,20 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 class FlexibleInput(BaseModel):
-    reference_id: Optional[str] = Field(
-        None,
-        description="Reference ID (32-char handle) for the symbol"
-    )
-    file_path: Optional[str] = Field(
-        None,
-        description="Path to the file containing the symbol"
-    )
-    symbol_name: Optional[str] = Field(
-        None,
-        description="Name of the function/class/method"
-    )
+    reference_id: Optional[str] = Field(None, description="Reference ID (32-char handle) for the symbol")
+    file_path: Optional[str] = Field(None, description="Path to the file containing the symbol")
+    symbol_name: Optional[str] = Field(None, description="Name of the function/class/method")
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_inputs(self):
         if self.reference_id:
             if len(self.reference_id) != 32:
@@ -64,8 +55,6 @@ class GetCodeAnalysis(BaseTool):
             db_manager=db_manager,
             handle_validation_error=handle_validation_error,
         )
-
-
 
     def _get_relations_str(self, *, node_name: str, relations: list[EdgeDTO], direction: str) -> str:
         if direction == "outbound":
@@ -158,7 +147,7 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
         }
         return relationship_type in code_generated_types
 
-    def _get_result_prompt(self, node_result: NodeSearchResultDTO) -> str:
+    def _get_result_prompt(self, node_result: ReferenceSearchResultDTO) -> str:
         output = f"""
 NODE: ID: {node_result.node_id} | NAME: {node_result.node_name}
 LABELS: {" | ".join(node_result.node_labels)}
@@ -180,10 +169,7 @@ CODE for {node_result.node_name}:
         try:
             # Resolve the reference ID from inputs
             node_id = resolve_reference_id(
-                self.db_manager,
-                reference_id=reference_id,
-                file_path=file_path,
-                symbol_name=symbol_name
+                self.db_manager, reference_id=reference_id, file_path=file_path, symbol_name=symbol_name
             )
             node_result = self.db_manager.get_node_by_id(node_id=node_id)
         except ValueError as e:

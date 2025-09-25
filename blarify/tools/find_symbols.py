@@ -7,15 +7,15 @@ from pydantic import BaseModel, Field
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 
 
-# Pydantic Response Models (replacement for blarify DTOs)
-class NodeFoundByNameTypeResponse(BaseModel):
-    """Node found by name and type response model."""
+# Pydantic Response Models
+class SymbolSearchResult(BaseModel):
+    """Symbol search result response model."""
 
-    node_id: str
-    node_name: str
-    node_type: list[str]
-    file_path: str
-    code: Optional[str] = None
+    id: str = Field(description="Unique UUID identifier for the symbol")
+    name: str = Field(description="Name of the symbol")
+    type: list[str] = Field(description="Type(s) of the symbol")
+    file_path: str = Field(description="File path where the symbol is located")
+    code: Optional[str] = Field(default=None, description="Code preview of the symbol")
 
 
 # Simplified utility functions (removing blar dependencies)
@@ -54,27 +54,27 @@ class FindSymbols(BaseTool):
         )
 
         # Convert DTOs to response models
-        nodes: list[NodeFoundByNameTypeResponse] = []
+        symbols: list[SymbolSearchResult] = []
         for dto in dto_nodes:
-            response_node = NodeFoundByNameTypeResponse(
-                node_id=dto.node_id,
-                node_name=dto.node_name,
-                node_type=dto.node_type,
+            symbol = SymbolSearchResult(
+                id=dto.node_id,
+                name=dto.node_name,
+                type=dto.node_type,
                 file_path=dto.file_path,
                 code=dto.code,
             )
-            nodes.append(response_node)
+            symbols.append(symbol)
 
-        if len(nodes) > 15:
-            return "Too many nodes found. Please refine your query or use another tool"
+        if len(symbols) > 15:
+            return "Too many symbols found. Please refine your query or use another tool"
 
-        nodes_dicts = [node.model_dump() for node in nodes]
-        for node in nodes_dicts:
+        symbol_dicts = [symbol.model_dump() for symbol in symbols]
+        for symbol in symbol_dicts:
             # Handle diff_text if it exists, otherwise skip
-            diff_text = node.get("diff_text")
+            diff_text = symbol.get("diff_text")
             if diff_text is not None:
-                node["diff_text"] = mark_deleted_or_added_lines(diff_text)
+                symbol["diff_text"] = mark_deleted_or_added_lines(diff_text)
 
         return {
-            "nodes": nodes_dicts,
+            "symbols": symbol_dicts,
         }

@@ -1836,7 +1836,7 @@ def get_mermaid_graph_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id, environment: $environment})
+    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
 
     OPTIONAL MATCH (n)-[r_out]->(o)
     WHERE o.name IS NOT NULL
@@ -1894,9 +1894,7 @@ def get_mermaid_graph(db_manager: AbstractDbManager, node_id: str) -> str:
     try:
         logger.info(f"Generating mermaid graph for node: {node_id}")
 
-        query_params = {
-            "node_id": node_id,
-        }
+        query_params = {"node_id": node_id}
 
         result = db_manager.query(cypher_query=get_mermaid_graph_query(), parameters=query_params)
 
@@ -2122,7 +2120,6 @@ def get_existing_documentation_for_node(db_manager: AbstractDbManager, node_id: 
     except Exception as e:
         logger.exception(f"Error retrieving existing documentation for node '{node_id}': {e}")
         return None
-
 
 
 def find_entry_points_for_node_path_query() -> LiteralString:

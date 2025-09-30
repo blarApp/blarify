@@ -65,8 +65,8 @@ class GetCodeAnalysis(BaseTool):
         for relation in relations:
             relation_str += f"""
 RELATIONSHIP: {relationship_str.format(node_name=node_name, relation=relation)}
-RELATION NODE ID: {relation.node_id}
-RELATION NODE TYPE: {" | ".join(relation.node_type)}
+RELATION ID: {relation.node_id}
+RELATION TYPE: {" | ".join(relation.node_type)}
 """
         return relation_str
 
@@ -149,7 +149,7 @@ RELATION NODE TYPE: {" | ".join(relation.node_type)}
 
     def _get_result_prompt(self, node_result: ReferenceSearchResultDTO) -> str:
         output = f"""
-NODE: ID: {node_result.node_id} | NAME: {node_result.node_name}
+ID: {node_result.node_id} | NAME: {node_result.node_name}
 LABELS: {" | ".join(node_result.node_labels)}
 CODE for {node_result.node_name}:
 ```
@@ -179,7 +179,9 @@ CODE for {node_result.node_name}:
         output = "=" * 80 + "\n"
         output += f"📄 FILE: {node_result.node_name}\n"
         output += "=" * 80 + "\n"
-        output += f"🏷️  Labels: {', '.join(node_result.node_labels)}\n"
+        # Filter out NODE label from display
+        labels = [label for label in node_result.node_labels if label != "NODE"]
+        output += f"🏷️  Labels: {', '.join(labels)}\n"
         output += f"🆔 Node ID: {node_id}\n"
         output += "-" * 80 + "\n"
 
@@ -225,7 +227,9 @@ CODE for {node_result.node_name}:
             if filtered_inbound:
                 output += "📥 Inbound Relations:\n"
                 for rel in filtered_inbound:
-                    node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                    # Filter out NODE label from types
+                    types = [t for t in rel.node_type if t != "NODE"] if rel.node_type else []
+                    node_types = ", ".join(types) if types else "Unknown"
                     output += f"  • {rel.node_name} ({node_types}) -> {rel.relationship_type} -> {node_result.node_name} ID:({rel.node_id})\n"
                 output += "\n"
 
@@ -233,7 +237,9 @@ CODE for {node_result.node_name}:
             if filtered_outbound:
                 output += "📤 Outbound Relations:\n"
                 for rel in filtered_outbound:
-                    node_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                    # Filter out NODE label from types
+                    types = [t for t in rel.node_type if t != "NODE"] if rel.node_type else []
+                    node_types = ", ".join(types) if types else "Unknown"
                     output += f"  • {node_result.node_name} -> {rel.relationship_type} -> {rel.node_name} ID:({rel.node_id}) ({node_types})\n"
                 output += "\n"
         else:

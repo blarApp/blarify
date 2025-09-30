@@ -113,7 +113,7 @@ class GetNodeWorkflowsTool(BaseTool):
                 return f"Node with ID '{node_id}' not found in the database."
 
             output = "=" * 80 + "\n"
-            output += f"🔄 WORKFLOWS FOR NODE: {node_info['name']}\n"
+            output += f"🔄 WORKFLOWS FOR: {node_info['name']}\n"
             output += "=" * 80 + "\n"
             output += f"📄 File: {node_info.get('path', 'Unknown')}\n"
             output += f"🏷️  Type: {', '.join(node_info.get('labels', ['Unknown']))}\n"

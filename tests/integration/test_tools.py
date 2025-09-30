@@ -18,6 +18,7 @@ from blarify.tools import (
     GetCodeAnalysis,
     GetExpandedContext,
     GetDependencyGraph,
+    GetNodeWorkflowsTool,
 )
 from tests.utils.graph_assertions import GraphAssertions
 
@@ -222,6 +223,26 @@ class TestToolsIntegration:
                     assert "CLASS" in result  # Should show CLASS in labels
                     assert class_name in result  # Should show the class name
 
+                    # Verify NODE label is not exposed in output
+                    assert "NODE: ID:" not in result
+                    assert "RELATION NODE ID:" not in result
+                    assert "RELATION NODE TYPE:" not in result
+
+                    # Verify NODE is not in the Labels display (check all possible positions)
+                    # Extract labels line for precise checking
+                    import re
+                    labels_match = re.search(r"🏷️  Labels: ([^\n]+)", result)
+                    if labels_match:
+                        labels_text = labels_match.group(1)
+                        assert "NODE" not in labels_text, f"NODE found in labels: {labels_text}"
+
+                    # Verify NODE is not in relationship types (e.g., "(NODE, CLASS)" or "(CLASS, NODE)")
+                    if "RELATIONSHIP" in result:
+                        # Check that NODE doesn't appear in relationship type lists
+                        assert "(NODE, " not in result
+                        assert ", NODE)" not in result
+                        assert "(NODE)" not in result
+
     async def test_get_expanded_context_tool(self):
         """Test GetExpandedContext tool retrieves full file context."""
         tool = GetExpandedContext(db_manager=self.db_manager)
@@ -251,6 +272,23 @@ class TestToolsIntegration:
                 if "FILE:" in result:
                     assert "ID:" in result
                     assert node_id in result
+
+                    # Verify NODE label is not exposed in output
+                    assert "RELATION NODE ID:" not in result
+                    assert "RELATION NODE TYPE:" not in result
+
+                    # Verify NODE is not in the Type display (check all possible positions)
+                    import re
+                    type_match = re.search(r"🏷️  Type: ([^\n]+)", result)
+                    if type_match:
+                        type_text = type_match.group(1)
+                        assert "NODE" not in type_text, f"NODE found in type: {type_text}"
+
+                    # Verify NODE is not in relationship types
+                    if "RELATIONSHIP" in result:
+                        assert "(NODE, " not in result
+                        assert ", NODE)" not in result
+                        assert "(NODE)" not in result
 
     async def test_get_dependency_graph_tool(self):
         """Test GetDependencyGraph tool generates dependency visualization."""
@@ -391,3 +429,35 @@ class TestToolsIntegration:
                 # Check content truncation
                 assert ("A" * 497 + "...") in result  # Should be truncated
                 assert "Short content" in result  # Should not be truncated
+
+    async def test_node_workflows_tool_output_format(self):
+        """Test GetNodeWorkflowsTool does not expose NODE label in output."""
+        tool = GetNodeWorkflowsTool(db_manager=self.db_manager)
+
+        # Get any node to test with
+        with self.db_manager.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (n)
+                WHERE n.entityId = $entity_id AND n.repoId = $repo_id AND n.layer = 'code'
+                RETURN n.node_id as node_id, n.name as name
+                LIMIT 1
+                """,
+                entity_id=self.test_isolation["entity_id"],
+                repo_id=self.test_isolation["repo_id"],
+            )
+            record = result.single()
+
+            if record:
+                node_id = record["node_id"]
+
+                # Get workflows for the node
+                result = tool._run(node_id=node_id)
+
+                # Verify NODE label is not exposed in output
+                assert "WORKFLOWS FOR NODE:" not in result
+
+                # Verify correct format is used
+                if "WORKFLOWS FOR:" in result:
+                    # Format should be "WORKFLOWS FOR: {name}" not "WORKFLOWS FOR NODE: {name}"
+                    assert "🔄 WORKFLOWS FOR:" in result

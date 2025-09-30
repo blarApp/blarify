@@ -191,8 +191,8 @@ def get_relations_str(*, node_name: str, relations: list[EdgeResponse], directio
     for relation in relations:
         relation_str += f"""
 RELATIONSHIP: {relationship_str.format(node_name=node_name, relation=relation)}
-RELATION NODE ID: {relation.node_id}
-RELATION NODE TYPE: {" | ".join(relation.node_type)}
+RELATION ID: {relation.node_id}
+RELATION TYPE: {" | ".join(relation.node_type)}
 """
     return relation_str
 
@@ -298,7 +298,9 @@ class GetExpandedContext(BaseTool):
         output = "=" * 80 + "\n"
         output += f"📄 FILE: {node_result.node_name}\n"
         output += "=" * 80 + "\n"
-        output += f"🏷️  Type: {', '.join(node_result.node_labels)}\n"
+        # Filter out NODE label from display
+        labels = [label for label in node_result.node_labels if label != "NODE"]
+        output += f"🏷️  Type: {', '.join(labels)}\n"
         output += f"🆔 ID: {node_id}\n"
         output += "-" * 80 + "\n"
         output += "📝 CODE (with line numbers):\n"
@@ -346,7 +348,9 @@ class GetExpandedContext(BaseTool):
                 if inbound_filtered:
                     output += "📥 Inbound Relations:\n"
                     for rel in inbound_filtered:
-                        symbol_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                        # Filter out NODE label from types
+                        types = [t for t in rel.node_type if t != "NODE"] if rel.node_type else []
+                        symbol_types = ", ".join(types) if types else "Unknown"
                         output += f"  • {rel.node_name} ({symbol_types}) -> {rel.relationship_type} -> {node_result.node_name} ID:({rel.node_id})\n"
                     output += "\n"
 
@@ -356,7 +360,9 @@ class GetExpandedContext(BaseTool):
                 if outbound_filtered:
                     output += "📤 Outbound Relations:\n"
                     for rel in outbound_filtered:
-                        symbol_types = ", ".join(rel.node_type) if rel.node_type else "Unknown"
+                        # Filter out NODE label from types
+                        types = [t for t in rel.node_type if t != "NODE"] if rel.node_type else []
+                        symbol_types = ", ".join(types) if types else "Unknown"
                         output += f"  • {node_result.node_name} -> {rel.relationship_type} -> {rel.node_name} ID:({rel.node_id}) ({symbol_types})\n"
                     output += "\n"
 

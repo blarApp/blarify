@@ -87,9 +87,9 @@ class Neo4jManager(AbstractDbManager):
             "UNWIND $nodeList AS node RETURN node",
             "CALL apoc.merge.node(
             node.extra_labels + [node.type, 'NODE'],
-            apoc.map.merge(node.attributes, {repoId: $repoId, entityId: $entityId}),
-            {},
-            {}
+            {hashed_id: node.attributes.hashed_id, repoId: $repoId, entityId: $entityId, diff_identifier: node.attributes.diff_identifier},
+            node.attributes,
+            node.attributes
             )
             YIELD node as n RETURN count(n) as count",
             {batchSize: $batchSize, parallel: false, iterateList: true, params: {nodeList: $nodeList, repoId: $repoId, entityId: $entityId}}

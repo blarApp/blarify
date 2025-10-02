@@ -273,3 +273,76 @@ class TestGraphBuilderBasic:
         assert summary["total_nodes"] > 0
 
         db_manager.close()
+
+    async def test_graphbuilder_idempotency_with_workflows_and_docs(
+        self,
+        docker_check: Any,
+        test_data_isolation: Dict[str, Any],
+        test_code_examples_path: Path,
+        graph_assertions: GraphAssertions,
+    ) -> None:
+        """Test that calling build() twice with workflows and docs doesn't duplicate nodes."""
+        python_examples_path = test_code_examples_path / "python"
+
+        # Initialize database manager
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
+        # Create GraphBuilder with db_manager
+        builder = GraphBuilder(
+            root_path=str(python_examples_path),
+            db_manager=db_manager,
+            generate_embeddings=False,
+        )
+
+        # First build with workflows and documentation
+        builder.build(
+            save_to_db=True,
+            create_workflows=True,
+            create_documentation=True,
+        )
+
+        # Get counts after first build
+        first_files = await graph_assertions.get_node_properties("FILE")
+        first_functions = await graph_assertions.get_node_properties("FUNCTION")
+        first_workflows = await graph_assertions.get_node_properties("WORKFLOW")
+        first_docs = await graph_assertions.get_node_properties("DOCUMENTATION")
+
+        first_file_count = len(first_files)
+        first_function_count = len(first_functions)
+        first_workflow_count = len(first_workflows)
+        first_doc_count = len(first_docs)
+
+        # Second build with workflows and documentation (should be idempotent)
+        builder.build(
+            save_to_db=True,
+            create_workflows=True,
+            create_documentation=True,
+        )
+
+        # Get counts after second build
+        second_files = await graph_assertions.get_node_properties("FILE")
+        second_functions = await graph_assertions.get_node_properties("FUNCTION")
+        second_workflows = await graph_assertions.get_node_properties("WORKFLOW")
+        second_docs = await graph_assertions.get_node_properties("DOCUMENTATION")
+
+        # Verify counts are EXACTLY the same (no duplication)
+        assert len(second_files) == first_file_count, (
+            f"Files duplicated: {first_file_count} → {len(second_files)}"
+        )
+        assert len(second_functions) == first_function_count, (
+            f"Functions duplicated: {first_function_count} → {len(second_functions)}"
+        )
+        assert len(second_workflows) == first_workflow_count, (
+            f"Workflows duplicated: {first_workflow_count} → {len(second_workflows)}"
+        )
+        assert len(second_docs) == first_doc_count, (
+            f"Documentation duplicated: {first_doc_count} → {len(second_docs)}"
+        )
+
+        db_manager.close()

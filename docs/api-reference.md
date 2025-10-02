@@ -77,7 +77,7 @@ step_relationships = RelationshipCreator.create_workflow_step_relationships_from
 
 ### GraphBuilder
 
-The main entry point for building code graphs from your project.
+The main entry point for building code graphs from your project with integrated workflows and documentation.
 
 ```python
 from blarify.prebuilt.graph_builder import GraphBuilder
@@ -86,22 +86,103 @@ class GraphBuilder:
     def __init__(
         self,
         root_path: str,
+        only_hierarchy: bool = False,
         extensions_to_skip: list[str] = None,
         names_to_skip: list[str] = None,
-        only_hierarchy: bool = False,
         graph_environment: GraphEnvironment = None,
+        db_manager: AbstractDbManager = None,
+        generate_embeddings: bool = False,
     )
 ```
 
 **Parameters:**
 - `root_path` (str): Root directory path of the project to analyze
+- `only_hierarchy` (bool, optional): If True, only builds the hierarchy without relationships. Default: False
 - `extensions_to_skip` (list[str], optional): File extensions to exclude from analysis (e.g., `['.md', '.txt']`)
 - `names_to_skip` (list[str], optional): Filenames/directory names to exclude from analysis (e.g., `['venv', 'tests']`)
-- `only_hierarchy` (bool, optional): If True, only builds the hierarchy without relationships
 - `graph_environment` (GraphEnvironment, optional): Custom graph environment
+- `db_manager` (AbstractDbManager, optional): Database manager for auto-save and workflow/documentation generation
+- `generate_embeddings` (bool, optional): Enable embeddings for documentation nodes. Default: False
 
 **Methods:**
-- `build() -> Graph`: Builds and returns the code graph
+
+#### `build(save_to_db: bool = True, create_workflows: bool = False, create_documentation: bool = False) -> Graph`
+
+Builds the code graph with optional persistence and documentation/workflow generation.
+
+**Parameters:**
+- `save_to_db` (bool, optional): Auto-save graph to database (requires `db_manager`). Default: True
+- `create_workflows` (bool, optional): Discover execution workflows (requires `db_manager` and `save_to_db`). Default: False
+- `create_documentation` (bool, optional): Generate AI documentation (requires `db_manager` and `save_to_db`). Default: False
+
+**Returns:**
+- `Graph`: The built code graph
+
+**Examples:**
+
+```python
+# Simple build without persistence
+builder = GraphBuilder(root_path="/path/to/project")
+graph = builder.build(save_to_db=False)
+
+# Build with auto-save
+builder = GraphBuilder(
+    root_path="/path/to/project",
+    db_manager=db_manager
+)
+graph = builder.build()
+
+# Build with workflows
+graph = builder.build(create_workflows=True)
+
+# Full pipeline with documentation
+graph = builder.build(
+    create_workflows=True,
+    create_documentation=True
+)
+```
+
+#### `incremental_update(updated_files: list[UpdatedFile], save_to_db: bool = True, create_workflows: bool = False, create_documentation: bool = False) -> Graph`
+
+Incrementally updates the code graph for specific files with optional persistence and documentation/workflow generation.
+
+This method is optimized for updating only the files that have changed, rather than rebuilding the entire graph. It uses the same workflow as the full build but only processes specified files.
+
+**Parameters:**
+- `updated_files` (list[UpdatedFile]): List of UpdatedFile objects indicating which files to update
+- `save_to_db` (bool, optional): Auto-save graph to database (requires `db_manager`). Default: True
+- `create_workflows` (bool, optional): Discover execution workflows (requires `db_manager` and `save_to_db`). Default: False
+- `create_documentation` (bool, optional): Generate AI documentation (requires `db_manager` and `save_to_db`). Default: False
+
+**Returns:**
+- `Graph`: The updated code graph
+
+**Examples:**
+
+```python
+from blarify.project_graph_updater import UpdatedFile
+
+# Simple incremental update without persistence
+updated_files = [UpdatedFile(path="/path/to/changed_file.py")]
+graph = builder.incremental_update(updated_files, save_to_db=False)
+
+# Incremental update with auto-save
+updated_files = [
+    UpdatedFile(path="/path/to/file1.py"),
+    UpdatedFile(path="/path/to/file2.py")
+]
+graph = builder.incremental_update(updated_files)
+
+# Incremental update with workflows
+graph = builder.incremental_update(updated_files, create_workflows=True)
+
+# Full pipeline with documentation
+graph = builder.incremental_update(
+    updated_files,
+    create_workflows=True,
+    create_documentation=True
+)
+```
 
 ### Graph
 

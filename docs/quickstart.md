@@ -92,53 +92,155 @@ this will return a list of dictionaries with the following structure
 }
 ```
 
-## Complete Example
+## Complete Examples
+
+### Simple Example (Manual Save)
+
+For maximum control over the graph building and saving process:
 
 ```python
-# Taken from blarify/examples/graph_builder.py
 from blarify.prebuilt.graph_builder import GraphBuilder
-from blarify.db_managers.neo4j_manager import Neo4jManager
-from blarify.db_managers.falkordb_manager import FalkorDBManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
-import dotenv
-import os
+# Build the graph
+graph_builder = GraphBuilder(
+    root_path="/path/to/your/project",
+    extensions_to_skip=[".json"],
+    names_to_skip=["__pycache__"]
+)
+graph = graph_builder.build(save_to_db=False)
 
+# Get nodes and relationships
+nodes = graph.get_nodes_as_objects()
+relationships = graph.get_relationships_as_objects()
 
-def build(root_path: str = None):
-    graph_builder = GraphBuilder(root_path=root_path, extensions_to_skip=[".json"], names_to_skip=["__pycache__"])
-    graph = graph_builder.build()
-
-    relationships = graph.get_relationships_as_objects()
-    nodes = graph.get_nodes_as_objects()
-
-    save_to_falkordb(relationships, nodes)
-
-
-def save_to_neo4j(relationships, nodes):
-    graph_manager = Neo4jManager(repo_id="repo", entity_id="organization")
-
-    print(f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships")
-    graph_manager.save_graph(nodes, relationships)
-    graph_manager.close()
-
-
-def save_to_falkordb(relationships, nodes):
-    graph_manager = FalkorDBManager(repo_id="repo", entity_id="organization")
-
-    print(f"Saving graph with {len(nodes)} nodes and {len(relationships)} relationships")
-    graph_manager.save_graph(nodes, relationships)
-    graph_manager.close()
-
-
-if __name__ == "__main__":
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
-
-    dotenv.load_dotenv()
-    root_path = os.getenv("ROOT_PATH")
-    build(root_path=root_path)
+# Save manually to database
+db_manager = Neo4jManager(
+    uri="bolt://localhost:7687",
+    user="neo4j",
+    password="password",
+    repo_id="my-repo",
+    entity_id="my-org"
+)
+db_manager.save_graph(nodes, relationships)
+db_manager.close()
 ```
+
+### Automated Pipeline (Recommended)
+
+For a streamlined experience with automatic saving, workflows, and documentation:
+
+```python
+from blarify.prebuilt.graph_builder import GraphBuilder
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+
+# Initialize database manager
+db_manager = Neo4jManager(
+    uri="bolt://localhost:7687",
+    user="neo4j",
+    password="password",
+    repo_id="my-repo",
+    entity_id="my-org"
+)
+
+# Build with integrated pipeline
+builder = GraphBuilder(
+    root_path="/path/to/your/project",
+    extensions_to_skip=[".json", ".xml"],
+    names_to_skip=["__pycache__", "node_modules"],
+    db_manager=db_manager,
+    generate_embeddings=True  # Enable embeddings for documentation
+)
+
+# Build with workflows and documentation
+# Everything is automatically saved to the database!
+graph = builder.build(
+    save_to_db=True,              # Auto-save to database
+    create_workflows=True,         # Discover execution workflows
+    create_documentation=True      # Generate LLM documentation
+)
+
+db_manager.close()
+```
+
+### Using FalkorDB
+
+```python
+from blarify.prebuilt.graph_builder import GraphBuilder
+from blarify.repositories.graph_db_manager.falkordb_manager import FalkorDBManager
+
+db_manager = FalkorDBManager(
+    host="localhost",
+    port=6379,
+    repo_id="my-repo",
+    entity_id="my-org"
+)
+
+builder = GraphBuilder(
+    root_path="/path/to/your/project",
+    db_manager=db_manager,
+    generate_embeddings=True
+)
+
+graph = builder.build(
+    create_workflows=True,
+    create_documentation=True
+)
+
+db_manager.close()
+```
+
+### Incremental Update
+
+For efficient updates when only specific files have changed:
+
+```python
+from blarify.prebuilt.graph_builder import GraphBuilder
+from blarify.project_graph_updater import UpdatedFile
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
+
+# Initialize database manager
+db_manager = Neo4jManager(
+    uri="bolt://localhost:7687",
+    user="neo4j",
+    password="password",
+    repo_id="my-repo",
+    entity_id="my-org"
+)
+
+# Create builder instance
+builder = GraphBuilder(
+    root_path="/path/to/your/project",
+    extensions_to_skip=[".json", ".xml"],
+    names_to_skip=["__pycache__", "node_modules"],
+    db_manager=db_manager,
+    generate_embeddings=True
+)
+
+# Specify which files to update
+updated_files = [
+    UpdatedFile(path="/path/to/your/project/src/main.py"),
+    UpdatedFile(path="/path/to/your/project/src/utils.py")
+]
+
+# Incrementally update only those files
+# Workflows and documentation will be regenerated automatically
+graph = builder.incremental_update(
+    updated_files=updated_files,
+    save_to_db=True,
+    create_workflows=True,
+    create_documentation=True
+)
+
+db_manager.close()
+```
+
+## Next Steps
+
+- **Workflows**: Discover execution traces through your codebase
+- **Documentation**: Generate AI-powered documentation for your code
+- **MCP Server**: Use `blarify-mcp` to integrate with Claude Desktop
+- **Tools**: Check the [Tools Documentation](tools.md) for AI agent integration
 
 
 

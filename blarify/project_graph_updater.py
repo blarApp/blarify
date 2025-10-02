@@ -60,6 +60,10 @@ class ProjectGraphUpdater(ProjectGraphDiffCreator):
 
     def get_file_diffs_from_updated_files(self) -> List[FileDiff]:
         return [
-            FileDiff(path=updated_file.path, diff_text="", change_type=ChangeType.ADDED)
+            FileDiff(
+                path=updated_file.path if updated_file.path.startswith("file://") else f"file://{updated_file.path}",
+                diff_text="",
+                change_type=ChangeType.ADDED,
+            )
             for updated_file in self.updated_files
         ]

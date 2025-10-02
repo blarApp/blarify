@@ -27,9 +27,6 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.graph.graph_environment import GraphEnvironment
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
-from blarify.documentation.documentation_creator import DocumentationCreator
-from blarify.documentation.workflow_creator import WorkflowCreator
-from blarify.agents.llm_provider import LLMProvider
 
 
 def generate_neo4j_password() -> str:
@@ -393,104 +390,72 @@ def execute(args: Namespace) -> int:
         console=console,
     ) as progress:
         try:
-            # Phase 1: Build the graph
-            task = progress.add_task("Building code graph...", total=None)
+            # Setup API key for documentation if requested
+            original_api_key = None
+            temp_key_set = False
 
-            graph_environment = GraphEnvironment(
-                environment=args.entity_id,  # environment parameter name
-                diff_identifier="0",  # diff_identifier parameter name
-                root_path=repo_path,
-            )
-
-            builder = GraphBuilder(
-                root_path=repo_path,
-                only_hierarchy=args.only_hierarchy,
-                extensions_to_skip=args.extensions_to_skip,
-                names_to_skip=args.names_to_skip,
-                graph_environment=graph_environment,
-            )
-
-            graph = builder.build()
-            nodes = graph.get_nodes_as_objects()
-            relationships = graph.get_relationships_as_objects()
-
-            progress.update(
-                task, description=f"Built graph with {len(nodes)} nodes and {len(relationships)} relationships"
-            )
-
-            # Phase 2: Save to database
-            progress.update(task, description="Saving to database...")
-            db_manager.save_graph(nodes, relationships)
-            progress.update(task, description="Graph saved to database")
-
-            # Phase 3: Generate documentation if requested
             if args.docs:
-                progress.update(task, description="Generating documentation...")
-
                 # Temporarily set CLI-provided API key if specified (doesn't interfere with rotation)
                 original_api_key = os.environ.get("OPENAI_API_KEY")
-                temp_key_set = False
 
-                try:
-                    # If user provided a key via CLI, temporarily set it (this becomes the first key to try)
-                    if hasattr(args, "openai_api_key") and args.openai_api_key:
-                        os.environ["OPENAI_API_KEY"] = args.openai_api_key
-                        temp_key_set = True
-                    elif api_key:  # From interactive prompt
-                        os.environ["OPENAI_API_KEY"] = api_key
-                        temp_key_set = True
+                # If user provided a key via CLI, temporarily set it (this becomes the first key to try)
+                if hasattr(args, "openai_api_key") and args.openai_api_key:
+                    os.environ["OPENAI_API_KEY"] = args.openai_api_key
+                    temp_key_set = True
+                elif api_key:  # From interactive prompt
+                    os.environ["OPENAI_API_KEY"] = api_key
+                    temp_key_set = True
 
-                    llm_provider = LLMProvider()
-                    doc_creator = DocumentationCreator(
-                        db_manager=db_manager,
-                        agent_caller=llm_provider,
-                        graph_environment=graph_environment,
-                        max_workers=args.max_workers,
-                    )
+            try:
+                # Build the graph with integrated pipeline
+                task = progress.add_task("Building code graph...", total=None)
 
-                    doc_result = doc_creator.create_documentation(generate_embeddings=True)
+                graph_environment = GraphEnvironment(
+                    environment=args.entity_id,
+                    diff_identifier="0",
+                    root_path=repo_path,
+                )
 
-                    if doc_result.error:
-                        console.print(
-                            f"[yellow]Warning:[/yellow] Documentation generation encountered errors: {doc_result.error}"
-                        )
+                builder = GraphBuilder(
+                    root_path=repo_path,
+                    only_hierarchy=args.only_hierarchy,
+                    extensions_to_skip=args.extensions_to_skip,
+                    names_to_skip=args.names_to_skip,
+                    graph_environment=graph_environment,
+                    db_manager=db_manager,
+                    generate_embeddings=True,
+                )
+
+                # Update progress for different phases
+                if args.workflows or args.docs:
+                    phase_desc = []
+                    if args.workflows:
+                        phase_desc.append("workflows")
+                    if args.docs:
+                        phase_desc.append("documentation")
+                    progress.update(task, description=f"Building graph with {' and '.join(phase_desc)}...")
+                else:
+                    progress.update(task, description="Building and saving graph...")
+
+                # Build with integrated pipeline - everything happens here!
+                graph = builder.build(
+                    save_to_db=True,
+                    create_workflows=args.workflows,
+                    create_documentation=args.docs,
+                )
+
+                nodes = graph.get_nodes_as_objects()
+                relationships = graph.get_relationships_as_objects()
+
+                progress.update(task, description="Complete!", completed=100)
+
+            finally:
+                # Restore original environment variable state (preserve rotation system)
+                if temp_key_set:
+                    if original_api_key is not None:
+                        os.environ["OPENAI_API_KEY"] = original_api_key
                     else:
-                        progress.update(
-                            task, description=f"Generated {doc_result.total_nodes_processed} documentation nodes"
-                        )
-
-                except Exception as e:
-                    console.print(f"[yellow]Warning:[/yellow] Documentation generation failed: {e}")
-
-                finally:
-                    # Restore original environment variable state (preserve rotation system)
-                    if temp_key_set:
-                        if original_api_key is not None:
-                            os.environ["OPENAI_API_KEY"] = original_api_key
-                        else:
-                            os.environ.pop("OPENAI_API_KEY", None)
-
-            # Phase 4: Generate workflows if requested
-            if args.workflows:
-                progress.update(task, description="Discovering workflows...")
-
-                try:
-                    workflow_creator = WorkflowCreator(db_manager=db_manager, graph_environment=graph_environment)
-
-                    workflow_result = workflow_creator.discover_workflows(save_to_database=True)
-
-                    if workflow_result.error:
-                        console.print(
-                            f"[yellow]Warning:[/yellow] Workflow discovery encountered errors: {workflow_result.error}"
-                        )
-                    else:
-                        progress.update(task, description=f"Discovered {workflow_result.total_workflows} workflows")
-
-                except Exception as e:
-                    console.print(f"[yellow]Warning:[/yellow] Workflow discovery failed: {e}")
-
-            # Complete
-            progress.update(task, description="Complete!", completed=100)
+                        os.environ.pop("OPENAI_API_KEY", None)
 
         except Exception as e:
             console.print(f"\n[red]Error:[/red] Graph building failed: {e}")

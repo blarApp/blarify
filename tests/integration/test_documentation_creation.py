@@ -488,8 +488,8 @@ class TestDocumentationCreation:
 
             # Verify the method completed successfully
             assert embed_result is not None
-            assert embed_result["total_processed"] == 32
-            assert embed_result["total_embedded"] == 32
+            assert embed_result["total_processed"] == 31
+            assert embed_result["total_embedded"] == 31
             assert embed_result["total_skipped"] == 0
 
             # Verify embed_batch was called

@@ -1,5 +1,6 @@
 import os
 import time
+from enum import Enum
 from typing import Any, List, Dict, LiteralString, Optional
 
 from dotenv import load_dotenv
@@ -21,6 +22,11 @@ neo4j_logger.setLevel(logging.ERROR)
 load_dotenv()
 
 
+class ENVIRONMENT(Enum):
+    MAIN = "main"
+    DEV = "dev"
+
+
 class Neo4jManager(AbstractDbManager):
     entity_id: str
     repo_id: str
@@ -30,6 +36,7 @@ class Neo4jManager(AbstractDbManager):
         self,
         repo_id: Optional[str] = None,
         entity_id: Optional[str] = None,
+        environment: Optional[ENVIRONMENT] = None,
         uri: Optional[str] = None,
         user: Optional[str] = None,
         password: Optional[str] = None,
@@ -53,8 +60,9 @@ class Neo4jManager(AbstractDbManager):
                 else:
                     raise e
 
-        self.repo_id = repo_id if repo_id is not None else "default_repo"
-        self.entity_id = entity_id if entity_id is not None else "default_user"
+        self.repo_id = repo_id or "default_repo"
+        self.entity_id = entity_id or "default_user"
+        self.environment = environment or ENVIRONMENT.MAIN
 
     def close(self):
         # Close the connection to the database
@@ -73,26 +81,36 @@ class Neo4jManager(AbstractDbManager):
                 1000,
                 repoId=self.repo_id,
                 entityId=self.entity_id,
+                environment=self.environment.value,
             )
 
     def create_edges(self, edgesList: List[Any]):
         # Function to create edges between nodes in the Neo4j database
         with self.driver.session() as session:
-            session.execute_write(self._create_edges_txn, edgesList, 1000, entityId=self.entity_id, repoId=self.repo_id)
+            session.execute_write(
+                self._create_edges_txn,
+                edgesList,
+                1000,
+                entityId=self.entity_id,
+                repoId=self.repo_id,
+                environment=self.environment.value,
+            )
 
     @staticmethod
-    def _create_nodes_txn(tx: ManagedTransaction, nodeList: List[Any], batch_size: int, repoId: str, entityId: str):
+    def _create_nodes_txn(
+        tx: ManagedTransaction, nodeList: List[Any], batch_size: int, repoId: str, entityId: str, environment: str
+    ):
         node_creation_query = """
         CALL apoc.periodic.iterate(
             "UNWIND $nodeList AS node RETURN node",
             "CALL apoc.merge.node(
             node.extra_labels + [node.type, 'NODE'],
-            {hashed_id: node.attributes.hashed_id, repoId: $repoId, entityId: $entityId, diff_identifier: node.attributes.diff_identifier},
+            {hashed_id: node.attributes.hashed_id, repoId: $repoId, entityId: $entityId, environment: $environment, diff_identifier: node.attributes.diff_identifier},
             node.attributes,
             node.attributes
             )
             YIELD node as n RETURN count(n) as count",
-            {batchSize: $batchSize, parallel: false, iterateList: true, params: {nodeList: $nodeList, repoId: $repoId, entityId: $entityId}}
+            {batchSize: $batchSize, parallel: false, iterateList: true, params: {nodeList: $nodeList, repoId: $repoId, entityId: $entityId, environment: $environment}}
         )
         YIELD batches, total, errorMessages, updateStatistics
         RETURN batches, total, errorMessages, updateStatistics
@@ -104,6 +122,7 @@ class Neo4jManager(AbstractDbManager):
             batchSize=batch_size,
             repoId=repoId,
             entityId=entityId,
+            environment=environment,
         )
 
         # Fetch the result
@@ -114,23 +133,25 @@ class Neo4jManager(AbstractDbManager):
             print(record)
 
     @staticmethod
-    def _create_edges_txn(tx: ManagedTransaction, edgesList: List[Any], batch_size: int, entityId: str, repoId: str):
+    def _create_edges_txn(
+        tx: ManagedTransaction, edgesList: List[Any], batch_size: int, entityId: str, repoId: str, environment: str
+    ):
         # Cypher query using apoc.periodic.iterate for creating edges
         edge_creation_query = """
         CALL apoc.periodic.iterate(
-            'WITH $edgesList AS edges UNWIND edges AS edgeObject RETURN edgeObject',
-            'MATCH (node1:NODE {node_id: edgeObject.sourceId, repoId: $repoId, entityId: $entityId}) 
-            MATCH (node2:NODE {node_id: edgeObject.targetId, repoId: $repoId, entityId: $entityId}) 
+            "UNWIND $edgesList AS edgeObject RETURN edgeObject",
+            "MATCH (node1:NODE {node_id: edgeObject.sourceId, repoId: $repoId, entityId: $entityId, environment: $environment}) 
+            MATCH (node2:NODE {node_id: edgeObject.targetId, repoId: $repoId, entityId: $entityId, environment: $environment}) 
             CALL apoc.merge.relationship(
             node1, 
             edgeObject.type, 
-            apoc.map.removeKeys(edgeObject, ["sourceId", "targetId", "type"]), 
-            {}, 
+            apoc.map.removeKeys(edgeObject, ['sourceId', 'targetId', 'type']), 
+            apoc.map.removeKeys(edgeObject, ['sourceId', 'targetId', 'type']), 
             node2, 
-            {}
+            apoc.map.removeKeys(edgeObject, ['sourceId', 'targetId', 'type'])
             ) 
-            YIELD rel RETURN rel',
-            {batchSize:$batchSize, parallel:false, iterateList: true, params:{edgesList: $edgesList, entityId: $entityId, repoId: $repoId}}
+            YIELD rel RETURN count(rel) as count",
+            {batchSize: $batchSize, parallel: false, iterateList: true, params: {edgesList: $edgesList, entityId: $entityId, repoId: $repoId, environment: $environment}}
         )
         YIELD batches, total, errorMessages, updateStatistics
         RETURN batches, total, errorMessages, updateStatistics
@@ -142,6 +163,7 @@ class Neo4jManager(AbstractDbManager):
             batchSize=batch_size,
             entityId=entityId,
             repoId=repoId,
+            environment=environment,
         )
 
         # Fetch the result

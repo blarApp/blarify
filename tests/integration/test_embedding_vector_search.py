@@ -35,9 +35,9 @@ class TestEmbeddingVectorSearch:
     def test_graph_environment(self, test_data_isolation: Dict[str, Any]) -> GraphEnvironment:
         """Create a test GraphEnvironment."""
         return GraphEnvironment(
-            environment=f"{test_data_isolation['entity_id']}/{test_data_isolation['repo_id']}", 
-            diff_identifier="test-diff", 
-            root_path="/test/path"
+            environment=f"{test_data_isolation['entity_id']}/{test_data_isolation['repo_id']}",
+            diff_identifier="test-diff",
+            root_path="/test/path",
         )
 
     @pytest.fixture

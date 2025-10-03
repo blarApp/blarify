@@ -1,6 +1,5 @@
 import os
 import time
-from enum import Enum
 from typing import Any, List, Dict, LiteralString, Optional
 
 from dotenv import load_dotenv
@@ -20,11 +19,6 @@ neo4j_logger = logging.getLogger("neo4j")
 neo4j_logger.setLevel(logging.ERROR)
 
 load_dotenv()
-
-
-class ENVIRONMENT(Enum):
-    MAIN = "main"
-    DEV = "dev"
 
 
 class Neo4jManager(AbstractDbManager):

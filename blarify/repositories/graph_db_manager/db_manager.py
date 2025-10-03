@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Dict, Any, LiteralString
+from typing import List, Dict, Any, LiteralString, Optional
 
 from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import ReferenceSearchResultDTO
 
@@ -30,7 +30,9 @@ class AbstractDbManager:
         """Detach and delete nodes matching the given path."""
         raise NotImplementedError
 
-    def query(self, cypher_query: LiteralString, parameters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    def query(
+        self, cypher_query: LiteralString, parameters: Optional[Dict[str, Any]] = None, transaction: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return the results.
 

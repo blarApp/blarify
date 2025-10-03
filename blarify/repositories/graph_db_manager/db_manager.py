@@ -1,6 +1,12 @@
+from enum import Enum
 from typing import List, Dict, Any, LiteralString
 
 from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import ReferenceSearchResultDTO
+
+
+class ENVIRONMENT(Enum):
+    MAIN = "main"
+    DEV = "dev"
 
 
 class AbstractDbManager:

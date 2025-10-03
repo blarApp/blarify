@@ -2000,62 +2000,6 @@ def get_code_by_id(db_manager: AbstractDbManager, node_id: str) -> Optional[Dict
         return None
 
 
-# Call Stack Navigation Queries
-
-
-def get_call_stack_children_query() -> LiteralString:
-    """
-    Returns a Cypher query for retrieving functions/modules called or used by a function.
-
-    This query finds all nodes that are called or used by the given function through
-    CALLS and USES relationships, including the precise call locations.
-
-    Returns:
-        str: The Cypher query string
-    """
-    return """
-    MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[r:CALLS|USES]->(child:NODE)
-    RETURN child.node_id as id,
-           child.name as name,
-           labels(child) as labels,
-           child.path as path,
-           child.start_line as start_line,
-           child.end_line as end_line,
-           coalesce(child.text, '') as content,
-           type(r) as relationship_type,
-           r.start_line as call_line,
-           r.referenceCharacter as call_character
-    ORDER BY r.start_line, r.referenceCharacter
-    """
-
-
-def get_call_stack_children(db_manager: AbstractDbManager, node_id: str) -> List[NodeWithContentDto]:
-    """
-    Retrieves functions/modules called or used by a function.
-
-    Args:
-        db_manager: Database manager instance
-        entity_id: The entity ID to query
-        repo_id: The repository ID to query
-        node_id: The function node ID to get call stack children for
-
-    Returns:
-        List of NodeWithContentDto objects representing called/used functions
-    """
-    try:
-        query = get_call_stack_children_query()
-        parameters = {"node_id": node_id}
-
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
-
-        return format_children_with_content_result(query_result)
-
-    except Exception as e:
-        logger.exception(f"Error retrieving call stack children for node '{node_id}': {e}")
-        return []
-
-
 def get_existing_documentation_for_node_query() -> LiteralString:
     """
     Returns a Cypher query for retrieving existing documentation for a specific code node.
@@ -2079,47 +2023,6 @@ def get_existing_documentation_for_node_query() -> LiteralString:
            doc.children_count as children_count
     LIMIT 1
     """
-
-
-def get_existing_documentation_for_node(db_manager: AbstractDbManager, node_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Retrieves existing documentation for a specific code node.
-
-    Args:
-        db_manager: Database manager instance
-        entity_id: The entity ID to query
-        repo_id: The repository ID to query
-        node_id: The code node ID to check for existing documentation
-
-    Returns:
-        Dictionary with documentation data or None if not found
-    """
-    try:
-        query = get_existing_documentation_for_node_query()
-        parameters = {"node_id": node_id}
-
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
-
-        if not query_result:
-            return None
-
-        # Return the documentation data
-        record = query_result[0]
-        return {
-            "doc_node_id": record.get("doc_node_id", ""),
-            "title": record.get("title", ""),
-            "content": record.get("content", ""),
-            "info_type": record.get("info_type", ""),
-            "source_path": record.get("source_path", ""),
-            "source_labels": record.get("source_labels", []),
-            "source_type": record.get("source_type", ""),
-            "enhanced_content": record.get("enhanced_content"),
-            "children_count": record.get("children_count"),
-        }
-
-    except Exception as e:
-        logger.exception(f"Error retrieving existing documentation for node '{node_id}': {e}")
-        return None
 
 
 def find_entry_points_for_node_path_query() -> LiteralString:

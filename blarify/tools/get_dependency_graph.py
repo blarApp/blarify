@@ -11,26 +11,12 @@ from blarify.repositories.graph_db_manager.queries import get_mermaid_graph
 
 
 class FlexibleInput(BaseModel):
-    reference_id: Optional[str] = Field(
-        None,
-        description="Reference ID (32-char handle) for the symbol"
-    )
-    file_path: Optional[str] = Field(
-        None,
-        description="Path to the file containing the symbol"
-    )
-    symbol_name: Optional[str] = Field(
-        None,
-        description="Name of the function/class/method"
-    )
-    depth: int = Field(
-        default=2,
-        description="Maximum depth of relationships to include (default: 2)",
-        ge=1,
-        le=5
-    )
+    reference_id: Optional[str] = Field(None, description="Reference ID (32-char handle) for the symbol")
+    file_path: Optional[str] = Field(None, description="Path to the file containing the symbol")
+    symbol_name: Optional[str] = Field(None, description="Name of the function/class/method")
+    depth: int = Field(default=2, description="Maximum depth of relationships to include (default: 2)", ge=1, le=5)
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_inputs(self):
         if self.reference_id:
             if len(self.reference_id) != 32:
@@ -70,10 +56,7 @@ class GetDependencyGraph(BaseTool):
         try:
             # Resolve the reference ID from inputs
             node_id = resolve_reference_id(
-                self.db_manager,
-                reference_id=reference_id,
-                file_path=file_path,
-                symbol_name=symbol_name
+                self.db_manager, reference_id=reference_id, file_path=file_path, symbol_name=symbol_name
             )
 
             # TODO: Pass depth parameter to get_mermaid_graph when it supports it

@@ -9,17 +9,22 @@ from blarify.documentation.workflow_creator import WorkflowCreator
 from blarify.documentation.documentation_creator import DocumentationCreator
 from blarify.agents.llm_provider import LLMProvider
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from ..repositories.graph_db_manager.graph_queries import (
+    detach_delete_nodes_by_paths_query,
+    match_empty_folders_query,
+    detach_delete_nodes_by_node_ids_query,
+)
 
 
 class GraphBuilder:
     def __init__(
         self,
         root_path: str,
+        db_manager: AbstractDbManager,
         only_hierarchy: bool = False,
         extensions_to_skip: Optional[list[str]] = None,
         names_to_skip: Optional[list[str]] = None,
         graph_environment: Optional[GraphEnvironment] = None,
-        db_manager: Optional[AbstractDbManager] = None,
         generate_embeddings: bool = False,
     ):
         """
@@ -163,6 +168,8 @@ class GraphBuilder:
         reference_query_helper = self._get_started_reference_query_helper()
         project_files_iterator = self._get_project_files_iterator()
 
+        self._detatch_delete_nodes_by_paths(file_paths=[file.path for file in updated_files])
+
         graph_updater = ProjectGraphUpdater(
             updated_files=updated_files,
             root_path=self.root_path,
@@ -178,8 +185,10 @@ class GraphBuilder:
 
         reference_query_helper.shutdown()
 
+        self._detatch_empty_folder_nodes_iteratively()
+
         # Optionally save and create workflows/documentation
-        if self.db_manager and save_to_db:
+        if save_to_db:
             nodes = graph.get_nodes_as_objects()
             relationships = graph.get_relationships_as_objects()
             self.db_manager.save_graph(nodes, relationships)
@@ -203,6 +212,46 @@ class GraphBuilder:
                 doc_creator.create_documentation(generate_embeddings=self.generate_embeddings)
 
         return graph
+
+    def _detatch_delete_nodes_by_paths(self, file_paths: list[str]):
+        if not self.db_manager:
+            return
+        query = detach_delete_nodes_by_paths_query()
+        self.db_manager.query(
+            query,
+            parameters={
+                "file_paths": file_paths,
+            },
+            transaction=True,
+        )
+
+    def __detatch_delete_nodes_by_node_ids(self, node_ids: list[str]):
+        if not self.db_manager:
+            return
+        query = detach_delete_nodes_by_node_ids_query()
+        self.db_manager.query(
+            query,
+            parameters={
+                "node_ids": node_ids,
+            },
+            transaction=True,
+        )
+
+    def __match_empty_folders(self):
+        if not self.db_manager:
+            return []
+        query = match_empty_folders_query()
+        result = self.db_manager.query(
+            query,
+            parameters={},
+        )
+
+        return result
+
+    def _detatch_empty_folder_nodes_iteratively(self):
+        while empty_folders := self.__match_empty_folders():
+            empty_nodes_ids = [folder["folder"]["node_id"] for folder in empty_folders]
+            self.__detatch_delete_nodes_by_node_ids(empty_nodes_ids)
 
     def _get_project_files_iterator(self):
         return ProjectFilesIterator(

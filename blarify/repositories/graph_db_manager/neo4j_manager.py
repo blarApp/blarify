@@ -165,6 +165,17 @@ class Neo4jManager(AbstractDbManager):
             logger.info(f"Created {record['total']} edges")
             print(record)
 
+    @staticmethod
+    def run_transaction(tx: ManagedTransaction, query: LiteralString, params: Dict[str, Any] = {}, entity: str = ""):
+        result = tx.run(query, params)
+        records = list(result)  # Convert to list to return the records
+
+        for record in records:
+            print("Created record: ", record)
+            print(f"Created {record['total']} {entity}")
+
+        return records  # Return the records so execute_write can access them
+
     def detatch_delete_nodes_with_path(self, path: str):
         with self.driver.session() as session:
             result = session.run(
@@ -176,7 +187,9 @@ class Neo4jManager(AbstractDbManager):
             )
             return result.data()
 
-    def query(self, cypher_query: LiteralString, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def query(
+        self, cypher_query: LiteralString, parameters: Optional[Dict[str, Any]] = None, transaction: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         Execute a Cypher query and return the results.
 
@@ -197,7 +210,13 @@ class Neo4jManager(AbstractDbManager):
 
         try:
             with self.driver.session() as session:
-                result = session.run(cypher_query, parameters)
+                result = []
+                if transaction:
+                    result = session.execute_write(
+                        Neo4jManager.run_transaction, cypher_query, parameters, self.entity_id
+                    )
+                else:
+                    result = session.run(cypher_query, parameters)
                 return [record.data() for record in result]
         except Exception as e:
             logger.exception(f"Error executing Neo4j query: {e}")

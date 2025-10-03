@@ -214,8 +214,6 @@ class GraphBuilder:
         return graph
 
     def _detatch_delete_nodes_by_paths(self, file_paths: list[str]):
-        if not self.db_manager:
-            return
         query = detach_delete_nodes_by_paths_query()
         self.db_manager.query(
             query,
@@ -226,8 +224,6 @@ class GraphBuilder:
         )
 
     def __detatch_delete_nodes_by_node_ids(self, node_ids: list[str]):
-        if not self.db_manager:
-            return
         query = detach_delete_nodes_by_node_ids_query()
         self.db_manager.query(
             query,
@@ -238,8 +234,6 @@ class GraphBuilder:
         )
 
     def __match_empty_folders(self):
-        if not self.db_manager:
-            return []
         query = match_empty_folders_query()
         result = self.db_manager.query(
             query,

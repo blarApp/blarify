@@ -420,8 +420,8 @@ class NoColon
             assert len(txt_files) == 0, "Should not have text files (filtered)"
             assert len(bin_files) == 0, "Should not have binary files (filtered)"
 
-            db_manager.close()
-
         except Exception as e:
             print(f"Mixed file processing error: {e}")
             # Some parsing errors are acceptable
+        finally:
+            db_manager.close()

@@ -84,11 +84,12 @@ async def module_neo4j_container(
                 # Event loop might be closed, ignore errors
                 print(f"Warning: Could not close driver properly: {e}")
             instance._driver = None
-        
+
         # Cleanup container when module completes
         try:
             # Use new event loop if current one is closed
             import asyncio
+
             loop = asyncio.get_event_loop()
             if loop.is_closed():
                 loop = asyncio.new_event_loop()

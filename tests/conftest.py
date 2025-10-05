@@ -28,6 +28,13 @@ from blarify.mcp_server.config import MCPServerConfig
 from blarify.mcp_server.server import BlarifyMCPServer
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Ensure Neo4j integration tests run sequentially even with xdist parallelization."""
+    for item in items:
+        if "neo4j_integration" in item.keywords:
+            item.add_marker(pytest.mark.xdist_group("neo4j-integration"))
+
+
 @pytest.fixture(scope="module")
 def module_neo4j_config(request: Any) -> Neo4jContainerConfig:
     """

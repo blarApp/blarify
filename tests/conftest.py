@@ -10,7 +10,7 @@ particularly for GraphBuilder functionality with Neo4j containers.
 import tempfile
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Generator, Any, Dict
+from typing import AsyncGenerator, Generator, Any, Dict, Optional
 
 import pytest
 import pytest_asyncio
@@ -292,64 +292,62 @@ async def cleanup_blarify_neo4j():
     Fixture to clean up Blarify's auto-spawned Neo4j container and credentials.
 
     This is used for integration tests that test the auto-spawn functionality.
-    It ensures a clean state before and after each test.
+    It ensures a clean state before and after each test, while preserving any
+    user-provided credentials that may already exist on the host machine.
     """
-    # Clean before test
-    try:
-        import docker
-        from docker import errors
 
-        client = docker.from_env()
-        # Only clean up development containers, not MCP containers
+    def _cleanup_docker_resources() -> None:
         try:
-            container = client.containers.get("blarify-neo4j-dev")
-            container.stop()
-            container.remove()
-        except errors.NotFound:
+            import docker
+            from docker import errors
+
+            client = docker.from_env()
+            container_names = ("neo4j-blarify-mcp", "blarify-neo4j-dev")
+            volume_names = ("neo4j-blarify-mcp-data", "blarify-neo4j-dev-data")
+
+            for container_name in container_names:
+                try:
+                    container = client.containers.get(container_name)
+                    container.stop()
+                    container.remove()
+                except errors.NotFound:
+                    pass
+
+            for volume_name in volume_names:
+                try:
+                    volume = client.volumes.get(volume_name)
+                    volume.remove()
+                except errors.NotFound:
+                    pass
+        except Exception:
+            # Best-effort cleanup; ignore errors when Docker isn't available.
             pass
 
-        # Also remove the development volume to ensure clean state
-        try:
-            volume = client.volumes.get("blarify-neo4j-dev-data")
-            volume.remove()
-        except errors.NotFound:
-            pass
-    except Exception:
-        pass
-
-    # Clean credentials before test
     creds_file = Path.home() / ".blarify" / "neo4j_credentials.json"
+    original_creds_content: Optional[str] = None
+    original_creds_mode: Optional[int] = None
+
     if creds_file.exists():
+        original_creds_content = creds_file.read_text()
+        original_creds_mode = creds_file.stat().st_mode & 0o777
         creds_file.unlink()
+
+    # Ensure clean state before running the test
+    _cleanup_docker_resources()
 
     yield
 
-    # Clean after test
-    try:
-        import docker
-        from docker import errors
+    # Clean up any resources created during the test
+    _cleanup_docker_resources()
 
-        client = docker.from_env()
-        # Only clean up development containers, not MCP containers
-        try:
-            container = client.containers.get("blarify-neo4j-dev")
-            container.stop()
-            container.remove()
-        except errors.NotFound:
-            pass
-
-        # Also remove the development volume to ensure clean state
-        try:
-            volume = client.volumes.get("blarify-neo4j-dev-data")
-            volume.remove()
-        except errors.NotFound:
-            pass
-    except Exception:
-        pass
-
-    # Clean credentials after test
     if creds_file.exists():
         creds_file.unlink()
+
+    if original_creds_content is not None:
+        creds_file.parent.mkdir(exist_ok=True)
+        creds_file.write_text(original_creds_content)
+        if original_creds_mode is not None:
+            creds_file.chmod(original_creds_mode)
 
 
 @pytest.fixture

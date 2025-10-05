@@ -38,10 +38,6 @@ class TestToolsIntegration:
         """Set up test data in Neo4j before each test."""
         # Build graph from test code
         python_path = test_code_examples_path / "python"
-        builder = GraphBuilder(root_path=str(python_path))
-        graph = builder.build()
-
-        # Save to Neo4j with isolated IDs
         self.db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -49,6 +45,10 @@ class TestToolsIntegration:
             repo_id=test_data_isolation["repo_id"],
             entity_id=test_data_isolation["entity_id"],
         )
+        builder = GraphBuilder(root_path=str(python_path), db_manager=self.db_manager)
+        graph = builder.build()
+
+        # Save to Neo4j with isolated IDs
 
         try:
             # Store test isolation data for use in tests
@@ -231,6 +231,7 @@ class TestToolsIntegration:
                     # Verify NODE is not in the Labels display (check all possible positions)
                     # Extract labels line for precise checking
                     import re
+
                     labels_match = re.search(r"🏷️  Labels: ([^\n]+)", result)
                     if labels_match:
                         labels_text = labels_match.group(1)
@@ -279,6 +280,7 @@ class TestToolsIntegration:
 
                     # Verify NODE is not in the Type display (check all possible positions)
                     import re
+
                     type_match = re.search(r"🏷️  Type: ([^\n]+)", result)
                     if type_match:
                         type_text = type_match.group(1)

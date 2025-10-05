@@ -7,6 +7,7 @@ particularly for GraphBuilder functionality with Neo4j containers.
 # pyright: reportMissingParameterType=false
 # pyright: reportPrivateUsage=false
 
+import re
 import tempfile
 import uuid
 from pathlib import Path
@@ -32,7 +33,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """Ensure Neo4j integration tests run sequentially even with xdist parallelization."""
     for item in items:
         if "neo4j_integration" in item.keywords:
-            item.add_marker(pytest.mark.xdist_group("neo4j-integration"))
+            file_id = item.nodeid.split("::", 1)[0]
+            sanitized = re.sub(r"[^a-zA-Z0-9]+", "-", file_id).strip("-")
+            group_name = f"neo4j-integration-{sanitized}"
+            item.add_marker(pytest.mark.xdist_group(group_name))
 
 
 @pytest.fixture(scope="module")

@@ -39,13 +39,7 @@ class TestCycleHandling:
         # Use the existing simple cycle examples
         simple_cycle_path = test_code_examples_path / "circular_deps" / "simple_cycle"
 
-        # Build graph
-        builder = GraphBuilder(
-            root_path=str(simple_cycle_path), extensions_to_skip=[".pyc", ".pyo"], names_to_skip=["__pycache__"]
-        )
-        graph = builder.build()
-
-        # Save to Neo4j with isolated IDs
+        # Create db_manager first
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -54,6 +48,16 @@ class TestCycleHandling:
             entity_id=test_data_isolation["entity_id"],
         )
 
+        # Build graph with db_manager
+        builder = GraphBuilder(
+            root_path=str(simple_cycle_path),
+            db_manager=db_manager,
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+        )
+        graph = builder.build()
+
+        # Save to Neo4j with isolated IDs
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Create a mock LLM provider
@@ -88,7 +92,7 @@ class TestCycleHandling:
                 "path": str(simple_cycle_path),
                 "entity_id": test_data_isolation["entity_id"],
                 "repo_id": test_data_isolation["repo_id"],
-            }
+            },
         )
 
         if root_result:
@@ -118,7 +122,7 @@ class TestCycleHandling:
                 {
                     "entity_id": test_data_isolation["entity_id"],
                     "repo_id": test_data_isolation["repo_id"],
-                }
+                },
             )
 
             completed_count = result[0]["completed_count"] if result else 0
@@ -142,13 +146,7 @@ class TestCycleHandling:
         # Use the existing complex cycle examples
         complex_cycle_path = test_code_examples_path / "circular_deps" / "complex_cycle"
 
-        # Build graph
-        builder = GraphBuilder(
-            root_path=str(complex_cycle_path), extensions_to_skip=[".pyc", ".pyo"], names_to_skip=["__pycache__"]
-        )
-        graph = builder.build()
-
-        # Save to Neo4j with isolated IDs
+        # Create db_manager first
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -157,6 +155,16 @@ class TestCycleHandling:
             entity_id=test_data_isolation["entity_id"],
         )
 
+        # Build graph with db_manager
+        builder = GraphBuilder(
+            root_path=str(complex_cycle_path),
+            db_manager=db_manager,
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+        )
+        graph = builder.build()
+
+        # Save to Neo4j with isolated IDs
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Create a mock LLM provider
@@ -191,7 +199,7 @@ class TestCycleHandling:
                 "path": str(complex_cycle_path),
                 "entity_id": test_data_isolation["entity_id"],
                 "repo_id": test_data_isolation["repo_id"],
-            }
+            },
         )
 
         if root_result:
@@ -221,7 +229,7 @@ class TestCycleHandling:
                 {
                     "entity_id": test_data_isolation["entity_id"],
                     "repo_id": test_data_isolation["repo_id"],
-                }
+                },
             )
 
             pending_count = result[0]["pending_count"] if result else 0
@@ -247,13 +255,7 @@ class TestCycleHandling:
         # Use the mutual recursion example from code_examples
         mutual_recursion_path = test_code_examples_path / "circular_deps" / "mutual_recursion"
 
-        # Build and save graph
-        builder = GraphBuilder(
-            root_path=str(mutual_recursion_path), extensions_to_skip=[".pyc", ".pyo"], names_to_skip=["__pycache__"]
-        )
-        graph = builder.build()
-
-        # Save to Neo4j with isolated IDs
+        # Create db_manager first
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -262,6 +264,16 @@ class TestCycleHandling:
             entity_id=test_data_isolation["entity_id"],
         )
 
+        # Build and save graph
+        builder = GraphBuilder(
+            root_path=str(mutual_recursion_path),
+            db_manager=db_manager,
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+        )
+        graph = builder.build()
+
+        # Save to Neo4j with isolated IDs
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Create a mock LLM provider
@@ -296,7 +308,7 @@ class TestCycleHandling:
                 "path": str(mutual_recursion_path),
                 "entity_id": test_data_isolation["entity_id"],
                 "repo_id": test_data_isolation["repo_id"],
-            }
+            },
         )
 
         if root_result:
@@ -316,8 +328,14 @@ class TestCycleHandling:
             assert total_processed > 0, "Should have processed nodes with mutual recursion"
 
             # Check that mutually recursive functions were processed
-            recursive_functions = ["is_even", "is_odd", "count_down_even", "count_down_odd",
-                                  "tree_traversal_left", "tree_traversal_right"]
+            recursive_functions = [
+                "is_even",
+                "is_odd",
+                "count_down_even",
+                "count_down_odd",
+                "tree_traversal_left",
+                "tree_traversal_right",
+            ]
 
             for func_name in recursive_functions:
                 func_query = """
@@ -330,7 +348,7 @@ class TestCycleHandling:
                         "name": func_name,
                         "entity_id": test_data_isolation["entity_id"],
                         "repo_id": test_data_isolation["repo_id"],
-                    }
+                    },
                 )
 
                 if result:

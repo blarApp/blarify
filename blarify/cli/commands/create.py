@@ -60,14 +60,24 @@ def store_neo4j_credentials(creds: Dict[str, str]) -> None:
     creds_file.chmod(0o600)
 
 
-def display_neo4j_connection_info(uri: str, username: str, password: str, is_new: bool) -> None:
+def display_neo4j_connection_info(
+    uri: str,
+    username: str,
+    password: str,
+    is_new: bool,
+    http_uri: Optional[str] = None,
+) -> None:
     """Display Neo4j connection information to user."""
     console = Console()
 
     # Extract port from URI for browser URL
     port = uri.split(":")[-1]
     bolt_port = int(port) if port.isdigit() else 7687
-    http_port = bolt_port - 200 if bolt_port > 7687 else 7474  # Standard Neo4j port mapping
+    if http_uri:
+        browser_url = http_uri
+    else:
+        http_port = bolt_port - 200 if bolt_port > 7687 else 7474  # Fallback to legacy mapping
+        browser_url = f"http://localhost:{http_port}"
 
     if is_new:
         console.print(f"""
@@ -75,7 +85,7 @@ def display_neo4j_connection_info(uri: str, username: str, password: str, is_new
 ║  Neo4j Container Started                       ║
 ╠════════════════════════════════════════════════╣
 ║  URI:      {uri:<36} ║
-║  Browser:  http://localhost:{http_port:<18} ║
+║  Browser:  {browser_url:<36} ║
 ║  Username: {username:<36} ║
 ║  Password: {password:<36} ║
 ╠════════════════════════════════════════════════╣
@@ -89,7 +99,7 @@ def display_neo4j_connection_info(uri: str, username: str, password: str, is_new
 ║  Using Existing Neo4j Container               ║
 ╠════════════════════════════════════════════════╣
 ║  URI:      {uri:<36} ║
-║  Browser:  http://localhost:{http_port:<18} ║
+║  Browser:  {browser_url:<36} ║
 ║  Username: {username:<36} ║
 ║  Password: {password:<36} ║
 ╚════════════════════════════════════════════════╝
@@ -179,7 +189,11 @@ async def spawn_or_get_neo4j_container() -> Neo4jContainerInstance:
     if existing:
         # Password is already loaded in get_existing_container
         display_neo4j_connection_info(
-            uri=existing.uri, username=existing.config.username, password=existing.config.password, is_new=False
+            uri=existing.uri,
+            username=existing.config.username,
+            password=existing.config.password,
+            is_new=False,
+            http_uri=existing.http_uri,
         )
         return existing
 
@@ -198,7 +212,13 @@ async def spawn_or_get_neo4j_container() -> Neo4jContainerInstance:
     )
 
     instance = await manager.start(config)
-    display_neo4j_connection_info(uri=instance.uri, username=creds["username"], password=creds["password"], is_new=True)
+    display_neo4j_connection_info(
+        uri=instance.uri,
+        username=creds["username"],
+        password=creds["password"],
+        is_new=True,
+        http_uri=instance.http_uri,
+    )
     return instance
 
 

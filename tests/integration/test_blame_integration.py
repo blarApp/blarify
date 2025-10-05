@@ -34,17 +34,7 @@ class TestBlameBasedIntegration:
         graph_assertions: GraphAssertions,
     ) -> None:
         """Test complete blame-based GitHub integration workflow with real database."""
-        # Step 1: Build code graph from real code examples
-        python_examples_path = test_code_examples_path / "python"
-
-        builder = GraphBuilder(
-            root_path=str(python_examples_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-        graph = builder.build()
-
-        # Step 2: Save graph to real Neo4j
+        # Step 1: Set up database manager
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -53,8 +43,16 @@ class TestBlameBasedIntegration:
             entity_id=test_data_isolation["entity_id"],
         )
 
-        # Save the actual graph first
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        # Step 2: Build code graph from real code examples (with auto-save)
+        python_examples_path = test_code_examples_path / "python"
+
+        builder = GraphBuilder(
+            root_path=str(python_examples_path),
+            db_manager=db_manager,
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+        )
+        builder.build()
 
         # Verify we have the expected nodes
         await graph_assertions.assert_node_exists("FILE")
@@ -264,14 +262,7 @@ class TestBlameBasedIntegration:
         """Test that blame provides more accurate attribution than patch parsing."""
         python_examples_path = test_code_examples_path / "python"
 
-        # Build and save graph
-        builder = GraphBuilder(
-            root_path=str(python_examples_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-        graph = builder.build()
-
+        # Set up database manager
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -280,7 +271,14 @@ class TestBlameBasedIntegration:
             entity_id=test_data_isolation["entity_id"],
         )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        # Build and save graph
+        builder = GraphBuilder(
+            root_path=str(python_examples_path),
+            db_manager=db_manager,
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+        )
+        builder.build()
 
         # Mock query_nodes_by_ids
         def mock_query_nodes_by_ids(node_ids: list[str]) -> list[CodeNodeDto]:
@@ -411,14 +409,7 @@ class TestBlameBasedIntegration:
         """Test that PRs are correctly associated through blame results."""
         python_examples_path = test_code_examples_path / "python"
 
-        # Build and save graph
-        builder = GraphBuilder(
-            root_path=str(python_examples_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-        graph = builder.build()
-
+        # Set up database manager
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -427,7 +418,14 @@ class TestBlameBasedIntegration:
             entity_id=test_data_isolation["entity_id"],
         )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        # Build and save graph
+        builder = GraphBuilder(
+            root_path=str(python_examples_path),
+            db_manager=db_manager,
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+        )
+        builder.build()
 
         # Mock query_nodes_by_ids
         def mock_query_nodes_by_ids(node_ids: list[str]) -> list[CodeNodeDto]:

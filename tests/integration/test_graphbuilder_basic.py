@@ -32,9 +32,19 @@ class TestGraphBuilderBasic:
         # Use the simple Python module from test examples
         python_examples_path = test_code_examples_path / "python"
 
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
         # Create GraphBuilder instance
         builder = GraphBuilder(
             root_path=str(python_examples_path),
+            db_manager=db_manager,
             extensions_to_skip=[".pyc", ".pyo"],
             names_to_skip=["__pycache__"],
         )
@@ -47,13 +57,6 @@ class TestGraphBuilderBasic:
         assert graph is not None
 
         # Save graph to Neo4j with isolated IDs
-        db_manager = Neo4jManager(
-            uri=test_data_isolation["uri"],
-            user="neo4j",
-            password=test_data_isolation["password"],
-            repo_id=test_data_isolation["repo_id"],
-            entity_id=test_data_isolation["entity_id"],
-        )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Debug: Print graph summary to see what labels are actually created
@@ -81,9 +84,19 @@ class TestGraphBuilderBasic:
         """Test GraphBuilder in hierarchy-only mode."""
         python_examples_path = test_code_examples_path / "python"
 
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
         # Create GraphBuilder with hierarchy-only mode
         builder = GraphBuilder(
             root_path=str(python_examples_path),
+            db_manager=db_manager,
             only_hierarchy=True,
         )
 
@@ -119,9 +132,19 @@ class TestGraphBuilderBasic:
         """Test GraphBuilder with file extension filtering."""
         # Test with multiple language directories
 
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
         # Create GraphBuilder that skips TypeScript files
         builder = GraphBuilder(
             root_path=str(test_code_examples_path),
+            db_manager=db_manager,
             extensions_to_skip=[".ts", ".js", ".rb"],
             names_to_skip=["typescript", "ruby"],
         )
@@ -172,7 +195,16 @@ class TestGraphBuilderBasic:
         """Test that GraphBuilder creates relationships between nodes."""
         python_examples_path = test_code_examples_path / "python"
 
-        builder = GraphBuilder(root_path=str(python_examples_path))
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
+        builder = GraphBuilder(root_path=str(python_examples_path), db_manager=db_manager)
         graph = builder.build()
 
         # Save to Neo4j with isolated IDs
@@ -205,8 +237,17 @@ class TestGraphBuilderBasic:
         graph_assertions: GraphAssertions,
     ) -> None:
         """Test GraphBuilder behavior with empty directory."""
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
         # Create GraphBuilder for empty directory
-        builder = GraphBuilder(root_path=str(temp_project_dir))
+        builder = GraphBuilder(root_path=str(temp_project_dir), db_manager=db_manager)
 
         # Build the graph
         graph = builder.build()
@@ -215,20 +256,13 @@ class TestGraphBuilderBasic:
         assert isinstance(graph, Graph)
 
         # Save to Neo4j with isolated IDs
-        db_manager = Neo4jManager(
-            uri=test_data_isolation["uri"],
-            user="neo4j",
-            password=test_data_isolation["password"],
-            repo_id=test_data_isolation["repo_id"],
-            entity_id=test_data_isolation["entity_id"],
-        )
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Should have minimal or no nodes for this test's IDs
         container = test_data_isolation["container"]
         total_nodes = await container.execute_cypher(
             "MATCH (n) WHERE (n.entityId = $eid OR n.entity_id = $eid) AND (n.repoId = $rid OR n.repo_id = $rid) RETURN count(n) as count",
-            {"eid": test_data_isolation["entity_id"], "rid": test_data_isolation["repo_id"]}
+            {"eid": test_data_isolation["entity_id"], "rid": test_data_isolation["repo_id"]},
         )
         node_count = total_nodes[0]["count"]
 
@@ -247,10 +281,7 @@ class TestGraphBuilderBasic:
         """Test GraphBuilder and verify graph structure with debug summary."""
         python_examples_path = test_code_examples_path / "python"
 
-        builder = GraphBuilder(root_path=str(python_examples_path))
-        graph = builder.build()
-
-        # Save to Neo4j with isolated IDs
+        # Create db_manager first
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -258,7 +289,9 @@ class TestGraphBuilderBasic:
             repo_id=test_data_isolation["repo_id"],
             entity_id=test_data_isolation["entity_id"],
         )
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+
+        builder = GraphBuilder(root_path=str(python_examples_path), db_manager=db_manager)
+        builder.build()
 
         # Get debug summary
         summary = await graph_assertions.debug_print_graph_summary()
@@ -332,17 +365,13 @@ class TestGraphBuilderBasic:
         second_docs = await graph_assertions.get_node_properties("DOCUMENTATION")
 
         # Verify counts are EXACTLY the same (no duplication)
-        assert len(second_files) == first_file_count, (
-            f"Files duplicated: {first_file_count} → {len(second_files)}"
-        )
+        assert len(second_files) == first_file_count, f"Files duplicated: {first_file_count} → {len(second_files)}"
         assert len(second_functions) == first_function_count, (
             f"Functions duplicated: {first_function_count} → {len(second_functions)}"
         )
         assert len(second_workflows) == first_workflow_count, (
             f"Workflows duplicated: {first_workflow_count} → {len(second_workflows)}"
         )
-        assert len(second_docs) == first_doc_count, (
-            f"Documentation duplicated: {first_doc_count} → {len(second_docs)}"
-        )
+        assert len(second_docs) == first_doc_count, f"Documentation duplicated: {first_doc_count} → {len(second_docs)}"
 
         db_manager.close()

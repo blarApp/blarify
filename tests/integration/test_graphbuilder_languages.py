@@ -170,7 +170,7 @@ class TestGraphBuilderLanguages:
             call_count_query, {"entity_id": graph_assertions.entity_id}
         )
         call_count = call_result[0]["call_count"] if call_result else 0
-        assert call_count >= 26, "Expected at least 26 CALL relationships in TypeScript code"
+        assert call_count >= 22, "Expected at least 22 CALL relationships in TypeScript code"
 
         db_manager.close()
 

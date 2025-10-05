@@ -20,12 +20,21 @@ from tests.utils.graph_assertions import GraphAssertions
 class TestGraphBuilderEdgeCases:
     """Test GraphBuilder edge cases and error handling."""
 
-    async def test_graphbuilder_nonexistent_path(self, docker_check: Any) -> None:
+    async def test_graphbuilder_nonexistent_path(self, docker_check: Any, test_data_isolation: Dict[str, Any]) -> None:
         """Test GraphBuilder with non-existent root path."""
         nonexistent_path = "/this/path/does/not/exist"
 
+        # Create db_manager for the test
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
         # GraphBuilder should handle this gracefully
-        builder = GraphBuilder(root_path=nonexistent_path)
+        builder = GraphBuilder(root_path=nonexistent_path, db_manager=db_manager)
 
         # Build should either complete with empty graph or raise appropriate error
         try:
@@ -35,6 +44,8 @@ class TestGraphBuilderEdgeCases:
         except (FileNotFoundError, OSError):
             # This is also acceptable behavior
             pass
+        finally:
+            db_manager.close()
 
     async def test_graphbuilder_empty_file(
         self,
@@ -52,13 +63,7 @@ class TestGraphBuilderEdgeCases:
         empty_js = temp_project_dir / "empty.js"
         empty_js.write_text("")
 
-        builder = GraphBuilder(root_path=str(temp_project_dir))
-        graph = builder.build()
-
-        # Should create valid graph even with empty files
-        assert isinstance(graph, Graph)
-
-        # Save to Neo4j with isolated IDs
+        # Create db_manager first
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -66,6 +71,14 @@ class TestGraphBuilderEdgeCases:
             repo_id=test_data_isolation["repo_id"],
             entity_id=test_data_isolation["entity_id"],
         )
+
+        builder = GraphBuilder(root_path=str(temp_project_dir), db_manager=db_manager)
+        graph = builder.build()
+
+        # Should create valid graph even with empty files
+        assert isinstance(graph, Graph)
+
+        # Save to Neo4j with isolated IDs
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Should have File nodes for empty files
@@ -118,7 +131,16 @@ function brokenFunction() {
     // Missing quotes and closing brace
 """)
 
-        builder = GraphBuilder(root_path=str(temp_project_dir))
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
+        builder = GraphBuilder(root_path=str(temp_project_dir), db_manager=db_manager)
 
         # GraphBuilder should handle syntax errors gracefully
         try:
@@ -126,13 +148,6 @@ function brokenFunction() {
             assert isinstance(graph, Graph)
 
             # Save to Neo4j if successful with isolated IDs
-            db_manager = Neo4jManager(
-                uri=test_data_isolation["uri"],
-                user="neo4j",
-                password=test_data_isolation["password"],
-                repo_id=test_data_isolation["repo_id"],
-                entity_id=test_data_isolation["entity_id"],
-            )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
             # Should still have File nodes even for invalid files
@@ -185,12 +200,7 @@ class LargeClass:
 
         large_python.write_text(python_content)
 
-        builder = GraphBuilder(root_path=str(temp_project_dir))
-        graph = builder.build()
-
-        assert isinstance(graph, Graph)
-
-        # Save to Neo4j with isolated IDs
+        # Create db_manager first
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -198,6 +208,13 @@ class LargeClass:
             repo_id=test_data_isolation["repo_id"],
             entity_id=test_data_isolation["entity_id"],
         )
+
+        builder = GraphBuilder(root_path=str(temp_project_dir), db_manager=db_manager)
+        graph = builder.build()
+
+        assert isinstance(graph, Graph)
+
+        # Save to Neo4j with isolated IDs
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Should have many function nodes
@@ -245,20 +262,22 @@ def unicode_function():
     return "unicode content"
 """)
 
-        builder = GraphBuilder(root_path=str(temp_project_dir))
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
+        builder = GraphBuilder(root_path=str(temp_project_dir), db_manager=db_manager)
 
         try:
             graph = builder.build()
             assert isinstance(graph, Graph)
 
             # Save to Neo4j with isolated IDs
-            db_manager = Neo4jManager(
-                uri=test_data_isolation["uri"],
-                user="neo4j",
-                password=test_data_isolation["password"],
-                repo_id=test_data_isolation["repo_id"],
-                entity_id=test_data_isolation["entity_id"],
-            )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
             # Should handle special characters in file paths
@@ -298,12 +317,7 @@ def deeply_nested_function():
     return "deep content"
 """)
 
-        builder = GraphBuilder(root_path=str(temp_project_dir))
-        graph = builder.build()
-
-        assert isinstance(graph, Graph)
-
-        # Save to Neo4j with isolated IDs
+        # Create db_manager first
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -311,6 +325,13 @@ def deeply_nested_function():
             repo_id=test_data_isolation["repo_id"],
             entity_id=test_data_isolation["entity_id"],
         )
+
+        builder = GraphBuilder(root_path=str(temp_project_dir), db_manager=db_manager)
+        graph = builder.build()
+
+        assert isinstance(graph, Graph)
+
+        # Save to Neo4j with isolated IDs
         db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
         # Should handle deeply nested files
@@ -363,20 +384,24 @@ class NoColon
         binary_file = temp_project_dir / "image.bin"
         binary_file.write_bytes(b"\x89PNG\x0d\x0a\x1a\x0a\x00\x00")  # PNG header
 
-        builder = GraphBuilder(root_path=str(temp_project_dir), extensions_to_skip=[".txt", ".bin"])
+        # Create db_manager first
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
+        builder = GraphBuilder(
+            root_path=str(temp_project_dir), db_manager=db_manager, extensions_to_skip=[".txt", ".bin"]
+        )
 
         try:
             graph = builder.build()
             assert isinstance(graph, Graph)
 
             # Save to Neo4j with isolated IDs
-            db_manager = Neo4jManager(
-                uri=test_data_isolation["uri"],
-                user="neo4j",
-                password=test_data_isolation["password"],
-                repo_id=test_data_isolation["repo_id"],
-                entity_id=test_data_isolation["entity_id"],
-            )
             db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
 
             # Should process the valid file and handle invalid gracefully

@@ -9,6 +9,8 @@ from blarify.documentation.workflow_creator import WorkflowCreator
 from blarify.documentation.documentation_creator import DocumentationCreator
 from blarify.agents.llm_provider import LLMProvider
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
+from blarify.utils.path_calculator import PathCalculator
+from blarify.graph.node.utils.id_calculator import IdCalculator
 from ..repositories.graph_db_manager.graph_queries import (
     detach_delete_nodes_by_paths_query,
     match_empty_folders_query,
@@ -168,6 +170,7 @@ class GraphBuilder:
         reference_query_helper = self._get_started_reference_query_helper()
         project_files_iterator = self._get_project_files_iterator()
         file_paths = [file.path for file in updated_files]
+        node_paths = [self._convert_file_path_to_node_path(path) for path in file_paths]
 
         self._detatch_delete_nodes_by_paths(file_paths=file_paths)
 
@@ -200,7 +203,7 @@ class GraphBuilder:
                     db_manager=self.db_manager,
                     graph_environment=self.graph_environment,
                 )
-                workflow_creator.discover_workflows(entry_points=file_paths, save_to_database=True)
+                workflow_creator.discover_workflows(entry_points=node_paths, save_to_database=True)
 
             # Create documentation if requested
             if create_documentation:
@@ -210,7 +213,7 @@ class GraphBuilder:
                     agent_caller=agent_caller,
                     graph_environment=self.graph_environment,
                 )
-                doc_creator.create_documentation(target_paths=file_paths, generate_embeddings=self.generate_embeddings)
+                doc_creator.create_documentation(target_paths=node_paths, generate_embeddings=self.generate_embeddings)
 
         return graph
 
@@ -259,3 +262,22 @@ class GraphBuilder:
     def _get_started_reference_query_helper(self):
         reference_query_helper = HybridReferenceResolver(root_uri=self.root_path, mode=ResolverMode.AUTO)
         return reference_query_helper
+
+    def _convert_file_path_to_node_path(self, file_path: str) -> str:
+        """
+        Convert a file URI path to a node_path.
+
+        Args:
+            file_path: File URI (e.g., "file:///path/to/file.py")
+
+        Returns:
+            Node path (e.g., "/environment/diff_identifier/relative/path")
+        """
+        pure_path = PathCalculator.uri_to_path(file_path)
+        relative_path = PathCalculator.compute_relative_path_with_prefix(pure_path, self.graph_environment.root_path)
+        node_path = IdCalculator.generate_file_id(
+            self.graph_environment.environment,
+            self.graph_environment.diff_identifier,
+            relative_path
+        )
+        return node_path

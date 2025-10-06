@@ -25,10 +25,7 @@ class FolderNode(Node):
         return path
 
     def relate_node_as_contain_relationship(self, node: Union[FileNode, "FolderNode"]) -> None:
-        if isinstance(node, FileNode) or isinstance(node, FolderNode):
-            self._contains.append(node)
-        else:
-            raise Exception("Folder node cannot contain node of type: " + type(node).__name__)
+        self._contains.append(node)
 
     def relate_nodes_as_contain_relationship(self, nodes: Sequence[Union[FileNode, "FolderNode"]]) -> None:
         for node in nodes:

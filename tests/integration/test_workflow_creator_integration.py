@@ -39,16 +39,6 @@ class TestWorkflowCreatorIntegration:
         workflow_path = test_code_examples_path / "workflows" / "simple_linear"
 
         # Step 1: Build the code graph
-        builder = GraphBuilder(
-            root_path=str(workflow_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-
-        graph = builder.build()
-        assert graph is not None
-
-        # Step 2: Save graph to Neo4j
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -56,8 +46,15 @@ class TestWorkflowCreatorIntegration:
             entity_id=test_data_isolation["entity_id"],
             repo_id=test_data_isolation["repo_id"],
         )
+        builder = GraphBuilder(
+            root_path=str(workflow_path),
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+            db_manager=db_manager,
+        )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        graph = builder.build()
+        assert graph is not None
 
         # Debug: Print initial graph state
         await graph_assertions.debug_print_graph_summary()
@@ -107,7 +104,9 @@ class TestWorkflowCreatorIntegration:
         RETURN n.name as participant_name, labels(n) as labels
         ORDER BY n.name
         """
-        participants = await test_data_isolation["container"].execute_cypher(participant_query, {"workflow_id": workflow_id})
+        participants = await test_data_isolation["container"].execute_cypher(
+            participant_query, {"workflow_id": workflow_id}
+        )
 
         # Extract participant names
         participant_names = [p["participant_name"] for p in participants]
@@ -127,7 +126,9 @@ class TestWorkflowCreatorIntegration:
         WHERE rel_count > 1
         RETURN n.name as node_name, rel_count
         """
-        duplicates = await test_data_isolation["container"].execute_cypher(duplicate_query, {"workflow_id": workflow_id})
+        duplicates = await test_data_isolation["container"].execute_cypher(
+            duplicate_query, {"workflow_id": workflow_id}
+        )
         assert len(duplicates) == 0, f"Found duplicate BELONGS_TO_WORKFLOW relationships: {duplicates}"
 
     async def test_multiple_workflows_with_shared_nodes(
@@ -147,15 +148,6 @@ class TestWorkflowCreatorIntegration:
         workflow_path = test_code_examples_path / "workflows" / "complex_branching"
 
         # Step 1: Build and save the code graph
-        builder = GraphBuilder(
-            root_path=str(workflow_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-
-        graph = builder.build()
-        assert graph is not None
-
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -163,8 +155,15 @@ class TestWorkflowCreatorIntegration:
             entity_id=test_data_isolation["entity_id"],
             repo_id=test_data_isolation["repo_id"],
         )
+        builder = GraphBuilder(
+            root_path=str(workflow_path),
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+            db_manager=db_manager,
+        )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        graph = builder.build()
+        assert graph is not None
 
         # Step 2: Create WorkflowCreator and discover workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
@@ -217,15 +216,6 @@ class TestWorkflowCreatorIntegration:
         workflow_path = test_code_examples_path / "workflows" / "cyclic_patterns"
 
         # Step 1: Build and save the code graph
-        builder = GraphBuilder(
-            root_path=str(workflow_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-
-        graph = builder.build()
-        assert graph is not None
-
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -233,8 +223,15 @@ class TestWorkflowCreatorIntegration:
             entity_id=test_data_isolation["entity_id"],
             repo_id=test_data_isolation["repo_id"],
         )
+        builder = GraphBuilder(
+            root_path=str(workflow_path),
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+            db_manager=db_manager,
+        )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        graph = builder.build()
+        assert graph is not None
 
         # Step 2: Create WorkflowCreator and discover workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
@@ -328,15 +325,6 @@ def main():
 """)
 
         # Step 1: Build and save the code graph
-        builder = GraphBuilder(
-            root_path=str(temp_project_dir),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-
-        graph = builder.build()
-        assert graph is not None
-
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -344,8 +332,15 @@ def main():
             entity_id=test_data_isolation["entity_id"],
             repo_id=test_data_isolation["repo_id"],
         )
+        builder = GraphBuilder(
+            root_path=str(temp_project_dir),
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+            db_manager=db_manager,
+        )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        graph = builder.build()
+        assert graph is not None
 
         # Step 2: Create WorkflowCreator and discover workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(temp_project_dir))
@@ -376,7 +371,9 @@ def main():
                 WHERE w.entry_point_name = $workflow_name
                 RETURN count(n) as connected_nodes
                 """
-                results = await test_data_isolation["container"].execute_cypher(relationship_query, {"workflow_name": workflow["name"]})
+                results = await test_data_isolation["container"].execute_cypher(
+                    relationship_query, {"workflow_name": workflow["name"]}
+                )
 
                 if results:
                     # Only the entry point itself should be connected
@@ -401,15 +398,6 @@ def main():
         workflow_path = test_code_examples_path / "workflows" / "simple_linear"
 
         # Step 1: Build and save the code graph
-        builder = GraphBuilder(
-            root_path=str(workflow_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-
-        graph = builder.build()
-        assert graph is not None
-
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -417,8 +405,15 @@ def main():
             entity_id=test_data_isolation["entity_id"],
             repo_id=test_data_isolation["repo_id"],
         )
+        builder = GraphBuilder(
+            root_path=str(workflow_path),
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+            db_manager=db_manager,
+        )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        graph = builder.build()
+        assert graph is not None
 
         # Step 2: Discover workflows (simplified - just use main entry point)
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))
@@ -487,13 +482,6 @@ def main():
         workflow_path = test_code_examples_path / "workflows" / "simple_linear"
 
         # Step 1: Build and save the code graph
-        builder = GraphBuilder(
-            root_path=str(workflow_path),
-            extensions_to_skip=[".pyc", ".pyo"],
-            names_to_skip=["__pycache__"],
-        )
-
-        graph = builder.build()
         db_manager = Neo4jManager(
             uri=test_data_isolation["uri"],
             user="neo4j",
@@ -501,8 +489,14 @@ def main():
             entity_id=test_data_isolation["entity_id"],
             repo_id=test_data_isolation["repo_id"],
         )
+        builder = GraphBuilder(
+            root_path=str(workflow_path),
+            extensions_to_skip=[".pyc", ".pyo"],
+            names_to_skip=["__pycache__"],
+            db_manager=db_manager,
+        )
 
-        db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+        builder.build()
 
         # Step 2: Create workflows
         graph_env = GraphEnvironment(environment="test", diff_identifier="test-diff", root_path=str(workflow_path))

@@ -1,9 +1,10 @@
 from blarify.graph.node import Node, NodeLabels
 from blarify.graph.node.file_node import FileNode
-from typing import Union, List, Sequence, TYPE_CHECKING
+from typing import Union, List, Sequence, TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from blarify.graph.relationship import Relationship
+    from blarify.graph.graph_environment import GraphEnvironment
 
 
 class FolderNode(Node):
@@ -11,9 +12,17 @@ class FolderNode(Node):
     name: str
     level: int
 
-    def __init__(self, path: str, name: str, level: int, *args, **kwargs):
-        self._contains = []
-        super().__init__(NodeLabels.FOLDER, path, name, level, *args, **kwargs)
+    def __init__(
+        self,
+        path: str,
+        name: str,
+        level: int,
+        parent: Optional["Node"] = None,
+        graph_environment: Optional["GraphEnvironment"] = None,
+        layer: str = "code",
+    ) -> None:
+        self._contains: List[Union[FileNode, "FolderNode"]] = []
+        super().__init__(NodeLabels.FOLDER, path, name, level, parent, graph_environment, layer)
 
     @property
     def node_repr_for_identifier(self) -> str:

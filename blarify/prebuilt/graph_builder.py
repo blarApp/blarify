@@ -167,8 +167,9 @@ class GraphBuilder:
         """
         reference_query_helper = self._get_started_reference_query_helper()
         project_files_iterator = self._get_project_files_iterator()
+        file_paths = [file.path for file in updated_files]
 
-        self._detatch_delete_nodes_by_paths(file_paths=[file.path for file in updated_files])
+        self._detatch_delete_nodes_by_paths(file_paths=file_paths)
 
         graph_updater = ProjectGraphUpdater(
             updated_files=updated_files,
@@ -199,7 +200,7 @@ class GraphBuilder:
                     db_manager=self.db_manager,
                     graph_environment=self.graph_environment,
                 )
-                workflow_creator.discover_workflows(save_to_database=True)
+                workflow_creator.discover_workflows(entry_points=file_paths, save_to_database=True)
 
             # Create documentation if requested
             if create_documentation:
@@ -209,7 +210,7 @@ class GraphBuilder:
                     agent_caller=agent_caller,
                     graph_environment=self.graph_environment,
                 )
-                doc_creator.create_documentation(generate_embeddings=self.generate_embeddings)
+                doc_creator.create_documentation(target_paths=file_paths, generate_embeddings=self.generate_embeddings)
 
         return graph
 

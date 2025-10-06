@@ -136,7 +136,9 @@ class BottomUpBatchProcessor:
 
             self.embedding_service = EmbeddingService()
 
-        # Remove ALL in-memory caches - we use database for state management
+        # Track nodes during processing
+        self.all_documentation_nodes: List[DocumentationNode] = []
+        self.all_source_nodes: List[NodeWithContentDto] = []
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
@@ -149,6 +151,10 @@ class BottomUpBatchProcessor:
             ProcessingResult with processing statistics
         """
         try:
+            # Reset tracking lists for this processing run
+            self.all_documentation_nodes = []
+            self.all_source_nodes = []
+
             # Get root node
             root_node = self.root_node
             if not root_node:
@@ -164,10 +170,9 @@ class BottomUpBatchProcessor:
                 hierarchical_analysis={"complete": True},
                 total_nodes_processed=total_processed,
                 error=None,
-                # Don't return nodes - they're in the database
                 information_nodes=[],
-                documentation_nodes=[],
-                source_nodes=[],
+                documentation_nodes=self.all_documentation_nodes,
+                source_nodes=self.all_source_nodes,
             )
 
         except Exception as e:
@@ -190,7 +195,7 @@ class BottomUpBatchProcessor:
             if leaf_count == 0:
                 break
             total_processed += leaf_count
-            logger.debug(f"Processed {leaf_count} leaf nodes in iteration {iteration}")
+            logger.info(f"Processed {leaf_count} leaf nodes in iteration {iteration}")
 
         # Phase 2: Process parent nodes and handle cycles
         iteration = 0
@@ -204,12 +209,12 @@ class BottomUpBatchProcessor:
             if parent_count > 0:
                 total_processed += parent_count
                 consecutive_stuck_iterations = 0  # Reset stuck counter
-                logger.debug(f"Processed {parent_count} parent nodes in iteration {iteration}")
+                logger.info(f"Processed {parent_count} parent nodes in iteration {iteration}")
                 continue
 
             # Check if any nodes remain
             if not self._has_pending_nodes(root_node):
-                logger.debug("No pending nodes remaining")
+                logger.info("No pending nodes remaining")
                 break
 
             # If we're stuck (no parents processable but nodes remain),
@@ -224,17 +229,17 @@ class BottomUpBatchProcessor:
                 if remaining_count > 0:
                     total_processed += remaining_count
                     consecutive_stuck_iterations = 0  # Reset after progress
-                    logger.debug(f"Processed {remaining_count} remaining functions")
+                    logger.info(f"Processed {remaining_count} remaining functions")
                 else:
                     # No functions left, might just be the root node
-                    logger.debug("No remaining functions to process")
+                    logger.info("No remaining functions to process")
                     break
 
         # Phase 3: Process root node if needed
         root_count = self._process_root_node(root_node)
         if root_count > 0:
             total_processed += root_count
-            logger.debug("Processed root node")
+            logger.info("Processed root node")
 
         return total_processed
 
@@ -254,6 +259,7 @@ class BottomUpBatchProcessor:
 
         # Process batch with thread pool
         documentation_nodes = []
+        source_nodes = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = []
 
@@ -268,6 +274,7 @@ class BottomUpBatchProcessor:
                     end_line=node_data.get("end_line"),
                     content=node_data.get("content", ""),
                 )
+                source_nodes.append(node)
                 future = executor.submit(self._process_leaf_node, node)
                 futures.append((future, node.id))
 
@@ -283,6 +290,9 @@ class BottomUpBatchProcessor:
         # Save batch to database immediately
         if documentation_nodes:
             self._save_documentation_batch(documentation_nodes)
+
+        # Track source nodes
+        self.all_source_nodes.extend(source_nodes)
 
         return len(batch_results)
 
@@ -302,6 +312,7 @@ class BottomUpBatchProcessor:
 
         # Process batch with thread pool
         documentation_nodes = []
+        source_nodes = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = []
 
@@ -316,6 +327,7 @@ class BottomUpBatchProcessor:
                     end_line=node_data.get("end_line"),
                     content=node_data.get("content", ""),
                 )
+                source_nodes.append(node)
 
                 # Extract child descriptions
                 hier_descriptions = node_data.get("hier_descriptions", [])
@@ -354,6 +366,9 @@ class BottomUpBatchProcessor:
         if documentation_nodes:
             self._save_documentation_batch(documentation_nodes)
 
+        # Track source nodes
+        self.all_source_nodes.extend(source_nodes)
+
         return len(batch_results)
 
     def _process_remaining_functions_batch(self, root_node: NodeWithContentDto) -> int:
@@ -379,6 +394,7 @@ class BottomUpBatchProcessor:
 
         # Process batch with thread pool
         documentation_nodes = []
+        source_nodes = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = []
 
@@ -393,6 +409,7 @@ class BottomUpBatchProcessor:
                     end_line=node_data.get("end_line"),
                     content=node_data.get("content", ""),
                 )
+                source_nodes.append(node)
 
                 # Extract child descriptions (may be incomplete due to cycles)
                 hier_descriptions = node_data.get("hier_descriptions", [])
@@ -431,6 +448,9 @@ class BottomUpBatchProcessor:
         # Save batch immediately
         if documentation_nodes:
             self._save_documentation_batch(documentation_nodes)
+
+        # Track source nodes
+        self.all_source_nodes.extend(source_nodes)
 
         return len(batch_results)
 
@@ -474,6 +494,8 @@ class BottomUpBatchProcessor:
             root_doc = self._process_parent_node(root_node, child_descriptions=child_descriptions)
             if root_doc:
                 self._save_documentation_batch([root_doc])
+                # Track root source node
+                self.all_source_nodes.append(root_node)
                 return 1
             return 0
         except Exception as e:
@@ -501,6 +523,8 @@ class BottomUpBatchProcessor:
         # Create DOCUMENTATION nodes and DESCRIBES relationships
         try:
             self.db_manager.create_nodes(node_objects)
+            # Track documentation nodes after successful creation
+            self.all_documentation_nodes.extend(documentation_nodes)
         except Exception as e:
             logger.error(f"Error creating nodes: {e}")
 

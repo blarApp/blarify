@@ -23,6 +23,7 @@ from blarify.agents.prompt_templates import (
 )
 from blarify.documentation.queries.batch_processing_queries import (
     get_child_descriptions_query,
+    get_hierarchical_parents_query,
     get_leaf_nodes_under_node_query,
     get_remaining_pending_functions_query,
 )
@@ -140,6 +141,44 @@ class BottomUpBatchProcessor:
         self.all_documentation_nodes: List[DocumentationNode] = []
         self.all_source_nodes: List[NodeWithContentDto] = []
 
+    def process_upstream_definitions(self, node_path: str) -> ProcessingResult:
+        """
+        Process upstream definition dependencies for a given node path.
+
+        Args:
+            node_path: Path to the node (folder or file) to process
+        Returns:
+            ProcessingResult with processing statistics
+        """
+        try:
+            # Reset tracking lists for this processing run
+            self.all_documentation_nodes = []
+            self.all_source_nodes = []
+
+            # Get root node
+            root_node = self.root_node
+            if not root_node:
+                root_node = get_node_by_path(self.db_manager, node_path)
+                if not root_node:
+                    return ProcessingResult(node_path=node_path, error=f"Node not found: {node_path}")
+
+            # Process using queries
+            total_processed = self._process_upstream_definitions(root_node)
+
+            return ProcessingResult(
+                node_path=node_path,
+                hierarchical_analysis={"complete": True},
+                total_nodes_processed=total_processed,
+                error=None,
+                information_nodes=[],
+                documentation_nodes=self.all_documentation_nodes,
+                source_nodes=self.all_source_nodes,
+            )
+
+        except Exception as e:
+            logger.exception(f"Error in upstream definition processing: {e}")
+            return ProcessingResult(node_path=node_path, error=str(e))
+
     def process_node(self, node_path: str) -> ProcessingResult:
         """
         Entry point - process using database queries only.
@@ -178,6 +217,29 @@ class BottomUpBatchProcessor:
         except Exception as e:
             logger.exception(f"Error in query-based processing: {e}")
             return ProcessingResult(node_path=node_path, error=str(e))
+
+    def _process_upstream_definitions(self, root_node: NodeWithContentDto) -> int:
+        """Process upstream definitions using database queries."""
+
+        hierarchical_parents = self.db_manager.query(
+            cypher_query=get_hierarchical_parents_query(),
+            parameters={"node_id": root_node.id},
+        )
+
+        for parent in hierarchical_parents:
+            parent_node = NodeWithContentDto(
+                id=parent["id"],
+                name=parent["name"],
+                labels=parent["labels"],
+                path=parent["path"],
+                start_line=parent.get("start_line"),
+                end_line=parent.get("end_line"),
+                content=parent.get("content", ""),
+            )
+            child_descriptions = self.__get_child_descriptions(root_node)
+            self._process_parent_node(parent_node, child_descriptions=child_descriptions)
+
+        return len(hierarchical_parents)
 
     def _process_node_query_based(self, root_node: NodeWithContentDto) -> int:
         """Process using database queries without memory storage."""
@@ -466,30 +528,7 @@ class BottomUpBatchProcessor:
         """
         try:
             # Process the root node
-            child_query = get_child_descriptions_query()
-
-            result = self.db_manager.query(
-                child_query,
-                {
-                    "parent_node_id": root_node.id,
-                },
-            )
-
-            child_descriptions = []
-            for desc in result:
-                if desc and desc.get("description"):
-                    # Create minimal DocumentationNode for child context
-                    child_doc = DocumentationNode(
-                        content=desc["description"],
-                        info_type="child_description",
-                        source_path=desc.get("path", ""),
-                        source_name=desc.get("name", ""),
-                        source_id=desc.get("id", ""),
-                        source_labels=desc.get("labels", []),
-                        source_type="child",
-                        graph_environment=self.graph_environment,
-                    )
-                    child_descriptions.append(child_doc)
+            child_descriptions = self.__get_child_descriptions(root_node)
 
             root_doc = self._process_parent_node(root_node, child_descriptions=child_descriptions)
             if root_doc:
@@ -835,3 +874,31 @@ class BottomUpBatchProcessor:
                 enhanced_content += f"# {description}\n"
 
         return enhanced_content
+
+    def __get_child_descriptions(self, root_node: NodeWithContentDto) -> List[DocumentationNode]:
+        child_query = get_child_descriptions_query()
+
+        result = self.db_manager.query(
+            child_query,
+            {
+                "parent_node_id": root_node.id,
+            },
+        )
+
+        child_descriptions = []
+        for desc in result:
+            if desc and desc.get("description"):
+                # Create minimal DocumentationNode for child context
+                child_doc = DocumentationNode(
+                    content=desc["description"],
+                    info_type="child_description",
+                    source_path=desc.get("path", ""),
+                    source_name=desc.get("name", ""),
+                    source_id=desc.get("id", ""),
+                    source_labels=desc.get("labels", []),
+                    source_type="child",
+                    graph_environment=self.graph_environment,
+                )
+                child_descriptions.append(child_doc)
+
+        return child_descriptions

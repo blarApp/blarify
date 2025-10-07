@@ -33,8 +33,7 @@ class GetCommitByIdTool(BaseTool):
 
     name: str = "get_commit_by_id"
     description: str = (
-        "Get detailed commit information including the full diff/patch, showing all changes made in a specific commit. "
-        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set."
+        "Get detailed commit information including the full diff/patch, showing all changes made in a specific commit."
     )
     args_schema: type[BaseModel] = CommitIdInput
 

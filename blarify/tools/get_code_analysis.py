@@ -38,7 +38,6 @@ class GetCodeAnalysis(BaseTool):
     name: str = "get_code_analysis"
     description: str = (
         "Get complete code implementation with relationships and dependencies. "
-        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set. "
         "Shows which functions call this one and which ones it calls, "
         "with reference IDs for navigation."
     )

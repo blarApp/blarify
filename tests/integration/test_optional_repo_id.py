@@ -320,22 +320,6 @@ class TestOptionalRepoId:
         finally:
             old_style_manager.close()
 
-    async def test_tool_descriptions_mention_scope(self):
-        """Test that all tools mention scope in their descriptions."""
-        tools = [
-            FindSymbols(db_manager=self.db_manager_entity),
-            GetCodeAnalysis(db_manager=self.db_manager_entity),
-        ]
-
-        for tool in tools:
-            description = tool.description
-            assert "Scope:" in description or "scope" in description.lower(), (
-                f"Tool {tool.name} should mention scope in description: {description}"
-            )
-            assert "entity" in description.lower(), (
-                f"Tool {tool.name} should mention entity in description: {description}"
-            )
-
     async def test_all_tools_respect_optional_repo_id(self):
         """Test that all tools properly respect optional repo_id filtering."""
         # Get a node_id that exists in both repos

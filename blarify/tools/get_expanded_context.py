@@ -242,7 +242,6 @@ class GetExpandedContext(BaseTool):
     name: str = "get_expanded_context"
     description: str = (
         "Get the full file context with expanded code for deep understanding. "
-        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set. "
         "Includes surrounding code and embedded reference IDs for navigation."
     )
 

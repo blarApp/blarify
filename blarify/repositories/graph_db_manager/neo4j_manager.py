@@ -23,7 +23,7 @@ load_dotenv()
 
 class Neo4jManager(AbstractDbManager):
     entity_id: str
-    repo_id: str
+    repo_id: Optional[str]  # Now optional for entity-wide queries
     driver: Driver
 
     def __init__(
@@ -54,7 +54,7 @@ class Neo4jManager(AbstractDbManager):
                 else:
                     raise e
 
-        self.repo_id = repo_id or "default_repo"
+        self.repo_id = repo_id
         self.entity_id = entity_id or "default_user"
         self.environment = environment or ENVIRONMENT.MAIN
 
@@ -68,6 +68,9 @@ class Neo4jManager(AbstractDbManager):
 
     def create_nodes(self, nodeList: List[Any]):
         # Function to create nodes in the Neo4j database
+        if self.repo_id is None:
+            raise ValueError("repo_id is required for creating nodes. Cannot create nodes with entity-wide scope.")
+
         with self.driver.session() as session:
             session.execute_write(
                 self._create_nodes_txn,
@@ -80,6 +83,9 @@ class Neo4jManager(AbstractDbManager):
 
     def create_edges(self, edgesList: List[Any]):
         # Function to create edges between nodes in the Neo4j database
+        if self.repo_id is None:
+            raise ValueError("repo_id is required for creating edges. Cannot create edges with entity-wide scope.")
+
         with self.driver.session() as session:
             session.execute_write(
                 self._create_edges_txn,
@@ -177,13 +183,18 @@ class Neo4jManager(AbstractDbManager):
         return records  # Return the records so execute_write can access them
 
     def detatch_delete_nodes_with_path(self, path: str):
+        if self.repo_id is None:
+            raise ValueError("repo_id is required for deleting nodes. Cannot delete nodes with entity-wide scope.")
+
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (n {path: $path})
+                MATCH (n {path: $path, repoId: $repo_id, entityId: $entity_id})
                 DETACH DELETE n
                 """,
                 path=path,
+                repo_id=self.repo_id,
+                entity_id=self.entity_id,
             )
             return result.data()
 

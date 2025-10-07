@@ -33,6 +33,7 @@ class FindSymbols(BaseTool):
     name: str = "find_symbols"
     description: str = (
         "Search for code symbols (functions, classes, files, or folders) by exact name. "
+        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set. "
         "Returns matching symbols with their IDs, file locations, and code previews. "
         "Both 'name' and 'type' parameters are required."
     )

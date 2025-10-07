@@ -31,6 +31,7 @@ class GetDependencyGraph(BaseTool):
     name: str = "get_dependency_graph"
     description: str = (
         "Generate a Mermaid diagram showing dependencies and relationships. "
+        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set. "
         "Visualizes how symbols connect with configurable depth."
     )
 

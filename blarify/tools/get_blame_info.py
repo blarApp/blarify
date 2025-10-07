@@ -57,6 +57,7 @@ class GetBlameInfo(BaseTool):
     name: str = "get_blame_info"
     description: str = (
         "Get GitHub-style blame information showing who last modified each line. "
+        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set. "
         "Useful for understanding code evolution and finding responsible developers."
     )
     args_schema: type[BaseModel] = FlexibleInput  # type: ignore[assignment]

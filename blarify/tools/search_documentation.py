@@ -32,6 +32,7 @@ class SearchDocumentation(BaseTool):
     name: str = "search_documentation"
     description: str = (
         "Semantic search through AI-generated documentation for all symbols. "
+        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set. "
         "Returns relevant symbols with reference IDs (tool handles), "
         "file paths, and documentation summaries."
     )

@@ -36,7 +36,10 @@ class GetFileContextByIdTool(BaseTool):
     """
 
     name: str = "see_node_in_file_context"
-    description: str = "Searches for node by id in the Neo4j database and returns node code in the file context"
+    description: str = (
+        "Searches for node by id and returns node code in the file context. "
+        "Scope: Searches within entity (org/company), optionally filtered by repo if db_manager has repo_id set."
+    )
 
     args_schema: type[BaseModel] = NodeIdInput  # type: ignore
 

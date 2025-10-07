@@ -1006,7 +1006,9 @@ class GitHub(AbstractVersionController):
         # Cache results
         self._blame_cache[cache_key] = complete_commits
 
-        logger.info(f"Found {len(complete_commits)} commits for {file_path} lines {start_line}-{end_line}")
+        logger.info(
+            f"Found {len(complete_commits)} commits for {file_path} lines {start_line}-{end_line} at {self.ref}"
+        )
         return complete_commits
 
     def blame_commits_for_nodes(self, nodes: List[CodeNodeDto]) -> Dict[str, List[BlameCommitDto]]:

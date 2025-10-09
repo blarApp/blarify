@@ -160,7 +160,7 @@ def get_leaf_nodes_under_node_query() -> LiteralString:
         // Anchor to the specified root in this entity/repo
         MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
         // Traverse hierarchical relationships to find descendants
-        MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALL*1..]->(n:NODE)
+        MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALLS*1..]->(n:NODE)
         WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id) AND NOT n:DOCUMENTATION
             AND (
                 // FUNCTION nodes with no calls
@@ -175,6 +175,7 @@ def get_leaf_nodes_under_node_query() -> LiteralString:
                 ('FOLDER' IN labels(n) 
                  AND NOT (n)-[:CONTAINS]->(:NODE))
             )
+        WITH DISTINCT n.node_id AS node_id, n
         WITH n LIMIT $batch_size
         SET n.processing_status = 'in_progress',
             n.processing_run_id = $run_id
@@ -280,4 +281,39 @@ def get_remaining_pending_functions_query() -> LiteralString:
            coalesce(n.text, '') as content,
            hier_descriptions,
            call_descriptions
+    """
+
+
+def get_hierarchical_parents_query() -> LiteralString:
+    """
+    Get all hierarchical parent nodes (CONTAINS, FUNCTION_DEFINITION, CLASS_DEFINITION) of a given node.
+    Used to traverse up the hierarchy from a node to its ancestors.
+    """
+    return """
+    MATCH (child:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+
+    // Collect parent nodes with their depth relative to the child
+    OPTIONAL MATCH path = (parent:NODE)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION*1..]->(child)
+    WITH child, collect(DISTINCT {node: parent, depth: length(path)}) as parents
+
+    // Collect classes defined directly by the child node (e.g., FILE -> CLASS)
+    OPTIONAL MATCH (child)-[:CLASS_DEFINITION]->(defined_class:CLASS)
+    WITH child,
+        parents,
+        collect(DISTINCT defined_class) as defined_classes
+
+    WITH [{node: child, depth: 0, sortKey: 0}] as child_entry,
+        [class_node IN defined_classes | {node: class_node, depth: 1, sortKey: 1}] as class_entries,
+        [parent_map IN parents | {node: parent_map.node, depth: parent_map.depth + 1, sortKey: 2}] as parent_entries
+
+    WITH child_entry + class_entries + parent_entries as nodes_info
+    UNWIND nodes_info as info
+    WITH info
+    RETURN info.node.node_id as id,
+         info.node.name as name,
+         labels(info.node) as labels,
+         info.node.path as path,
+         info.node.start_line as start_line,
+         info.node.end_line as end_line
+    ORDER BY info.sortKey ASC, info.depth ASC
     """

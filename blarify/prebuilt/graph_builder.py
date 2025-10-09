@@ -203,7 +203,7 @@ class GraphBuilder:
                     db_manager=self.db_manager,
                     graph_environment=self.graph_environment,
                 )
-                workflow_creator.discover_workflows(entry_points=node_paths, save_to_database=True)
+                workflow_creator.discover_workflows(file_paths=node_paths, save_to_database=True)
 
             # Create documentation if requested
             if create_documentation:
@@ -276,8 +276,6 @@ class GraphBuilder:
         pure_path = PathCalculator.uri_to_path(file_path)
         relative_path = PathCalculator.compute_relative_path_with_prefix(pure_path, self.graph_environment.root_path)
         node_path = IdCalculator.generate_file_id(
-            self.graph_environment.environment,
-            self.graph_environment.diff_identifier,
-            relative_path
+            self.graph_environment.environment, self.graph_environment.diff_identifier, relative_path
         )
         return node_path

@@ -282,17 +282,6 @@ async def test_batch_processing_maintains_bottom_up_order(
     python_examples_path = test_code_examples_path / "python"
 
     # Step 1: Create GraphBuilder and build the code graph (like in the real test)
-    builder = GraphBuilder(
-        root_path=str(python_examples_path),
-        extensions_to_skip=[".pyc", ".pyo"],
-        names_to_skip=["__pycache__"],
-    )
-
-    graph = builder.build()
-    assert isinstance(graph, Graph)
-    assert graph is not None
-
-    # Step 2: Save graph to Neo4j
     db_manager = Neo4jManager(
         uri=test_data_isolation["uri"],
         user="neo4j",
@@ -300,9 +289,16 @@ async def test_batch_processing_maintains_bottom_up_order(
         entity_id=test_data_isolation["entity_id"],
         repo_id=test_data_isolation["repo_id"],
     )
+    builder = GraphBuilder(
+        root_path=str(python_examples_path),
+        extensions_to_skip=[".pyc", ".pyo"],
+        names_to_skip=["__pycache__"],
+        db_manager=db_manager,
+    )
 
-    # Save the code graph from GraphBuilder
-    db_manager.save_graph(graph.get_nodes_as_objects(), graph.get_relationships_as_objects())
+    graph = builder.build()
+    assert isinstance(graph, Graph)
+    assert graph is not None
 
     # Track processing levels
     processing_levels: Dict[str, int] = {}

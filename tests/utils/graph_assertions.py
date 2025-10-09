@@ -28,13 +28,13 @@ class GraphAssertions:
         query = f"MATCH (n:{label})"
 
         where_clauses = []
-        
+
         # Add isolation filters if provided
         if self.entity_id:
             where_clauses.append(f"(n.entityId = '{self.entity_id}' OR n.entity_id = '{self.entity_id}')")
         if self.repo_id:
             where_clauses.append(f"(n.repoId = '{self.repo_id}' OR n.repo_id = '{self.repo_id}')")
-        
+
         if properties:
             for key, value in properties.items():
                 if isinstance(value, str):
@@ -59,13 +59,13 @@ class GraphAssertions:
         query = f"MATCH (n:{label})"
 
         where_clauses = []
-        
+
         # Add isolation filters if provided
         if self.entity_id:
             where_clauses.append(f"(n.entityId = '{self.entity_id}' OR n.entity_id = '{self.entity_id}')")
         if self.repo_id:
             where_clauses.append(f"(n.repoId = '{self.repo_id}' OR n.repo_id = '{self.repo_id}')")
-        
+
         if properties:
             for key, value in properties.items():
                 if isinstance(value, str):

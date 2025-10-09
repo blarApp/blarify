@@ -18,12 +18,13 @@ from ..agents.llm_provider import LLMProvider
 from ..repositories.graph_db_manager.db_manager import AbstractDbManager
 from ..repositories.graph_db_manager.queries import (
     find_all_entry_points,
-    find_entry_points_for_node_path,
+    find_entry_points_for_files_paths,
     get_root_path,
     get_documentation_nodes_for_embedding_query,
     update_documentation_embeddings_query,
     create_vector_index_query,
 )
+from .queries.workflow_queries import cleanup_orphaned_documentation_query
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.relationship.relationship_creator import RelationshipCreator
 from ..services.embedding_service import EmbeddingService
@@ -159,7 +160,7 @@ class DocumentationCreator:
             analysis_method="llm_analysis_basic_parsing",
         )
 
-    def _discover_entry_points(self, node_path: Optional[str] = None) -> List[str]:
+    def _discover_entry_points(self, file_paths: Optional[List[str]] = None) -> List[str]:
         """
         Discover entry points using hybrid approach from existing implementation.
 
@@ -175,9 +176,9 @@ class DocumentationCreator:
             List of entry point dictionaries with id, name, path, etc.
         """
         try:
-            if node_path is not None:
-                logger.info(f"Discovering entry points for node path: {node_path}")
-                entry_points = find_entry_points_for_node_path(db_manager=self.db_manager, node_path=node_path)
+            if file_paths is not None:
+                logger.info(f"Discovering entry points for file paths: {file_paths}")
+                entry_points = find_entry_points_for_files_paths(db_manager=self.db_manager, file_paths=file_paths)
                 # Convert to standard format
                 standardized_entry_points = []
                 for ep in entry_points:
@@ -226,48 +227,65 @@ class DocumentationCreator:
             analyzed_nodes = []
             warnings = []
 
-            for path in target_paths:
-                try:
-                    entry_points_paths = self._discover_entry_points(node_path=path)
+            try:
+                entry_points_paths = self._discover_entry_points(file_paths=target_paths)
 
-                    # Use BottomUpBatchProcessor for each target path
-                    for entry_point in entry_points_paths:
-                        processor = BottomUpBatchProcessor(
-                            db_manager=self.db_manager,
-                            agent_caller=self.agent_caller,
-                            graph_environment=self.graph_environment,
-                            max_workers=self.max_workers,
-                            overwrite_documentation=self.overwrite_documentation,
-                            generate_embeddings=generate_embeddings,
+                # Use BottomUpBatchProcessor for each target path
+                # Phase 1 - Process execution stacks from entry points
+                processor = BottomUpBatchProcessor(
+                    db_manager=self.db_manager,
+                    agent_caller=self.agent_caller,
+                    graph_environment=self.graph_environment,
+                    max_workers=self.max_workers,
+                    overwrite_documentation=self.overwrite_documentation,
+                    generate_embeddings=generate_embeddings,
+                )
+                for entry_point in entry_points_paths:
+                    processor_result = processor.process_node(entry_point)
+
+                    if processor_result.error:
+                        warnings.append(
+                            f"Error processing path {target_paths} entry point {entry_point}: {processor_result.error}"
                         )
-                        processor_result = processor.process_node(entry_point)
+                        continue
 
-                        if processor_result.error:
-                            warnings.append(
-                                f"Error processing path {path} entry point {entry_point}: {processor_result.error}"
-                            )
-                            continue
+                    # Collect results
+                    all_documentation_nodes.extend(processor_result.documentation_nodes)
+                    all_source_nodes.extend(processor_result.source_nodes)
+                    analyzed_nodes.append(
+                        {
+                            "path": entry_point,
+                            "node_count": len(processor_result.information_nodes),
+                            "hierarchical_analysis": processor_result.hierarchical_analysis,
+                        }
+                    )
 
-                        # Collect results
-                        all_information_nodes.extend(processor_result.information_nodes)
-                        all_documentation_nodes.extend(processor_result.documentation_nodes)
-                        all_source_nodes.extend(processor_result.source_nodes)
-                        analyzed_nodes.append(
-                            {
-                                "path": entry_point,
-                                "node_count": len(processor_result.information_nodes),
-                                "hierarchical_analysis": processor_result.hierarchical_analysis,
-                            }
+                    logger.info(f"Processed {target_paths}: {len(processor_result.documentation_nodes)} nodes")
+
+                # Phase 2: Process upstream definition dependencies
+                for target_path in target_paths:
+                    processor_result = processor.process_upstream_definitions(target_path)
+
+                    if processor_result.error:
+                        warnings.append(
+                            f"Error processing upstream definitions for path {target_paths}: {processor_result.error}"
                         )
+                        continue
+                    all_information_nodes.extend(processor_result.information_nodes)
+                    all_documentation_nodes.extend(processor_result.documentation_nodes)
+                    all_source_nodes.extend(processor_result.source_nodes)
 
-                        logger.info(f"Processed {path}: {len(processor_result.information_nodes)} nodes")
+            except Exception as e:
+                error_msg = f"Error processing path {target_paths}: {str(e)}"
+                logger.exception(error_msg)
+                warnings.append(error_msg)
 
-                except Exception as e:
-                    error_msg = f"Error processing path {path}: {str(e)}"
-                    logger.exception(error_msg)
-                    warnings.append(error_msg)
+            # Cleanup orphaned documentation nodes after incremental update
+            orphans_deleted = self.cleanup_orphaned_documentation()
+            if orphans_deleted > 0:
+                logger.info(f"Cleaned up {orphans_deleted} orphaned documentation nodes")
 
-            logger.info(f"Targeted documentation completed: {len(all_information_nodes)} total nodes")
+            logger.info(f"Targeted documentation completed: {len(all_documentation_nodes)} total nodes")
 
             return DocumentationResult(
                 information_nodes=all_information_nodes,
@@ -524,3 +542,34 @@ class DocumentationCreator:
                 "errors": [str(e)],
                 "success": False,
             }
+
+    def cleanup_orphaned_documentation(self) -> int:
+        """
+        Delete orphaned documentation nodes that have no DESCRIBES relationship.
+
+        This cleanup is typically run after incremental updates where code nodes
+        may have been deleted, leaving documentation nodes without targets.
+
+        Returns:
+            Number of orphaned documentation nodes deleted
+        """
+        try:
+            logger.info("Cleaning up orphaned documentation nodes")
+
+            result = self.db_manager.query(
+                cleanup_orphaned_documentation_query(),
+                parameters={}
+            )
+
+            deleted_count = 0
+            if result:
+                deleted_count = result[0].get("deleted_orphans", 0)
+                logger.info(f"Deleted {deleted_count} orphaned documentation nodes")
+            else:
+                logger.info("No orphaned documentation nodes found")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.exception(f"Error cleaning up orphaned documentation: {e}")
+            return 0

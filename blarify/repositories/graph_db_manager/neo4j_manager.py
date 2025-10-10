@@ -23,12 +23,12 @@ load_dotenv()
 
 class Neo4jManager(AbstractDbManager):
     entity_id: str
-    repo_id: Optional[str]  # Now optional for entity-wide queries
+    repo_ids: Optional[list[str]]  # List of repo IDs or None for entity-wide queries
     driver: Driver
 
     def __init__(
         self,
-        repo_id: Optional[str] = None,
+        repo_id: Optional[str | list[str]] = None,
         entity_id: Optional[str] = None,
         environment: Optional[ENVIRONMENT] = None,
         uri: Optional[str] = None,
@@ -54,9 +54,21 @@ class Neo4jManager(AbstractDbManager):
                 else:
                     raise e
 
-        self.repo_id = repo_id
+        # Convert single repo_id to list for consistent handling
+        if isinstance(repo_id, str):
+            self.repo_ids = [repo_id]
+        elif isinstance(repo_id, list):
+            self.repo_ids = repo_id
+        else:
+            self.repo_ids = None
+
         self.entity_id = entity_id or "default_user"
         self.environment = environment or ENVIRONMENT.MAIN
+
+    @property
+    def repo_id(self) -> Optional[str]:
+        """Backward compatibility property - returns first repo_id or None."""
+        return self.repo_ids[0] if self.repo_ids and len(self.repo_ids) > 0 else None
 
     def close(self):
         # Close the connection to the database
@@ -214,6 +226,10 @@ class Neo4jManager(AbstractDbManager):
         if parameters is None:
             parameters = {}
 
+        # Inject repo_ids as list (or None for entity-wide queries)
+        if "repo_ids" not in parameters:
+            parameters["repo_ids"] = self.repo_ids
+        # Also inject repo_id for backward compatibility (first repo or None)
         if "repo_id" not in parameters:
             parameters["repo_id"] = self.repo_id
         if "entity_id" not in parameters:

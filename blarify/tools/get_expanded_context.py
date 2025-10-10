@@ -219,7 +219,8 @@ def add_get_file_context_method(db_manager: Any) -> None:
 
         def get_file_context_by_id(self, node_id: str) -> list[tuple[str, str]]:
             query = """
-            MATCH path = (ancestor)-[:FUNCTION_DEFINITION|CLASS_DEFINITION*0..]->(n:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+            MATCH path = (ancestor)-[:FUNCTION_DEFINITION|CLASS_DEFINITION*0..]->(n:NODE {node_id: $node_id, entityId: $entity_id})
+            WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
             WITH path
             ORDER BY length(path) DESC
             LIMIT 1
@@ -227,7 +228,7 @@ def add_get_file_context_method(db_manager: Any) -> None:
             UNWIND chain AS entry
             RETURN entry.id AS node_id, entry.txt AS text
             """
-            # entity_id is automatically added by the db_manager
+            # entity_id and repo_ids are automatically added by the db_manager
             params = {"node_id": node_id}
             results = self.query(query, parameters=params)
             return [(rec["node_id"], rec["text"]) for rec in results]

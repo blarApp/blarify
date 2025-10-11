@@ -1361,21 +1361,19 @@ def find_code_workflows_query() -> LiteralString:
              ) + 1
          END AS lcpLen
 
-    UNWIND range(lcpLen, size(rels)-1) AS i
-    WITH entry,
-         ns[i]   AS caller,
-         ns[i+1] AS callee,
-         rels[i] AS r,
-         i + 1   AS actualDepthFromEntry  // i+1 gives the actual depth from entry point in the original path
+        WITH entry, ns, rels, lcpLen,
+                 [i IN range(lcpLen, size(rels)-1) |
+                     {
+                         caller_id: ns[i].node_id, caller: ns[i].name, caller_path: ns[i].path,
+                         callee_id: ns[i+1].node_id, callee: ns[i+1].name, callee_path: ns[i+1].path,
+                         call_line: rels[i].startLine, call_character: rels[i].referenceCharacter,
+                         depth: i + 1  // i+1 gives the actual depth from entry point in the original path
+                     }
+                 ] AS pathCalls
 
-    // Collect the DFS edge stream
-    WITH entry,
-         collect({
-           caller_id: caller.node_id, caller: caller.name, caller_path: caller.path,
-           callee_id: callee.node_id, callee: callee.name, callee_path: callee.path,
-           call_line: r.startLine, call_character: r.referenceCharacter,
-           depth: actualDepthFromEntry
-         }) AS calls
+        // Collect the DFS edge stream across all paths (range handles empty paths gracefully)
+        WITH entry, collect(pathCalls) AS pathCallLists
+        WITH entry, apoc.coll.flatten(pathCallLists) AS calls
 
     // Collect execution nodes in chronological order (preserving DFS traversal sequence)
     WITH entry, calls
@@ -1647,15 +1645,12 @@ def find_potential_entry_points_query() -> LiteralString:
     return """
     MATCH (entry:NODE {entityId: $entity_id, layer: 'code'})
     WHERE ($repo_ids IS NULL OR entry.repoId IN $repo_ids) AND (entry:FUNCTION)
-      AND NOT ()-[:CALLS|USES|ASSIGNS]->(entry) // No incoming relationships = true entry point
-      AND (entry)-[:CALLS|USES|ASSIGNS]->()
-      AND NOT entry.name IN ['__init__', '__new__', 'constructor', 'initialize', 'init', 'new']
-    RETURN entry.node_id as id, 
-           entry.name as name, 
+      AND NOT ()-[:CALLS]->(entry) // No incoming relationships = true entry point
+    RETURN entry.node_id as id,
+           entry.name as name,
            entry.path as path,
            labels(entry) as labels
     ORDER BY entry.path, entry.name
-    LIMIT 200
     """
 
 
@@ -2031,7 +2026,7 @@ def get_existing_documentation_for_node_query() -> LiteralString:
     """
 
 
-def find_entry_points_for_node_path_query() -> LiteralString:
+def find_entry_points_for_file_paths_query() -> LiteralString:
     """
     Find entry points that eventually reach a specific node path.
 
@@ -2045,10 +2040,13 @@ def find_entry_points_for_node_path_query() -> LiteralString:
     return """
     // Find the target node by path
     MATCH (target:NODE {entityId: $entity_id, layer: 'code'})
-    WHERE ($repo_ids IS NULL OR target.repoId IN $repo_ids) AND target.node_path = $node_path
+    WHERE($repo_ids IS NULL OR target.repoId IN $repo_ids) AND target.node_path IN $file_paths
+
+    // Find all the children of the target file
+    OPTIONAL MATCH (target)-[:FUNCTION_DEFINITION|CLASS_DEFINITION*1..]->(child:FUNCTION)
     
     // Find all nodes that can reach the target through CALLS relationships
-    CALL apoc.path.expandConfig(target, {
+    CALL apoc.path.expandConfig(child, {
         relationshipFilter: "<CALLS",
         uniqueness: "NODE_GLOBAL"
     }) YIELD path
@@ -2064,9 +2062,9 @@ def find_entry_points_for_node_path_query() -> LiteralString:
     """
 
 
-def find_entry_points_for_node_path(db_manager: AbstractDbManager, node_path: str) -> List[Dict[str, Any]]:
+def find_entry_points_for_files_paths(db_manager: AbstractDbManager, file_paths: List[str]) -> List[Dict[str, Any]]:
     """
-    Find entry points that eventually reach a specific node path.
+    Find entry points that eventually reach a specific file path.
 
     Args:
         db_manager: Database manager instance
@@ -2078,8 +2076,8 @@ def find_entry_points_for_node_path(db_manager: AbstractDbManager, node_path: st
         List of entry point dictionaries with id.
     """
     try:
-        query = find_entry_points_for_node_path_query()
-        parameters = {"node_path": node_path}
+        query = find_entry_points_for_file_paths_query()
+        parameters = {"file_paths": file_paths}
 
         query_result = db_manager.query(cypher_query=query, parameters=parameters)
 
@@ -2092,11 +2090,11 @@ def find_entry_points_for_node_path(db_manager: AbstractDbManager, node_path: st
                 }
             )
 
-        logger.info(f"Found {len(entry_points)} entry points for node path '{node_path}'")
+        logger.info(f"Found {len(entry_points)} entry points for file paths '{file_paths}'")
         return entry_points
 
     except Exception as e:
-        logger.exception(f"Error finding entry points for node path '{node_path}': {e}")
+        logger.exception(f"Error finding entry points for file paths '{file_paths}': {e}")
         return []
 
 

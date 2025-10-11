@@ -13,12 +13,13 @@ from ..repositories.graph_db_manager.db_manager import AbstractDbManager
 from ..repositories.graph_db_manager.queries import (
     find_all_entry_points,
     find_code_workflows,
-    find_entry_points_for_node_path,
+    find_entry_points_for_files_paths,
 )
 from ..graph.graph_environment import GraphEnvironment
 from ..graph.node.workflow_node import WorkflowNode
 from ..graph.relationship.relationship_creator import RelationshipCreator
 from .result_models import WorkflowResult, WorkflowDiscoveryResult
+from .queries.workflow_queries import delete_workflows_for_entry_points_query
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class WorkflowCreator:
         entry_points: Optional[List[str]] = None,
         max_depth: int = 20,
         save_to_database: bool = True,
-        node_path: Optional[str] = None,
+        file_paths: Optional[List[str]] = None,
     ) -> WorkflowDiscoveryResult:
         """
         Discover workflows without requiring DocumentationNodes first.
@@ -79,7 +80,7 @@ class WorkflowCreator:
 
             # Step 1: Discover entry points if not provided
             if not entry_points:
-                entry_points_data = self._discover_entry_points(node_path)
+                entry_points_data = self._discover_entry_points(file_paths)
                 entry_point_ids = [ep.get("id", "") for ep in entry_points_data if ep.get("id")]
             else:
                 entry_point_ids = entry_points
@@ -87,6 +88,10 @@ class WorkflowCreator:
 
             if not entry_point_ids:
                 return WorkflowDiscoveryResult(error="No entry points found for workflow discovery")
+
+            # Step 1.5: Delete existing workflow nodes for these entry points if file_paths provided
+            if file_paths is not None:
+                self._delete_workflow_nodes_for_entry_points(entry_point_ids)
 
             logger.info(f"Analyzing {len(entry_point_ids)} entry points for workflows")
 
@@ -132,7 +137,7 @@ class WorkflowCreator:
                 discovery_time_seconds=time.time() - start_time,
             )
 
-    def _discover_entry_points(self, node_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _discover_entry_points(self, file_paths: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Discover entry points using hybrid approach from existing implementation.
 
@@ -148,9 +153,9 @@ class WorkflowCreator:
             List of entry point dictionaries with id, name, path, etc.
         """
         try:
-            if node_path is not None:
-                logger.info(f"Discovering entry points for node path: {node_path}")
-                entry_points = find_entry_points_for_node_path(db_manager=self.db_manager, node_path=node_path)
+            if file_paths is not None:
+                logger.info(f"Discovering entry points for file paths: {file_paths}")
+                entry_points = find_entry_points_for_files_paths(db_manager=self.db_manager, file_paths=file_paths)
 
                 # Convert to standard format (only id is returned from targeted search)
                 standardized_entry_points = []
@@ -158,10 +163,10 @@ class WorkflowCreator:
                     standardized_entry_points.append(
                         {
                             "id": ep.get("id", ""),
-                            "name": f"Entry for {node_path}",
+                            "name": f"Entry for {file_paths}",
                             "path": "",
                             "labels": [],
-                            "description": f"Entry point that reaches: {node_path}",
+                            "description": f"Entry point that reaches: {file_paths}",
                             "discovery_method": "targeted_node_path_analysis",
                         }
                     )
@@ -193,6 +198,40 @@ class WorkflowCreator:
         except Exception as e:
             logger.exception(f"Error discovering entry points: {e}")
             return []
+
+    def _delete_workflow_nodes_for_entry_points(self, entry_point_ids: List[str]) -> None:
+        """
+        Delete existing workflow nodes and all related relationships for given entry points.
+
+        This performs a two-step deletion:
+        1. Delete WORKFLOW_STEP relationships that reference these workflows
+        2. DETACH DELETE WorkflowNodes (removes BELONGS_TO_WORKFLOW relationships)
+
+        Args:
+            entry_point_ids: List of entry point IDs whose workflows should be deleted
+        """
+        try:
+            if not entry_point_ids:
+                return
+
+            logger.info(f"Deleting existing workflow nodes for {len(entry_point_ids)} entry points")
+
+            result = self.db_manager.query(
+                delete_workflows_for_entry_points_query(),
+                parameters={"entry_point_ids": entry_point_ids}
+            )
+
+            if result:
+                deleted_workflows = result[0].get("deleted_workflows", 0)
+                deleted_steps = result[0].get("total_deleted_steps", 0) or 0
+                logger.info(
+                    f"Deleted {deleted_workflows} workflow nodes and {deleted_steps} WORKFLOW_STEP relationships"
+                )
+            else:
+                logger.info("No existing workflows found for deletion")
+
+        except Exception as e:
+            logger.exception(f"Error deleting workflow nodes: {e}")
 
     def _analyze_workflow_from_entry_point(self, entry_point_id: str, max_depth: int = 20) -> List[WorkflowResult]:
         """

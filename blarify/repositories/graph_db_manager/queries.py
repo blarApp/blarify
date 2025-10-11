@@ -1292,33 +1292,34 @@ def find_code_workflows_query() -> LiteralString:
     This query builds a complete execution trace by enumerating all DFS paths and creating
     a unified node and edge stream that represents the full workflow execution sequence.
 
+    Supports batching via $skip and $batch_size parameters to prevent memory issues
+    with large workflows.
+
     Returns:
         str: The Cypher query string that returns executionNodes and executionEdges
     """
     return """
-    WITH $maxDepth AS maxDepth
-
     // Entry
     MATCH (entry:NODE {
       node_id: $entry_point_id,
-      layer: 'code', 
-      entityId: $entity_id, 
+      layer: 'code',
+      entityId: $entity_id,
       repoId: $repo_id
     })
 
     // Enumerate DFS paths
     CALL apoc.path.expandConfig(entry, {
       relationshipFilter: "CALLS>",
-      minLevel: 0, maxLevel: maxDepth,
+      minLevel: 0, maxLevel: $maxDepth,
       bfs: false,
       uniqueness: "NODE_PATH"
     }) YIELD path
 
     // Keep leaves or frontier-at-maxDepth (keep 0-length path too; we handle it below)
-    WITH entry, path, last(nodes(path)) AS leaf, maxDepth
+    WITH entry, path, last(nodes(path)) AS leaf
     WHERE length(path) = 0
        OR coalesce(apoc.node.degree.out(leaf,'CALLS'),0) = 0
-       OR length(path) = maxDepth
+       OR length(path) = $maxDepth
 
     // Sort paths by per-edge (line,col) to fix traversal order
     WITH entry, path,
@@ -1327,8 +1328,9 @@ def find_code_workflows_query() -> LiteralString:
          ] AS sortKey
     ORDER BY sortKey
 
-    // Work with ordered paths
-    WITH entry, collect({ns: nodes(path), rels: relationships(path)}) AS paths
+    // Work with ordered paths - apply batching here
+    WITH entry, collect({ns: nodes(path), rels: relationships(path)}) AS allPaths
+    WITH entry, allPaths[$skip..$skip+$batch_size] AS paths
 
     // For each path, emit only the suffix beyond the LCP with previous path
     UNWIND range(0, size(paths)-1) AS k
@@ -1416,7 +1418,7 @@ def find_code_workflows_query() -> LiteralString:
 
 
 def find_code_workflows(
-    db_manager: AbstractDbManager, entry_point_id: str, max_depth: int = 20
+    db_manager: AbstractDbManager, entry_point_id: str, max_depth: int = 20, batch_size: int = 100
 ) -> List[Dict[str, Any]]:
     """
     Finds workflow execution traces using direct code analysis with continuous path sequencing.
@@ -1435,12 +1437,15 @@ def find_code_workflows(
     by downstream LLM agents and analysis tools. They are marked with `is_bridge_edge: True`
     for debugging purposes.
 
+    Processes paths in batches to prevent out-of-memory errors with large workflows.
+
     Args:
         db_manager: Database manager instance
         entity_id: The entity ID to query
         repo_id: The repository ID to query
         entry_point_id: Code node ID that is an entry point
         max_depth: Maximum depth for workflow traversal (default: 20)
+        batch_size: Number of paths to process per batch (default: 100)
 
     Returns:
         List of workflow dictionaries, each including:
@@ -1469,48 +1474,90 @@ def find_code_workflows(
     """
     try:
         query = find_code_workflows_query()
-        parameters = {
-            "entry_point_id": entry_point_id,
-            "maxDepth": max_depth,
-        }
 
-        query_result = db_manager.query(cypher_query=query, parameters=parameters)
+        # Accumulate results across batches
+        all_execution_nodes: List[Dict[str, Any]] = []
+        all_execution_edges: List[Dict[str, Any]] = []
+        seen_node_ids: set[str] = set()
+        skip = 0
+
+        while True:
+            parameters = {
+                "entry_point_id": entry_point_id,
+                "maxDepth": max_depth,
+                "skip": skip,
+                "batch_size": batch_size,
+            }
+
+            logger.debug(f"Processing batch starting at skip={skip}, batch_size={batch_size}")
+            query_result = db_manager.query(cypher_query=query, parameters=parameters)
+
+            if not query_result:
+                # No more results
+                break
+
+            batch_has_results = False
+            for record in query_result:
+                execution_nodes = record.get("executionNodes", [])
+                execution_edges = record.get("executionEdges", [])
+
+                if execution_nodes or execution_edges:
+                    batch_has_results = True
+
+                    # Add unique nodes to accumulated list
+                    for node in execution_nodes:
+                        node_id = node.get("id")
+                        if node_id and node_id not in seen_node_ids:
+                            all_execution_nodes.append(node)
+                            seen_node_ids.add(node_id)
+
+                    # Add all edges (duplicates will be filtered by bridge edge logic)
+                    all_execution_edges.extend(execution_edges)
+
+            if not batch_has_results:
+                # No more results in this batch
+                break
+
+            # Move to next batch
+            skip += batch_size
+            logger.debug(f"Completed batch, moving to next batch at skip={skip}")
+
+        logger.info(
+            f"Processed all batches: {len(all_execution_nodes)} nodes, "
+            f"{len(all_execution_edges)} edges for entry point {entry_point_id}"
+        )
+
+        # Create bridge edges to connect consecutive DFS paths for continuous traces
+        # This must be done BEFORE assigning step_order to create proper connectivity
+        all_execution_edges = _create_bridge_edges(all_execution_nodes, all_execution_edges)
+
+        # Set step_order for all edges (original + bridges) to create continuous sequence
+        for index, edge in enumerate(all_execution_edges):
+            edge["step_order"] = index
 
         workflows = []
-        for record in query_result:
-            execution_nodes = record.get("executionNodes", [])
-            execution_edges = record.get("executionEdges", [])
+        if all_execution_nodes:
+            # Extract entry and end point from execution nodes
+            entry_node = all_execution_nodes[0] if all_execution_nodes else {}
+            end_node = all_execution_nodes[-1] if len(all_execution_nodes) > 1 else entry_node
 
-            # Create bridge edges to connect consecutive DFS paths for continuous traces
-            # This must be done BEFORE assigning step_order to create proper connectivity
-            execution_edges = _create_bridge_edges(execution_nodes, execution_edges)
-
-            # Set step_order for all edges (original + bridges) to create continuous sequence
-            for index, edge in enumerate(execution_edges):
-                edge["step_order"] = index
-
-            if execution_nodes:
-                # Extract entry and end point from execution nodes
-                entry_node = execution_nodes[0] if execution_nodes else {}
-                end_node = execution_nodes[-1] if len(execution_nodes) > 1 else entry_node
-
-                # Build workflow data structure expected by downstream code
-                workflow_data = {
-                    "entryPointId": entry_node.get("id", ""),
-                    "entryPointName": entry_node.get("name", ""),
-                    "entryPointPath": entry_node.get("path", ""),
-                    "endPointId": end_node.get("id", ""),
-                    "endPointName": end_node.get("name", ""),
-                    "endPointPath": end_node.get("path", ""),
-                    "workflowNodes": execution_nodes,  # Keep as executionNodes data structure
-                    "workflowEdges": execution_edges,  # Keep as executionEdges data structure
-                    "pathLength": len(execution_edges),
-                    "totalExecutionSteps": len(execution_edges),
-                    "totalEdges": len(execution_edges),
-                    "workflowType": "dfs_execution_trace_with_edges",
-                    "discoveredBy": "apoc_dfs_traversal",
-                }
-                workflows.append(workflow_data)
+            # Build workflow data structure expected by downstream code
+            workflow_data = {
+                "entryPointId": entry_node.get("id", ""),
+                "entryPointName": entry_node.get("name", ""),
+                "entryPointPath": entry_node.get("path", ""),
+                "endPointId": end_node.get("id", ""),
+                "endPointName": end_node.get("name", ""),
+                "endPointPath": end_node.get("path", ""),
+                "workflowNodes": all_execution_nodes,  # Keep as executionNodes data structure
+                "workflowEdges": all_execution_edges,  # Keep as executionEdges data structure
+                "pathLength": len(all_execution_edges),
+                "totalExecutionSteps": len(all_execution_edges),
+                "totalEdges": len(all_execution_edges),
+                "workflowType": "dfs_execution_trace_with_edges",
+                "discoveredBy": "apoc_dfs_traversal",
+            }
+            workflows.append(workflow_data)
 
         logger.info(f"Found {len(workflows)} code-based workflows for entry point {entry_point_id}")
         return workflows

@@ -71,11 +71,12 @@ class AbstractDbManager:
         Args:
             name: Name of the node to search for
             node_type: Type/label of the node to search for
-            company_id: Company identifier for data isolation
-            repo_id: Repository identifier
-            diff_identifier: Diff identifier for version control
 
         Returns:
             List of node data transfer objects
+
+        Note:
+            entity_id (mandatory) and repo_id (optional) are injected from manager instance.
+            If repo_id is None, searches across all repos for the entity.
         """
         raise NotImplementedError

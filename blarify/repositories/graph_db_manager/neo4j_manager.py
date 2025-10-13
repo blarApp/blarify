@@ -357,9 +357,9 @@ class Neo4jManager(AbstractDbManager):
         self.query(constraint_query)
 
     def create_vector_index(self) -> None:
-        """Creates a vector index for semantic search on content embeddings."""
+        """Creates a vector index for semantic search on documentation embeddings."""
         vector_query = """
-        CREATE VECTOR INDEX content_embeddings IF NOT EXISTS
+        CREATE VECTOR INDEX documentation_embeddings IF NOT EXISTS
         FOR (n:NODE)
         ON n.content_embedding
         OPTIONS { indexConfig: {

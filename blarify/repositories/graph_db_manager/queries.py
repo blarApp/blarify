@@ -26,8 +26,8 @@ def get_codebase_skeleton_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    WHERE (n:FILE OR n:FOLDER)
+    MATCH (n:NODE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND (n:FILE OR n:FOLDER)
     WITH n
     OPTIONAL MATCH (n)-[r:CONTAINS]->(child:NODE)
     WHERE (child:FILE OR child:FOLDER)
@@ -104,7 +104,8 @@ def get_node_details_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
     RETURN n.name as name,
            labels(n) as type,
            n.node_id as node_id,
@@ -123,7 +124,8 @@ def get_node_relationships_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
     OPTIONAL MATCH (n)-[r]->(related:NODE)
     RETURN type(r) as relationship_type,
            related.node_id as related_node_id,
@@ -132,7 +134,8 @@ def get_node_relationships_query() -> LiteralString:
            r.scopeText as scope_text,
            'outgoing' as direction
     UNION
-    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+    MATCH (n:NODE {node_id: $node_id, entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
     OPTIONAL MATCH (related:NODE)-[r]->(n)
     RETURN type(r) as relationship_type,
            related.node_id as related_node_id,
@@ -381,7 +384,7 @@ def get_code_nodes_by_ids_query() -> LiteralString:
     MATCH (n:NODE)
     WHERE n.node_id IN $node_ids
       AND n.entityId = $entity_id
-      AND n.repoId = $repo_id
+      AND ($repo_ids IS NULL OR n.repoId IN $repo_ids)
     RETURN n.node_id as id,
            n.name as name,
            n.label as label,
@@ -403,8 +406,8 @@ def get_all_leaf_nodes_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id, diff_identifier: '0'})
-    WHERE NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()
+    MATCH (n:NODE {entityId: $entity_id, diff_identifier: '0'})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()
     RETURN n.node_id as id,
            n.name as name,
            labels(n) as labels,
@@ -431,8 +434,8 @@ def get_folder_leaf_nodes_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id, diff_identifier: '0'})
-    WHERE NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()
+    MATCH (n:NODE {entityId: $entity_id, diff_identifier: '0'})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND NOT (n)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->()
       AND n.path CONTAINS $folder_path
     RETURN n.node_id as id,
            n.name as name,
@@ -546,8 +549,8 @@ def get_node_by_path_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.node_path CONTAINS $node_path
+    MATCH (n:NODE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND n.node_path CONTAINS $node_path
     RETURN n.node_id as id,
            n.name as name,
            labels(n) as labels,
@@ -570,8 +573,9 @@ def get_direct_children_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
-    -[r:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->(child:NODE)
+    MATCH (parent:NODE {node_id: $node_id, entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR parent.repoId IN $repo_ids)
+    MATCH (parent)-[r:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION]->(child:NODE)
     RETURN child.node_id as id,
            child.name as name,
            labels(child) as labels,
@@ -734,8 +738,8 @@ def get_information_nodes_by_folder_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (info:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id, layer: 'documentation'})
-    WHERE info.source_path ENDS WITH $folder_path
+    MATCH (info:DOCUMENTATION {entityId: $entity_id, layer: 'documentation'})
+    WHERE ($repo_ids IS NULL OR info.repoId IN $repo_ids) AND info.source_path ENDS WITH $folder_path
     RETURN info.node_id as node_id,
            info.title as title,
            info.content as content,
@@ -833,8 +837,8 @@ def get_root_information_nodes_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (code:NODE {entityId: $entity_id, repoId: $repo_id, level: 1})
-    WHERE (code:FILE OR code:FOLDER)
+    MATCH (code:NODE {entityId: $entity_id, level: 1})
+    WHERE ($repo_ids IS NULL OR code.repoId IN $repo_ids) AND (code:FILE OR code:FOLDER)
     MATCH (info:DOCUMENTATION)-[:DESCRIBES]->(code)
     WHERE info.layer = 'documentation'
     RETURN info.node_id as node_id,
@@ -884,8 +888,8 @@ def get_root_path_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (code:NODE {entityId: $entity_id, repoId: $repo_id, level: 0})
-    WHERE (code:FILE OR code:FOLDER)
+    MATCH (code:NODE {entityId: $entity_id, level: 0})
+    WHERE ($repo_ids IS NULL OR code.repoId IN $repo_ids) AND (code:FILE OR code:FOLDER)
     RETURN code.node_path as path,
            code.name as name,
            labels(code) as labels
@@ -936,8 +940,9 @@ def find_independent_workflows_query() -> LiteralString:
     // Entry code node
     MATCH (entry:NODE {
       node_id: $entry_point_id,
-      layer: 'code', entityId: $entity_id, repoId: $repo_id
+      layer: 'code', entityId: $entity_id
     })
+    WHERE ($repo_ids IS NULL OR entry.repoId IN $repo_ids)
 
     // Enumerate DFS paths through code nodes
     CALL apoc.path.expandConfig(entry, {
@@ -1685,8 +1690,8 @@ def find_potential_entry_points_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (entry:NODE {entityId: $entity_id, repoId: $repo_id, layer: 'code'})
-    WHERE (entry:FUNCTION)
+    MATCH (entry:NODE {entityId: $entity_id, layer: 'code'})
+    WHERE ($repo_ids IS NULL OR entry.repoId IN $repo_ids) AND (entry:FUNCTION)
       AND NOT ()-[:CALLS]->(entry) // No incoming relationships = true entry point
     RETURN entry.node_id as id,
            entry.name as name,
@@ -1749,8 +1754,8 @@ def find_nodes_by_text_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id, diff_identifier: $diff_identifier})
-    WHERE n.text IS NOT NULL AND n.text CONTAINS $search_text
+    MATCH (n:NODE {entityId: $entity_id, diff_identifier: $diff_identifier})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND n.text IS NOT NULL AND n.text CONTAINS $search_text
     AND NOT n:FOLDER
     RETURN 
         n.node_id as id,
@@ -2052,8 +2057,9 @@ def get_existing_documentation_for_node_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (doc:DOCUMENTATION)-[:DESCRIBES]->(code:NODE {node_id: $node_id, entityId: $entity_id, repoId: $repo_id})
+    MATCH (doc:DOCUMENTATION)-[:DESCRIBES]->(code:NODE {node_id: $node_id, entityId: $entity_id})
     WHERE doc.layer = 'documentation'
+      AND ($repo_ids IS NULL OR code.repoId IN $repo_ids)
     RETURN doc.node_id as doc_node_id,
            doc.title as title,
            doc.content as content,
@@ -2080,8 +2086,8 @@ def find_entry_points_for_file_paths_query() -> LiteralString:
     """
     return """
     // Find the target node by path
-    MATCH (target:NODE {entityId: $entity_id, repoId: $repo_id, layer: 'code'})
-    WHERE target.node_path IN $file_paths
+    MATCH (target:NODE {entityId: $entity_id, layer: 'code'})
+    WHERE($repo_ids IS NULL OR target.repoId IN $repo_ids) AND target.node_path IN $file_paths
 
     // Find all the children of the target file
     OPTIONAL MATCH (target)-[:FUNCTION_DEFINITION|CLASS_DEFINITION*1..]->(child:FUNCTION)
@@ -2146,7 +2152,8 @@ def get_documentation_nodes_for_embedding_query() -> LiteralString:
         Cypher query string for fetching documentation nodes
     """
     return """
-    MATCH (n:DOCUMENTATION {entityId: $entity_id, repoId: $repo_id})
+    MATCH (n:DOCUMENTATION {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
     RETURN n.node_id as node_id,
            n.content as content,
            n.info_type as info_type,
@@ -2194,13 +2201,13 @@ def get_processable_nodes_query() -> LiteralString:
     """
     return """
     // Find all nodes with pending status
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.processing_status = 'pending'
-    
+    MATCH (n:NODE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND n.processing_status = 'pending'
+
     // Check if node is processable (no children or all children completed)
     OPTIONAL MATCH (n)-[:CONTAINS]->(child:NODE)
-    WHERE child.entityId = $entity_id 
-      AND child.repoId = $repo_id
+    WHERE child.entityId = $entity_id
+      AND ($repo_ids IS NULL OR child.repoId IN $repo_ids)
     WITH n, collect(child) as children
     
     // Filter to only nodes where all children are completed (or no children)
@@ -2230,8 +2237,8 @@ def cleanup_processing_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, repoId: $repo_id})
-    WHERE n.processing_status IS NOT NULL
+    MATCH (n:NODE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND n.processing_status IS NOT NULL
     REMOVE n.processing_status
     RETURN count(n) as cleaned_count
 """
@@ -2320,7 +2327,8 @@ def get_node_by_id_query() -> LiteralString:
         Cypher query string for retrieving a node by its ID
     """
     return """
-        MATCH (n:NODE {node_id: $node_id, repoId: $repo_id, entityId: $entity_id})
+        MATCH (n:NODE {node_id: $node_id, entityId: $entity_id})
+        WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
         CALL (n) {
             MATCH (n)-[out_rel]->(out_node)
             RETURN collect(DISTINCT {
@@ -2389,8 +2397,8 @@ def get_node_by_name_and_type_query() -> LiteralString:
         Cypher query string for retrieving nodes by name and type
     """
     return """
-        MATCH (n:NODE {repoId: $repo_id, entityId: $entity_id})
-        WHERE n.name = $name AND $node_type IN labels(n)
+        MATCH (n:NODE {entityId: $entity_id})
+        WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids) AND n.name = $name AND $node_type IN labels(n)
         RETURN n.node_id as node_id, n.name as node_name, labels(n) as node_type,
                n.path as file_path, n.text as code
     """

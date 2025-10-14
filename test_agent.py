@@ -51,7 +51,7 @@ class InteractiveCodeAgent:
             entity_id=entity_id,
             repo_id=repo_id,
         )
-        
+
         # Test connection before proceeding
         self._test_connection()
 
@@ -119,30 +119,32 @@ class InteractiveCodeAgent:
     def _test_connection(self):
         """Test the Neo4j database connection and print credentials."""
         console.print("\n[yellow]Testing database connection...[/yellow]")
-        
+
         # Print connection credentials
         uri = os.environ.get("NEO4J_URI", "Not set")
         username = os.environ.get("NEO4J_USERNAME", "Not set")
         password = os.environ.get("NEO4J_PASSWORD", "Not set")
-        
-        console.print(Panel(
-            f"""[bold]Neo4j Connection Credentials:[/bold]
+
+        console.print(
+            Panel(
+                f"""[bold]Neo4j Connection Credentials:[/bold]
             
 URI: {uri}
 Username: {username}
 Password: {password}
 Entity ID: {self.entity_id}
 Repo ID: {self.repo_id}""",
-            title="Connection Info",
-            border_style="cyan"
-        ))
-        
+                title="Connection Info",
+                border_style="cyan",
+            )
+        )
+
         try:
             # Test the connection by running a simple query
             with self.db_manager.driver.session() as session:
                 result = session.run("RETURN 1 as test")
                 result.single()
-            
+
             console.print("[green]✓ Database connection successful![/green]\n")
         except Exception as e:
             console.print(f"[red]✗ Database connection failed: {str(e)}[/red]\n")

@@ -157,35 +157,42 @@ def get_leaf_nodes_under_node_query() -> LiteralString:
     Expected params: $entity_id, $repo_id, $root_node_id
     """
     return """
-        // Anchor to the specified root in this entity/repo
-        MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
-        // Traverse hierarchical relationships to find descendants
-        MATCH (root)-[:CONTAINS|FUNCTION_DEFINITION|CLASS_DEFINITION|CALLS*1..]->(n:NODE)
-        WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id) AND NOT n:DOCUMENTATION
-            AND (
-                // FUNCTION nodes with no calls
-                ('FUNCTION' IN labels(n) AND NOT (n)-[:CALLS]->(:NODE))
-                OR
-                // FILE nodes with no hierarchical children and no calls
-                ('FILE' IN labels(n)
-                 AND NOT (n)-[:FUNCTION_DEFINITION|CLASS_DEFINITION]->(:NODE)
-                 AND NOT (n)-[:CALLS]->(:NODE))
-                OR
-                // FOLDER nodes with no hierarchical children
-                ('FOLDER' IN labels(n) 
-                 AND NOT (n)-[:CONTAINS]->(:NODE))
-            )
-        WITH DISTINCT n.node_id AS node_id, n
-        WITH n LIMIT $batch_size
-        SET n.processing_status = 'in_progress',
-            n.processing_run_id = $run_id
-        RETURN n.node_id as id,
-                     n.name as name,
-                     labels(n) as labels,
-                     n.path as path,
-                     n.start_line as start_line,
-                     n.end_line as end_line,
-                     coalesce(n.text, '') as content
+        // Anchor via composite index (create it if you don't have it)
+MATCH (root:NODE {node_id: $root_node_id, entityId: $entity_id, repoId: $repo_id})
+
+CALL apoc.path.expandConfig(root, {
+  relationshipFilter: 'CONTAINS>|FUNCTION_DEFINITION>|CLASS_DEFINITION>|CALLS>',
+  minLevel: 1,
+  maxLevel: 4,
+  bfs: true,
+  uniqueness: 'NODE_GLOBAL',
+  labelFilter: '-DOCUMENTATION',
+  filterStartNode: true
+})
+YIELD path
+WITH last(nodes(path)) AS n
+WHERE (n.processing_status IS NULL OR n.processing_run_id <> $run_id)
+  AND (
+    (n:FUNCTION AND NOT EXISTS { MATCH (n)-[:CALLS]->(:NODE) })
+    OR
+    (n:FILE
+      AND NOT EXISTS { MATCH (n)-[:FUNCTION_DEFINITION|CLASS_DEFINITION]->(:NODE) }
+      AND NOT EXISTS { MATCH (n)-[:CALLS]->(:NODE) })
+    OR
+    (n:FOLDER AND NOT EXISTS { MATCH (n)-[:CONTAINS]->(:NODE) })
+  )
+WITH DISTINCT n
+LIMIT $batch_size
+
+SET n.processing_status = 'in_progress',
+    n.processing_run_id = $run_id
+RETURN n.node_id    AS id,
+       n.name       AS name,
+       labels(n)    AS labels,
+       n.path       AS path,
+       n.start_line AS start_line,
+       n.end_line   AS end_line,
+       coalesce(n.text, '') AS content;
         """
 
 

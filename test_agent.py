@@ -25,14 +25,13 @@ from langchain_core.tools import BaseTool
 
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.tools import (
-    GetCodeByIdTool,
+    FindSymbols,
+    SearchDocumentation,
+    GetCodeAnalysis,
+    GetExpandedContext,
+    GetBlameInfo,
+    GetDependencyGraph,
     GetFileContextByIdTool,
-    GetBlameByIdTool,
-    DirectoryExplorerTool,
-    FindNodesByCode,
-    FindNodesByNameAndType,
-    FindNodesByPath,
-    GetRelationshipFlowchart,
     GetNodeWorkflowsTool,
 )
 
@@ -48,23 +47,28 @@ class InteractiveCodeAgent:
         self.repo_id = repo_id
 
         # Initialize database manager with entity_id and repo_id
-        self.db_manager = Neo4jManager(entity_id=entity_id, repo_id=repo_id)
+        self.db_manager = Neo4jManager(
+            entity_id=entity_id,
+            repo_id=repo_id,
+        )
+        
+        # Test connection before proceeding
+        self._test_connection()
 
         # Initialize Blarify tools (they already inherit from BaseTool)
         self.tools: List[BaseTool] = [
-            GetCodeByIdTool(db_manager=self.db_manager),
+            FindSymbols(db_manager=self.db_manager),
+            SearchDocumentation(db_manager=self.db_manager),
+            GetCodeAnalysis(db_manager=self.db_manager),
+            GetExpandedContext(db_manager=self.db_manager),
+            GetBlameInfo(db_manager=self.db_manager, repo_owner="blarApp", repo_name="blar-nextjs-front"),
+            GetDependencyGraph(db_manager=self.db_manager),
             GetFileContextByIdTool(db_manager=self.db_manager),
-            GetBlameByIdTool(db_manager=self.db_manager, repo_owner="blarApp", repo_name="blarify"),
-            DirectoryExplorerTool(db_manager=self.db_manager),
-            FindNodesByCode(db_manager=self.db_manager),
-            FindNodesByNameAndType(db_manager=self.db_manager),
-            FindNodesByPath(db_manager=self.db_manager),
-            GetRelationshipFlowchart(db_manager=self.db_manager),
             GetNodeWorkflowsTool(db_manager=self.db_manager),
         ]
 
         # Initialize ChatOpenAI
-        self.llm = ChatOpenAI(model="gpt-5-mini", streaming=False)
+        self.llm = ChatOpenAI(model="gpt-5", streaming=False)
 
         # Create prompt template
         self.prompt = ChatPromptTemplate.from_messages(
@@ -72,18 +76,20 @@ class InteractiveCodeAgent:
                 (
                     "system",
                     """You are a helpful code analysis assistant that helps users explore and understand a codebase.
-            You have access to tools that can search for code, show file contents, explore directory structures, and analyze relationships between code components.
+            You have access to tools that can search for code symbols, analyze code, explore dependencies, and retrieve git history information.
             
             When answering questions:
-            1. Use the find_nodes_by_name_and_type, find_nodes_by_path, or find_nodes_by_code tools to search for relevant code first
-            2. Use get_code_by_id to show specific implementations when you have a node_id
-            3. Use directory_explorer to understand project structure
-            4. Use get_relationship_flowchart to show dependencies
-            5. Use get_file_context_by_id to see the context around a specific node
-            6. Use get_blame_by_id to see git history information
-            7. Use get_node_workflows to understand which workflows a node participates in and its execution context
+            1. Use find_symbols to search for specific functions, classes, files, or folders by exact name
+            2. Use search_documentation to semantically search through AI-generated documentation for symbols
+            3. Use get_code_analysis to get complete code implementation with relationships and dependencies
+            4. Use get_expanded_context to get the full context around a code symbol including all nested references
+            5. Use get_dependency_graph to visualize dependencies with Mermaid diagrams
+            6. Use get_blame_info to see GitHub-style blame information showing who last modified each line
+            7. Use get_file_context_by_id to see the file context around a specific node
+            8. Use get_node_workflows to understand which workflows a node participates in and its execution context
             
-            Node IDs are 32-character hexadecimal strings (like UUIDs).
+            Reference IDs (handles) are 32-character hexadecimal strings that uniquely identify code symbols.
+            You can provide either a reference_id OR (file_path AND symbol_name) to most tools.
             
             Always provide clear, concise answers with relevant code examples when appropriate.
             """,
@@ -110,6 +116,38 @@ class InteractiveCodeAgent:
         # Chat history
         self.chat_history = []
 
+    def _test_connection(self):
+        """Test the Neo4j database connection and print credentials."""
+        console.print("\n[yellow]Testing database connection...[/yellow]")
+        
+        # Print connection credentials
+        uri = os.environ.get("NEO4J_URI", "Not set")
+        username = os.environ.get("NEO4J_USERNAME", "Not set")
+        password = os.environ.get("NEO4J_PASSWORD", "Not set")
+        
+        console.print(Panel(
+            f"""[bold]Neo4j Connection Credentials:[/bold]
+            
+URI: {uri}
+Username: {username}
+Password: {password}
+Entity ID: {self.entity_id}
+Repo ID: {self.repo_id}""",
+            title="Connection Info",
+            border_style="cyan"
+        ))
+        
+        try:
+            # Test the connection by running a simple query
+            with self.db_manager.driver.session() as session:
+                result = session.run("RETURN 1 as test")
+                result.single()
+            
+            console.print("[green]✓ Database connection successful![/green]\n")
+        except Exception as e:
+            console.print(f"[red]✗ Database connection failed: {str(e)}[/red]\n")
+            raise RuntimeError(f"Failed to connect to Neo4j database: {str(e)}")
+
     def display_welcome(self):
         """Display welcome message."""
         welcome_text = f"""
@@ -123,25 +161,30 @@ Welcome! I'm an AI assistant that can help you explore and understand the codeba
 
 ## Available Tools:
 
-- **find_nodes_by_name_and_type**: Search for functions, classes, and files by name and type
-- **find_nodes_by_path**: Find nodes by file path pattern
-- **find_nodes_by_code**: Search for nodes containing specific code snippets
-- **get_code_by_id**: Display the full code of a node by its ID
-- **get_file_context_by_id**: Show the file context around a node
-- **get_blame_by_id**: Show git blame information for a node
-- **get_relationship_flowchart**: Display dependencies and relationships
-- **directory_explorer**: Explore the directory structure
+- **find_symbols**: Search for code symbols (functions, classes, files, or folders) by exact name
+- **search_documentation**: Semantic search through AI-generated documentation using vector similarity
+- **get_code_analysis**: Get complete code implementation with relationships and dependencies
+- **get_expanded_context**: Get full context around a symbol including all nested references
+- **get_dependency_graph**: Generate Mermaid diagrams showing dependencies and relationships
+- **get_blame_info**: Show GitHub-style blame information for code (who modified each line)
+- **get_file_context_by_id**: Show the file context around a specific node
 - **get_node_workflows**: Discover which workflows a code node participates in
 
 ## Example questions:
 
-- "Show me all functions with 'process' in the name"
-- "Find the BottomUpBatchProcessor class and show its code"
-- "What files are in the documentation folder?"
-- "Show me functions that call process_node"
-- "Find code that contains 'def process_node'"
-- "Show the directory structure of /blarify/tools"
+- "Find the BottomUpBatchProcessor class"
+- "Search documentation for batch processing"
+- "Show me the code analysis for the process_node function in file path blarify/tools/process.py"
+- "Get expanded context for reference ID abc123..."
+- "Show me a dependency graph for the GraphBuilder class"
+- "Who last modified the create_graph function?"
 - "What workflows does the process_node function participate in?"
+
+## How to specify code elements:
+
+Most tools accept either:
+- **reference_id**: A 32-character hexadecimal identifier (tool handle)
+- **file_path + symbol_name**: The file path and symbol name together
 
 Type 'quit' or 'exit' to leave, 'clear' to clear the screen, 'help' for this message.
 """

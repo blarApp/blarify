@@ -25,7 +25,7 @@ from blarify.tools import (
     GetExpandedContext,
     GetFileContextByIdTool,
     GetNodeWorkflowsTool,
-    SearchDocumentation,
+    VectorSearch,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -76,7 +76,7 @@ class BlarifyMCPServer:
         # Create instances of all tools
         tools = [
             FindSymbols(db_manager=self.db_manager),
-            SearchDocumentation(db_manager=self.db_manager),
+            VectorSearch(db_manager=self.db_manager),
             GetCodeAnalysis(db_manager=self.db_manager),
             GetExpandedContext(db_manager=self.db_manager),
             GetBlameInfo(

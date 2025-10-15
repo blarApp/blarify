@@ -14,7 +14,7 @@ from blarify.prebuilt.graph_builder import GraphBuilder
 from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.tools import (
     FindSymbols,
-    SearchDocumentation,
+    VectorSearch,
     GetCodeAnalysis,
     GetExpandedContext,
     GetDependencyGraph,
@@ -131,8 +131,8 @@ class TestToolsIntegration:
         assert isinstance(result, dict)
         assert "symbols" in result
 
-    async def test_search_documentation_with_mock_embedding(self):
-        """Test SearchDocumentation tool with mocked embedding service."""
+    async def test_vector_search_with_mock_embedding(self):
+        """Test VectorSearch tool with mocked embedding service."""
         # Mock the embedding service
         with patch("blarify.tools.search_documentation.EmbeddingService") as mock_service_class:
             mock_instance = MagicMock()
@@ -142,7 +142,7 @@ class TestToolsIntegration:
 
             # Set mock environment variable
             with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-                tool = SearchDocumentation(db_manager=self.db_manager)
+                tool = VectorSearch(db_manager=self.db_manager)
                 tool.embedding_service = mock_instance
 
                 # Mock the query to return our test documentation
@@ -179,11 +179,11 @@ class TestToolsIntegration:
                 # Verify embedding was generated
                 mock_instance.embed_single_text.assert_called_once_with("calculator arithmetic operations")
 
-    async def test_search_documentation_without_api_key(self):
-        """Test SearchDocumentation tool handles missing API key gracefully."""
+    async def test_vector_search_without_api_key(self):
+        """Test VectorSearch tool handles missing API key gracefully."""
         # Remove OPENAI_API_KEY
         with patch.dict(os.environ, {}, clear=True):
-            tool = SearchDocumentation(db_manager=self.db_manager)
+            tool = VectorSearch(db_manager=self.db_manager)
 
             # Execute search
             result = tool._run(query="test query", top_k=5)
@@ -374,15 +374,15 @@ class TestToolsIntegration:
         finally:
             empty_db_manager.close()
 
-    async def test_search_documentation_result_formatting(self):
-        """Test that SearchDocumentation formats results correctly."""
+    async def test_vector_search_result_formatting(self):
+        """Test that VectorSearch formats results correctly."""
         with patch("blarify.tools.search_documentation.EmbeddingService") as mock_service_class:
             mock_instance = MagicMock()
             mock_instance.embed_single_text.return_value = [0.1] * 1536
             mock_service_class.return_value = mock_instance
 
             with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-                tool = SearchDocumentation(db_manager=self.db_manager)
+                tool = VectorSearch(db_manager=self.db_manager)
                 tool.embedding_service = mock_instance
 
                 # Mock query to return formatted results

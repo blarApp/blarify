@@ -1,25 +1,25 @@
 # Blarify Tools Documentation
 
-The Blarify Tools module provides Langchain-compatible tools that enable AI agents to interact with code graphs stored in Neo4j or FalkorDB. These tools abstract complex graph queries into simple, agent-friendly interfaces for exploring and analyzing codebases.
+The Blarify Tools module provides LangChain-compatible tools that enable AI agents to interact with code graphs stored in Neo4j or FalkorDB. These tools abstract complex graph queries into simple, agent-friendly interfaces for exploring and analyzing codebases.
 
 ## Table of Contents
 
 1. [Overview](#overview)
 2. [Installation & Setup](#installation--setup)
 3. [Available Tools](#available-tools)
-4. [Usage Examples](#usage-examples)
-5. [Tool Reference](#tool-reference)
+4. [Tool Reference](#tool-reference)
+5. [Usage Examples](#usage-examples)
 6. [Integration with AI Agents](#integration-with-ai-agents)
-7. [Advanced Patterns](#advanced-patterns)
+7. [Best Practices](#best-practices)
 
 ## Overview
 
 The tools module (`blarify.tools`) provides specialized interfaces for:
-- **Graph Navigation**: Explore repository structure through graph relationships
-- **Code Search**: Find nodes by code content, name, type, or path
+- **Symbol Search**: Find code elements by exact name or semantic similarity
+- **Code Analysis**: Get complete code implementations with relationships
 - **Context Retrieval**: Get expanded code context with intelligent placeholder resolution
-- **Relationship Analysis**: Visualize and understand code dependencies
-- **Documentation Generation**: Auto-generate missing documentation using AI
+- **Dependency Visualization**: Generate Mermaid diagrams showing code relationships
+- **Git History**: Access GitHub-style blame information for code evolution tracking
 
 ### Key Benefits
 
@@ -27,116 +27,113 @@ The tools module (`blarify.tools`) provides specialized interfaces for:
 - **Type Safety**: Pydantic models ensure proper input validation
 - **Context Awareness**: Tools handle code collapsing/expansion automatically
 - **Agent-Optimized**: Structured outputs designed for LLM consumption
-- **Performance**: Efficient graph traversal with caching where appropriate
+- **Flexible Input**: Accept either reference IDs or file path + symbol name combinations
 
 ## Installation & Setup
 
 ### Prerequisites
 
 1. A Blarify-processed codebase in Neo4j or FalkorDB
-2. Langchain installed (`pip install langchain`)
+2. LangChain installed (`pip install langchain`)
 3. Database connection configured
 
 ### Basic Setup
 
 ```python
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.tools import (
-    DirectoryExplorerTool,
-    FindNodesByCode,
-    GetCodeByIdTool,
-    GetRelationshipFlowchart
+    FindSymbols,
+    VectorSearch,
+    GetCodeAnalysis,
+    GetExpandedContext,
+    GetBlameInfo,
+    GetDependencyGraph
 )
 
 # Initialize database manager
 db_manager = Neo4jManager(
+    uri="bolt://localhost:7687",
+    user="neo4j",
+    password="password",
     repo_id="my-repo",
     entity_id="my-company"
 )
 
 # Initialize tools
-directory_explorer = DirectoryExplorerTool(
-    company_graph_manager=db_manager,
-    company_id="my-company",
-    repo_id="my-repo"
-)
-
-code_finder = FindNodesByCode(
+find_symbols = FindSymbols(db_manager=db_manager)
+vector_search = VectorSearch(db_manager=db_manager)
+code_analysis = GetCodeAnalysis(db_manager=db_manager)
+expanded_context = GetExpandedContext(db_manager=db_manager)
+blame_info = GetBlameInfo(
     db_manager=db_manager,
-    company_id="my-company",
-    repo_id="my-repo",
-    diff_identifier="main"
+    repo_owner="your-org",
+    repo_name="your-repo"
 )
+dependency_graph = GetDependencyGraph(db_manager=db_manager)
 ```
 
 ## Available Tools
 
-### 1. DirectoryExplorerTool
-Navigate repository structure via graph relationships.
+### 1. FindSymbols
+Search for code symbols (functions, classes, files, or folders) by **exact name match**.
 
 **Use Cases:**
-- Browse project hierarchy
-- Find repository root
-- List directory contents
+- Locate specific functions or classes when you know the exact name
+- Find files or folders by their exact names
+- Get reference IDs for further analysis
 
-### 2. FindNodesByCode
-Search for nodes containing specific code text.
+**Key Features:**
+- Exact name matching (case-sensitive)
+- Returns multiple matches if symbol appears in different locations
+- Provides code previews
+- Returns reference IDs for navigation
 
-**Use Cases:**
-- Find function implementations
-- Locate specific algorithms
-- Search for patterns or anti-patterns
-
-### 3. FindNodesByNameAndType
-Find nodes by their name and type.
+### 2. VectorSearch
+Perform **semantic search** over AI-generated descriptions of code scopes using vector similarity.
 
 **Use Cases:**
-- Locate specific classes or functions
-- Find all methods with certain names
-- Discover test files
+- Exploratory searches when you don't know exact symbol names
+- Find functionality by description (e.g., "email sending", "authentication logic")
+- Discover code handling specific features or behaviors
 
-### 4. FindNodesByPath
-Find nodes at specific file paths.
+**Key Features:**
+- Semantic/fuzzy search using embeddings
+- Searches over AI-generated code scope descriptions
+- Configurable number of results (top_k)
+- Returns relevance scores
+- Requires OpenAI API key for embedding generation
 
-**Use Cases:**
-- Navigate to known files
-- Verify file existence
-- Get node IDs for specific paths
-
-### 5. GetCodeByIdTool
-Retrieve detailed code and relationship information for a node.
-
-**Use Cases:**
-- Examine function implementations
-- Understand node relationships
-- View auto-generated documentation
-
-### 6. GetFileContextByIdTool
-Get expanded file context with child nodes injected.
+### 3. GetCodeAnalysis
+Get complete code implementation with relationships and dependencies.
 
 **Use Cases:**
-- View complete file content
-- Understand code in full context
-- Analyze nested structures
+- Understand what a function does
+- See which functions call this one (inbound relationships)
+- See which functions this one calls (outbound relationships)
+- Analyze code dependencies
 
-### 7. GetCodeWithContextTool
-Combined tool for both node details and expanded file context.
+**Key Features:**
+- Shows complete code with line numbers
+- Lists all inbound and outbound relationships
+- Provides reference IDs for related symbols
+- Handles collapsed code placeholders
+
+### 4. GetExpandedContext
+Get the full file context with all nested code expanded.
 
 **Use Cases:**
-- Comprehensive code analysis
-- Debugging with full context
-- Code review assistance
+- View complete file content without collapsed placeholders
+- Understand code in its full surrounding context
+- Analyze nested structures and their implementations
 
-### 8. GetRelationshipFlowchart
-Generate Mermaid diagrams of node relationships.
+**Key Features:**
+- Recursively expands all collapsed code sections
+- Preserves proper indentation
+- Returns complete, executable file context
+- Handles circular references gracefully
 
-**Use Cases:**
-- Visualize dependencies
-- Understand call chains
-- Document architecture
-
-### 9. GetBlameByIdTool
-Get GitHub-style blame information for code nodes, showing commit info for each line.
+### 5. GetBlameInfo
+Get GitHub-style blame information showing who last modified each line of code.
 
 **Use Cases:**
 - Track code authorship line-by-line
@@ -144,456 +141,470 @@ Get GitHub-style blame information for code nodes, showing commit info for each 
 - Find associated pull requests
 - Identify primary code contributors
 
-## Usage Examples
+**Key Features:**
+- GitHub-style blame display with commit info per line
+- Shows time ago, author, commit SHA, and message
+- Can auto-create integration nodes if needed
+- Includes PR information and summary statistics
+- Requires GitHub token for API access
 
-### Example 1: Exploring Repository Structure
+### 6. GetDependencyGraph
+Generate Mermaid diagrams showing dependencies and relationships.
 
-```python
-from blarify.tools import DirectoryExplorerTool
+**Use Cases:**
+- Visualize code dependencies
+- Understand call chains
+- Document architecture
+- Communicate code structure to others
 
-# Initialize the tool
-explorer = DirectoryExplorerTool(
-    company_graph_manager=db_manager,
-    company_id="my-company",
-    repo_id="my-repo"
-)
-
-# Get the tool for Langchain
-list_directory_tool = explorer.get_tool()
-
-# List repository root
-root_contents = list_directory_tool.invoke({"node_id": None})
-print(root_contents)
-
-# Output:
-# Directory listing for: /project/root (Node ID: abc123)
-# ============================================================
-# 
-# 📁 Directories:
-#   └── src/ (ID: def456)
-#   └── tests/ (ID: ghi789)
-# 
-# 📄 Files:
-#   └── README.md (ID: jkl012)
-#   └── setup.py (ID: mno345)
-```
-
-### Example 2: Finding Code by Content
-
-```python
-from blarify.tools import FindNodesByCode
-
-# Initialize the tool
-code_finder = FindNodesByCode(
-    db_manager=db_manager,
-    company_id="my-company",
-    repo_id="my-repo",
-    diff_identifier="main"
-)
-
-# Search for specific code
-result = code_finder._run(code="def calculate_total")
-
-if not result["too many nodes"]:
-    for node in result["nodes"]:
-        print(f"Found in: {node['file_path']}")
-        print(f"Node ID: {node['node_id']}")
-        print(f"Code snippet: {node['code'][:100]}...")
-```
-
-### Example 3: Getting Code with Full Context
-
-```python
-from blarify.tools import GetCodeWithContextTool
-
-# Initialize the tool
-context_tool = GetCodeWithContextTool(
-    db_manager=db_manager,
-    company_id="my-company"
-)
-
-# Get code with expanded context
-node_id = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
-result = context_tool._run(node_id=node_id)
-
-print(result)
-# Output includes:
-# - Code with line numbers
-# - Expanded child nodes
-# - Relationships (inbound/outbound)
-# - Documentation if available
-```
-
-### Example 4: Generating Relationship Flowchart
-
-```python
-from blarify.tools import GetRelationshipFlowchart
-
-# Initialize the tool
-flowchart_tool = GetRelationshipFlowchart(
-    company_id="my-company",
-    db_manager=db_manager,
-    diff_identifier="main"
-)
-
-# Generate Mermaid diagram
-node_id = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
-mermaid_diagram = flowchart_tool._run(node_id=node_id)
-
-print(mermaid_diagram)
-# Output:
-# graph TD
-#     nodeA[FunctionA] --> nodeB[FunctionB]
-#     nodeB --> nodeC[FunctionC]
-#     nodeA --> nodeD[FunctionD]
-```
-
-### Example 5: Getting GitHub-Style Blame Information
-
-```python
-from blarify.tools import GetBlameByIdTool
-
-# Initialize the tool
-blame_tool = GetBlameByIdTool(
-    db_manager=db_manager,
-    repo_owner="blarApp",
-    repo_name="blarify",
-    github_token=os.getenv("GITHUB_TOKEN"),
-    auto_create_integration=True  # Creates integration nodes if needed
-)
-
-# Get blame for a function node
-node_id = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
-blame_output = blame_tool._run(node_id=node_id)
-
-print(blame_output)
-# Output:
-# Git Blame for: get_reference_type (FUNCTION)
-# File: blarify/code_hierarchy/python/lsp_query_utils.py
-# ================================================================================
-# 
-# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   50 | def get_reference_type(
-# 9 months ago  bob        def456g  refactor: map lsp reference to...  51 |     self, original_node: "DefinitionNode", reference: "Reference", node_referenced: "DefinitionNode"
-# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   52 | ) -> FoundRelationshipScope:
-# 9 months ago  charlie    ghi789j  refactor: replace CodeRange...     53 |     node_in_point_reference = self._get_node_in_point_reference(node=node_referenced, reference=reference)
-# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   54 |     found_relationship_scope = self.language_definitions.get_relationship_type(
-# 9 months ago  bob        def456g  refactor: add get_relationship...  55 |         node=original_node, node_in_point_reference=node_in_point_reference
-# 9 months ago  charlie    ghi789j  refactor: replace CodeRange...     56 |     )
-#                                                                        57 |
-# 8 months ago  alice      abc123d  feat: introduce FoundRelation...   58 |     if not found_relationship_scope:
-#                                                                        59 |         found_relationship_scope = FoundRelationshipScope(
-#                                                                        60 |             node_in_scope=None, relationship_type=RelationshipType.USES
-#                                                                        61 |         )
-#                                                                        62 |
-#                                                                        63 |     return found_relationship_scope
-# 
-# 
-# Summary:
-# ----------------------------------------
-# Total commits: 4
-# Primary author: alice (6 lines)
-# Last modified: 8 months ago by alice
-# 
-# Associated Pull Requests:
-#   PR #42: Add relationship scope feature
-#   PR #38: Refactor LSP reference handling
-```
+**Key Features:**
+- Generates Mermaid-compatible graph syntax
+- Configurable depth of relationships
+- Shows directional relationships
+- Can be rendered in documentation or markdown viewers
 
 ## Tool Reference
 
-### DirectoryExplorerTool
+### FindSymbols
 
-#### Methods
-- `get_tool()` - Returns Langchain-compatible tool for directory listing
-- `get_find_repo_root_tool()` - Returns tool for finding repository root
-
-#### Internal Methods
-- `_find_repo_root()` - Finds the root node of the repository
-- `_list_directory_children(node_id)` - Lists children of a directory node
-- `_get_node_info(node_id)` - Gets basic information about a node
-- `_format_directory_listing(contents, parent_node_id)` - Formats directory contents
-
-### FindNodesByCode
-
-#### Input Schema
+#### Input Parameters
 ```python
-class Input(BaseModel):
-    code: str  # Text to search for in the database
+{
+    "name": str,      # Exact name of the symbol (required)
+    "type": str       # One of: "FUNCTION", "CLASS", "FILE", "FOLDER" (required)
+}
 ```
 
 #### Returns
 ```python
 {
-    "nodes": List[NodeFoundByTextResponse],
-    "too many nodes": bool
+    "symbols": [
+        {
+            "id": str,           # Reference ID (32-char handle)
+            "name": str,         # Symbol name
+            "type": List[str],   # Symbol types/labels
+            "file_path": str,    # File location
+            "code": str          # Code preview
+        }
+    ]
 }
 ```
 
-### GetCodeByIdTool
-
-#### Input Schema
+#### Example
 ```python
-class NodeIdInput(BaseModel):
-    node_id: str  # 32-character UUID-like hash ID
+result = find_symbols._run(
+    name="GraphBuilder",
+    type="CLASS"
+)
+# Returns all classes named "GraphBuilder" with their reference IDs
 ```
 
-#### Features
-- Auto-generates documentation if missing (configurable)
-- Displays relationships with detailed information
-- Formats code with proper line numbers
-- Shows node labels and metadata
+---
 
-### GetFileContextByIdTool
+### VectorSearch
 
-#### Key Features
-- Recursively expands collapsed code sections
-- Preserves proper indentation
-- Handles nested placeholders
-- Returns complete file context
-
-### GetCodeWithContextTool
-
-#### Combined Output Includes
-1. **Node Details**: Labels, ID, name
-2. **Code with Line Numbers**: Collapsed version with line references
-3. **File Context**: Fully expanded code
-4. **Relationships**: Inbound and outbound connections
-5. **Documentation**: If available or auto-generated
-
-### GetRelationshipFlowchart
-
-#### Output Format
-- Mermaid-compatible graph syntax
-- Shows node relationships visually
-- Includes node names and types
-- Directional flow representation
-
-### GetBlameByIdTool
-
-#### Input Schema
+#### Input Parameters
 ```python
-class NodeIdInput(BaseModel):
-    node_id: str  # 32-character UUID-like hash ID
+{
+    "query": str,     # Search query for semantic matching (required)
+    "top_k": int      # Number of results to return (default: 5, max: 20)
+}
 ```
 
-#### Features
-- GitHub-style blame display with commit info for each line
-- On-demand integration node creation if blame data doesn't exist
-- Shows associated pull requests
-- Calculates primary author and last modification info
-- Supports configurable GitHub token and repository settings
+#### Returns
+Formatted string with search results including:
+- Relevance scores
+- Reference IDs
+- File paths
+- AI-generated descriptions
 
-#### Output Format
-- Plain text formatted like GitHub's blame view
-- Each line shows: time ago, author, commit SHA, message, line number, and code
-- Summary section with statistics and PR information
-- Human-readable time formatting ("8 months ago", etc.)
+#### Example
+```python
+result = vector_search._run(
+    query="email verification logic",
+    top_k=5
+)
+# Returns top 5 code scopes related to email verification
+```
+
+#### Notes
+- Requires `OPENAI_API_KEY` environment variable
+- Returns "Vector search unavailable" if API key is not configured
+- Minimum similarity threshold is 0.7
+
+---
+
+### GetCodeAnalysis
+
+#### Input Parameters
+Flexible input - provide either:
+- `reference_id`: Reference ID (32-char handle), **OR**
+- `file_path` AND `symbol_name`: File path and symbol name combination
+
+```python
+{
+    "reference_id": Optional[str],   # 32-character reference ID
+    "file_path": Optional[str],      # Path to file
+    "symbol_name": Optional[str]     # Name of function/class/method
+}
+```
+
+#### Returns
+Formatted string with:
+- Symbol information (ID, name, labels)
+- Code with line numbers
+- Inbound relationships (what calls this)
+- Outbound relationships (what this calls)
+- Reference IDs for all related symbols
+
+#### Example
+```python
+# Using reference ID
+result = code_analysis._run(
+    reference_id="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+)
+
+# Using file path + symbol name
+result = code_analysis._run(
+    file_path="src/services/auth.py",
+    symbol_name="login_user"
+)
+```
+
+---
+
+### GetExpandedContext
+
+#### Input Parameters
+Same flexible input as GetCodeAnalysis:
+```python
+{
+    "reference_id": Optional[str],
+    "file_path": Optional[str],
+    "symbol_name": Optional[str]
+}
+```
+
+#### Returns
+Formatted string with:
+- File path
+- Fully expanded source code with all nested nodes injected
+- No collapsed placeholders - complete, runnable code
+
+#### Example
+```python
+result = expanded_context._run(
+    reference_id="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+)
+# Returns complete file content with all code expanded
+```
+
+---
+
+### GetBlameInfo
+
+#### Input Parameters
+Same flexible input as GetCodeAnalysis:
+```python
+{
+    "reference_id": Optional[str],
+    "file_path": Optional[str],
+    "symbol_name": Optional[str]
+}
+```
+
+#### Configuration
+```python
+GetBlameInfo(
+    db_manager=db_manager,
+    repo_owner="your-org",           # GitHub org/owner
+    repo_name="your-repo",           # GitHub repo name
+    github_token="ghp_...",          # Optional, defaults to GITHUB_TOKEN env var
+    ref="HEAD",                      # Git ref to blame at
+    auto_create_integration=True     # Auto-create integration nodes
+)
+```
+
+#### Returns
+Formatted string with GitHub-style blame output:
+- Each line with: time ago, author, commit SHA, message, line number, code
+- Summary section with total commits, primary author, last modification
+- Associated pull requests
+
+#### Example
+```python
+result = blame_info._run(
+    file_path="src/main.py",
+    symbol_name="main"
+)
+# Output:
+# Git Blame for: main (FUNCTION)
+# File: src/main.py
+# ================================================================================
+#
+# 3 months ago  alice      abc123d  feat: add main entry point   10 | def main():
+# 3 months ago  alice      abc123d  feat: add main entry point   11 |     app = create_app()
+# 2 months ago  bob        def456g  fix: add error handling      12 |     try:
+# ...
+```
+
+---
+
+### GetDependencyGraph
+
+#### Input Parameters
+Flexible input plus depth parameter:
+```python
+{
+    "reference_id": Optional[str],
+    "file_path": Optional[str],
+    "symbol_name": Optional[str],
+    "depth": int  # Maximum depth of relationships (default: 2, range: 1-5)
+}
+```
+
+#### Returns
+Mermaid diagram syntax as a string:
+```
+graph TD
+    nodeA[FunctionA] --> nodeB[FunctionB]
+    nodeB --> nodeC[FunctionC]
+    nodeA --> nodeD[FunctionD]
+```
+
+#### Example
+```python
+mermaid = dependency_graph._run(
+    symbol_name="process_data",
+    file_path="src/processor.py",
+    depth=3
+)
+print(mermaid)
+# Can be rendered in markdown viewers or documentation
+```
+
+## Usage Examples
+
+### Example 1: Find and Analyze a Function
+
+```python
+# Step 1: Find the function by exact name
+result = find_symbols._run(
+    name="calculate_total",
+    type="FUNCTION"
+)
+
+# Step 2: Get the reference ID
+if result["symbols"]:
+    ref_id = result["symbols"][0]["id"]
+
+    # Step 3: Get code analysis
+    analysis = code_analysis._run(reference_id=ref_id)
+    print(analysis)
+```
+
+### Example 2: Exploratory Search for Feature
+
+```python
+# Search for email-related code
+results = vector_search._run(
+    query="email sending and verification",
+    top_k=10
+)
+print(results)
+
+# Results will show relevant code scopes with reference IDs
+# that you can then analyze further with other tools
+```
+
+### Example 3: Understand Function Dependencies
+
+```python
+# Get dependency visualization
+mermaid_diagram = dependency_graph._run(
+    file_path="src/auth/login.py",
+    symbol_name="authenticate_user",
+    depth=2
+)
+
+print(mermaid_diagram)
+# Paste into markdown viewer to see visual dependency graph
+```
+
+### Example 4: Track Code Changes
+
+```python
+# Get blame information for a function
+blame_output = blame_info._run(
+    file_path="src/utils/helpers.py",
+    symbol_name="format_date"
+)
+
+print(blame_output)
+# Shows who modified each line, when, and why
+```
+
+### Example 5: Get Complete File Context
+
+```python
+# Get fully expanded context
+full_context = expanded_context._run(
+    file_path="src/models/user.py",
+    symbol_name="User"
+)
+
+print(full_context)
+# Shows complete file with all nested code expanded
+```
 
 ## Integration with AI Agents
 
-### Langchain Integration
+### LangChain ReAct Agent
 
 ```python
-from langchain.agents import initialize_agent, AgentType
-from langchain.llms import OpenAI
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
 
-# Initialize tools
+# Initialize all tools
 tools = [
-    directory_explorer.get_tool(),
-    code_finder,
-    context_tool,
-    flowchart_tool,
-    blame_tool
+    FindSymbols(db_manager=db_manager),
+    VectorSearch(db_manager=db_manager),
+    GetCodeAnalysis(db_manager=db_manager),
+    GetExpandedContext(db_manager=db_manager),
+    GetBlameInfo(
+        db_manager=db_manager,
+        repo_owner="your-org",
+        repo_name="your-repo"
+    ),
+    GetDependencyGraph(db_manager=db_manager)
 ]
 
-# Create agent
-llm = OpenAI(temperature=0)
-agent = initialize_agent(
+# Create LLM and agent
+llm = ChatOpenAI(model="gpt-4", temperature=0)
+agent = create_react_agent(
+    model=llm,
     tools=tools,
-    llm=llm,
-    agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-    verbose=True
+    state_modifier="You are a helpful code analysis assistant."
 )
 
-# Use agent
-response = agent.run(
-    "Find the main function and show me what functions it calls"
-)
+# Use the agent
+for chunk in agent.stream(
+    {"messages": [("user", "Find the authentication logic and explain how it works")]}
+):
+    print(chunk)
 ```
 
-### Custom Agent Implementation
+### MCP Server Integration
 
-```python
-class CodeAnalysisAgent:
-    def __init__(self, db_manager, company_id, repo_id):
-        self.tools = {
-            'explore': DirectoryExplorerTool(db_manager, company_id, repo_id),
-            'find_code': FindNodesByCode(db_manager, company_id, repo_id, "main"),
-            'get_context': GetCodeWithContextTool(db_manager, company_id),
-            'get_flowchart': GetRelationshipFlowchart(company_id, db_manager, "main")
-        }
-    
-    def analyze_function(self, function_name: str):
-        # Find the function
-        nodes = self.tools['find_code']._run(code=f"def {function_name}")
-        
-        if nodes['nodes']:
-            node_id = nodes['nodes'][0]['node_id']
-            
-            # Get full context
-            context = self.tools['get_context']._run(node_id=node_id)
-            
-            # Generate flowchart
-            flowchart = self.tools['get_flowchart']._run(node_id=node_id)
-            
-            return {
-                'context': context,
-                'flowchart': flowchart
-            }
+Blarify tools are also available through the Model Context Protocol (MCP) server:
+
+```bash
+# Start the MCP server
+blarify-mcp --project /path/to/your/project
+
+# Or auto-detect from current directory
+cd /path/to/your/project
+blarify-mcp
 ```
 
-## Advanced Patterns
-
-### Pattern 1: Recursive Dependency Analysis
-
-```python
-def analyze_dependencies(node_id: str, depth: int = 2):
-    """Recursively analyze dependencies up to specified depth."""
-    visited = set()
-    
-    def traverse(nid: str, current_depth: int):
-        if nid in visited or current_depth > depth:
-            return []
-        
-        visited.add(nid)
-        node_info = get_code_tool._run(node_id=nid)
-        
-        dependencies = []
-        # Parse outbound relations from node_info
-        # Recursively traverse each dependency
-        
-        return dependencies
-    
-    return traverse(node_id, 0)
-```
-
-### Pattern 2: Code Impact Analysis
-
-```python
-def analyze_impact(changed_node_id: str):
-    """Analyze what code might be affected by changes to a node."""
-    # Get inbound relationships (who depends on this node)
-    node_info = get_code_tool._run(node_id=changed_node_id)
-    
-    affected_nodes = []
-    # Parse inbound relations
-    # For each dependent, analyze its criticality
-    
-    return {
-        'directly_affected': affected_nodes,
-        'risk_level': calculate_risk(affected_nodes)
-    }
-```
-
-### Pattern 3: Documentation Coverage Analysis
-
-```python
-def check_documentation_coverage(directory_node_id: str):
-    """Check which nodes in a directory have documentation."""
-    contents = directory_explorer._list_directory_children(directory_node_id)
-    
-    coverage = {
-        'documented': [],
-        'undocumented': []
-    }
-    
-    for item in contents:
-        node_info = get_code_tool._run(node_id=item['node_id'])
-        # Check if documentation exists
-        # Categorize accordingly
-    
-    return coverage
-```
-
-### Pattern 4: Test Discovery
-
-```python
-def find_tests_for_function(function_node_id: str):
-    """Find test cases that test a specific function."""
-    function_info = get_code_tool._run(node_id=function_node_id)
-    function_name = extract_function_name(function_info)
-    
-    # Search for test files
-    test_results = find_by_code._run(
-        code=f"test_{function_name}"
-    )
-    
-    return test_results['nodes']
-```
+See [MCP Quick Setup Guide](mcp-quick-setup.md) for more details.
 
 ## Best Practices
 
-### 1. Error Handling
-Always handle potential errors when tools return no results:
+### 1. Search Workflow
+
+For optimal results, follow this workflow:
+
+1. **Exploratory Search**: Use `VectorSearch` when you don't know exact names
+   ```python
+   results = vector_search._run(query="database connection logic")
+   ```
+
+2. **Exact Lookup**: Use `FindSymbols` when you know the exact name
+   ```python
+   symbols = find_symbols._run(name="DatabaseConnection", type="CLASS")
+   ```
+
+3. **Detailed Analysis**: Use `GetCodeAnalysis` for implementation details
+   ```python
+   analysis = code_analysis._run(reference_id=ref_id)
+   ```
+
+4. **Full Context**: Use `GetExpandedContext` for complete file view
+   ```python
+   full_code = expanded_context._run(reference_id=ref_id)
+   ```
+
+### 2. Reference ID Management
+
+Reference IDs are 32-character hexadecimal strings that uniquely identify code symbols:
+
+- **Store them**: Keep reference IDs for symbols you'll analyze multiple times
+- **Reuse them**: Pass reference IDs to different tools for consistent analysis
+- **Flexible input**: Most tools accept either reference_id OR (file_path + symbol_name)
+
+### 3. Error Handling
+
+Always handle potential errors:
 
 ```python
 try:
-    result = tool._run(node_id=node_id)
+    result = code_analysis._run(reference_id=ref_id)
+    # Process result
 except ValueError as e:
-    print(f"Node not found: {e}")
-    # Handle gracefully
+    print(f"Symbol not found: {e}")
+    # Try alternative search methods
 ```
 
-### 2. Batch Operations
-When processing multiple nodes, consider batching:
+### 4. Performance Optimization
 
-```python
-def batch_analyze(node_ids: List[str]):
-    results = []
-    for batch in chunks(node_ids, size=10):
-        # Process batch in parallel if possible
-        batch_results = [tool._run(node_id=nid) for nid in batch]
-        results.extend(batch_results)
-    return results
-```
+- **Cache results**: Store frequently accessed code analysis results
+- **Limit depth**: Use lower depth values in `GetDependencyGraph` for faster results
+- **Filter searches**: Be specific in `VectorSearch` queries to reduce result sets
+- **Batch processing**: When analyzing multiple symbols, collect all reference IDs first
 
-### 3. Caching
-Implement caching for frequently accessed nodes:
+### 5. Tool Selection Guide
 
-```python
-from functools import lru_cache
-
-@lru_cache(maxsize=100)
-def get_cached_node_info(node_id: str):
-    return get_code_tool._run(node_id=node_id)
-```
-
-### 4. Tool Selection
-Choose the right tool for the task:
-- Use `FindNodesByPath` when you know the exact path
-- Use `FindNodesByCode` for content-based search
-- Use `GetFileContextByIdTool` when you need expanded code
-- Use `GetCodeByIdTool` when you need relationships
+| Task | Recommended Tool |
+|------|-----------------|
+| Don't know exact name | `VectorSearch` |
+| Know exact name | `FindSymbols` |
+| Need implementation details | `GetCodeAnalysis` |
+| Need full file content | `GetExpandedContext` |
+| Need visual dependencies | `GetDependencyGraph` |
+| Need authorship info | `GetBlameInfo` |
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **"Too many nodes found"** - Refine your search query to be more specific
-2. **"Node not found"** - Verify the node_id is correct (32 characters)
-3. **"No documentation found"** - Enable auto_generate in GetCodeByIdTool
-4. **Empty relationships** - Ensure LSP was used during graph building
+**"Vector search unavailable: OPENAI_API_KEY not configured"**
+- Set your OpenAI API key: `export OPENAI_API_KEY=sk-...`
+
+**"Reference ID must be a 32 character string"**
+- Ensure you're using the full reference ID, not a shortened version
+
+**"Provide either reference_id OR (file_path AND symbol_name)"**
+- You must provide either the reference_id alone, OR both file_path and symbol_name together
+
+**"No code scopes found matching: '...'"**
+- Try alternative keywords or broader search terms
+- Ensure the codebase has been processed with embeddings enabled
+
+**"Too many symbols found"**
+- Make your search more specific
+- Add more context to distinguish between similar symbols
 
 ### Performance Tips
 
-- Filter at the database level when possible
-- Use specific node types in searches
-- Limit depth in recursive operations
-- Cache frequently accessed nodes
+- Use `FindSymbols` instead of `VectorSearch` when you know exact names (faster)
+- Lower the `depth` parameter in `GetDependencyGraph` for complex codebases
+- Set lower `top_k` values in `VectorSearch` for faster responses
+- Ensure Neo4j/FalkorDB has proper indexes configured
 
 ## Next Steps
 
-- Explore [workflow analysis](implementation_features/workflow_nodes_4layer_architecture.md) for advanced execution trace analysis
-- Learn about [semantic documentation](implementation_features/semantic_documentation_layer.md) generation
 - Review the [API Reference](api-reference.md) for lower-level access
 - See [Examples](examples.md) for more use cases
+- Learn about [MCP integration](mcp-installation-guide.md) for Claude Desktop
+- Explore [Quickstart Guide](quickstart.md) for getting started

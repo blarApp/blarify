@@ -1813,6 +1813,40 @@ def find_nodes_by_text_content(db_manager: AbstractDbManager, search_text: str) 
         return []
 
 
+def grep_code_query() -> LiteralString:
+    """
+    Returns the Cypher query for searching code patterns (grep-like search).
+
+    This query searches for code patterns in the text attribute of nodes,
+    supporting case-sensitive/insensitive search and optional file pattern filtering.
+    Filters out FOLDER nodes and the NODE label from results.
+
+    Returns:
+        str: The Cypher query string
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id, diff_identifier: $diff_identifier})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
+      AND n.text IS NOT NULL
+      AND (
+        CASE $case_sensitive
+          WHEN true THEN n.text CONTAINS $pattern
+          ELSE toLower(n.text) CONTAINS toLower($pattern)
+        END
+      )
+      AND NOT n:FOLDER
+      AND ($file_pattern IS NULL OR n.path =~ $file_pattern)
+    RETURN
+        n.node_id as id,
+        n.name as symbol_name,
+        labels(n) as symbol_type,
+        n.path as file_path,
+        n.text as code
+    ORDER BY n.path, n.name
+    LIMIT $max_results
+    """
+
+
 def get_file_context_by_id_query() -> LiteralString:
     """
     Returns the Cypher query for getting file context by node ID.

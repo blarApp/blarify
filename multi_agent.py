@@ -489,7 +489,15 @@ class MultiAgentCodeAnalyzer:
 
         if final_ai_response and hasattr(final_ai_response, "content"):
             content = final_ai_response.content
-            response_text: str = content if isinstance(content, str) else str(content)
+            if isinstance(content, str):
+                response_text = content
+            else:
+                # Content is a list - extract text from structured format
+                text_parts: List[str] = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                response_text = "".join(text_parts) if text_parts else str(content)
         else:
             response_text = "No response from frontend agent"
 
@@ -548,7 +556,15 @@ class MultiAgentCodeAnalyzer:
 
         if final_ai_response and hasattr(final_ai_response, "content"):
             content = final_ai_response.content
-            response_text: str = content if isinstance(content, str) else str(content)
+            if isinstance(content, str):
+                response_text = content
+            else:
+                # Content is a list - extract text from structured format
+                text_parts: List[str] = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                response_text = "".join(text_parts) if text_parts else str(content)
         else:
             response_text = "No response from backend agent"
 

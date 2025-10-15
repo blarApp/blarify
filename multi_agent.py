@@ -284,12 +284,19 @@ Where should we route next? Respond with ONLY one word: frontend, backend, or fi
                 for line in summary:
                     console.print(f"[dim][SUPERVISOR REASONING] {line['text']}[/dim]")
 
-        # Handle content which can be str or list
+        # Handle content which can be str or list of structured objects
         content = response.content
+        decision = ""
         if isinstance(content, str):
             decision = content.strip().lower()
         else:
-            decision = str(content).strip().lower()
+            # Content is a list - extract text from structured content format: [{'type': 'text', 'text': 'frontend', ...}]
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    decision = item.get("text", "").strip().lower()
+                    break
+            if not decision:
+                decision = str(content).strip().lower()
 
         # Validate decision
         if decision not in ["frontend", "backend", "finish"]:
@@ -343,12 +350,17 @@ Synthesize a comprehensive response:"""
 
         response = self.llm.invoke(synthesis_messages)
 
-        # Handle content which can be str or list
+        # Handle content which can be str or list of structured objects
         content = response.content
         if isinstance(content, str):
             return content
         else:
-            return str(content)
+            # Content is a list - extract text from structured content format
+            text_parts: List[str] = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text_parts.append(item.get("text", ""))
+            return "".join(text_parts) if text_parts else str(content)
 
 
 class MultiAgentCodeAnalyzer:

@@ -210,7 +210,16 @@ class SupervisorAgent:
 
     def __init__(self) -> None:
         """Initialize the supervisor."""
-        self.llm = ChatOpenAI(model="gpt-5", streaming=False)
+        self.llm = ChatOpenAI(
+            model="gpt-5",
+            streaming=False,
+            reasoning={
+                "effort": "medium",
+                "summary": "auto",
+            },
+            use_responses_api=True,
+            stream_usage=True,
+        )
 
     def route_query(self, state: MultiAgentState) -> str:
         """Decide which agent should handle the query next."""
@@ -266,6 +275,14 @@ Where should we route next? Respond with ONLY one word: frontend, backend, or fi
         )
 
         response = self.llm.invoke(messages)
+
+        # Display reasoning if available
+        if hasattr(response, "additional_kwargs") and response.additional_kwargs:
+            reasoning = response.additional_kwargs.get("reasoning", None)
+            if reasoning:
+                summary = reasoning.get("summary", [])
+                for line in summary:
+                    console.print(f"[dim][SUPERVISOR REASONING] {line['text']}[/dim]")
 
         # Handle content which can be str or list
         content = response.content
@@ -467,18 +484,15 @@ class MultiAgentCodeAnalyzer:
         # Add to findings
         state["frontend_findings"].append(response_text)
 
-        # Add ONLY the final AI response to messages (not tool calls/results)
-        if final_ai_response:
-            state["messages"] = [final_ai_response]
-        else:
-            state["messages"] = []
+        # Create a new message with agent name attribution
+        attributed_message = AIMessage(content=response_text, name="frontend_agent") if final_ai_response else None
 
         console.print(f"\n[green]✓ Frontend completed with {tool_call_count} tool calls[/green]")
         console.print(f"[dim]Finding: {response_text[:150]}...[/dim]\n")
 
         return {
             "frontend_findings": [response_text] if response_text else [],
-            "messages": [final_ai_response] if final_ai_response else [],
+            "messages": [attributed_message] if attributed_message else [],
         }
 
     def _backend_agent_node(self, state: MultiAgentState) -> PartialMultiAgentState:
@@ -526,12 +540,15 @@ class MultiAgentCodeAnalyzer:
         else:
             response_text = "No response from backend agent"
 
+        # Create a new message with agent name attribution
+        attributed_message = AIMessage(content=response_text, name="backend_agent") if final_ai_response else None
+
         console.print(f"\n[green]✓ Backend completed with {tool_call_count} tool calls[/green]")
         console.print(f"[dim]Finding: {response_text[:150]}...[/dim]\n")
 
         return {
             "backend_findings": [response_text] if response_text else [],
-            "messages": [final_ai_response] if final_ai_response else [],
+            "messages": [attributed_message] if attributed_message else [],
         }
 
     def _synthesize_node(self, state: MultiAgentState) -> MultiAgentState:
@@ -556,7 +573,7 @@ class MultiAgentCodeAnalyzer:
         }
 
         # Run the graph
-        final_state = self.graph.invoke(initial_state, stream_mode="messages")
+        final_state = self.graph.invoke(initial_state)
 
         # Return final message
         final_messages: List[BaseMessage] = final_state["messages"]

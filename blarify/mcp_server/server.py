@@ -25,6 +25,7 @@ from blarify.tools import (
     GetExpandedContext,
     GetFileContextByIdTool,
     GetNodeWorkflowsTool,
+    GrepCode,
     VectorSearch,
 )
 
@@ -77,6 +78,7 @@ class BlarifyMCPServer:
         tools = [
             FindSymbols(db_manager=self.db_manager),
             VectorSearch(db_manager=self.db_manager),
+            GrepCode(db_manager=self.db_manager),
             GetCodeAnalysis(db_manager=self.db_manager),
             GetExpandedContext(db_manager=self.db_manager),
             GetBlameInfo(

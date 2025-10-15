@@ -31,6 +31,7 @@ from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.tools import (
     FindSymbols,
     VectorSearch,
+    GrepCode,
     GetCodeAnalysis,
     GetExpandedContext,
     GetBlameInfo,
@@ -95,6 +96,7 @@ class SpecializedCodeAgent:
         self.tools: List[BaseTool] = [
             FindSymbols(db_manager=self.db_manager),
             VectorSearch(db_manager=self.db_manager),
+            GrepCode(db_manager=self.db_manager),
             GetCodeAnalysis(db_manager=self.db_manager),
             GetExpandedContext(db_manager=self.db_manager),
             GetBlameInfo(
@@ -167,12 +169,13 @@ Keep your message concise - the detailed findings are saved separately for final
 AVAILABLE TOOLS:
 1. vector_search: Semantic search over code scope descriptions (use for exploration)
 2. find_symbols: Search for specific symbols by EXACT name
-3. get_code_analysis: Get implementation with relationships and dependencies
-4. get_expanded_context: Get full context around a symbol
-5. get_dependency_graph: Visualize dependencies with Mermaid diagrams
-6. get_blame_info: See who last modified each line
-7. get_file_context_by_id: See file context around a node
-8. get_node_workflows: Understand which workflows a node participates in
+3. grep_code: Pattern-based search in code content (find function calls, imports, code patterns)
+4. get_code_analysis: Get implementation with relationships and dependencies
+5. get_expanded_context: Get full context around a symbol
+6. get_dependency_graph: Visualize dependencies with Mermaid diagrams
+7. get_blame_info: See who last modified each line
+8. get_file_context_by_id: See file context around a node
+9. get_node_workflows: Understand which workflows a node participates in
 
 SEARCH WORKFLOW:
 1. For exploration: vector_search with keywords

@@ -26,6 +26,7 @@ from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.tools import (
     FindSymbols,
     VectorSearch,
+    GrepCode,
     GetCodeAnalysis,
     GetExpandedContext,
     GetBlameInfo,
@@ -58,6 +59,7 @@ class InteractiveCodeAgent:
         self.tools: List[BaseTool] = [
             FindSymbols(db_manager=self.db_manager),
             VectorSearch(db_manager=self.db_manager),
+            GrepCode(db_manager=self.db_manager),
             GetCodeAnalysis(db_manager=self.db_manager),
             GetExpandedContext(db_manager=self.db_manager),
             GetBlameInfo(db_manager=self.db_manager, repo_owner="blarApp", repo_name="blar-nextjs-front"),
@@ -87,12 +89,13 @@ SEARCH WORKFLOW - CRITICAL:
 AVAILABLE TOOLS:
 1. vector_search: Semantic search over AI-generated descriptions of code scopes. Use for exploratory questions when you don't know exact symbol names.
 2. find_symbols: Search for specific symbols by EXACT name match. Use when you know the exact name.
-3. get_code_analysis: Get complete code implementation with relationships and dependencies
-4. get_expanded_context: Get the full context around a code symbol including all nested references
-5. get_dependency_graph: Visualize dependencies with Mermaid diagrams
-6. get_blame_info: See GitHub-style blame information showing who last modified each line
-7. get_file_context_by_id: See the file context around a specific node
-8. get_node_workflows: Understand which workflows a node participates in and its execution context
+3. grep_code: Pattern-based search through code content. Use to find function calls, imports, syntax patterns, or code snippets when you know what the code looks like.
+4. get_code_analysis: Get complete code implementation with relationships and dependencies
+5. get_expanded_context: Get the full context around a code symbol including all nested references
+6. get_dependency_graph: Visualize dependencies with Mermaid diagrams
+7. get_blame_info: See GitHub-style blame information showing who last modified each line
+8. get_file_context_by_id: See the file context around a specific node
+9. get_node_workflows: Understand which workflows a node participates in and its execution context
 
 EXAMPLE WORKFLOWS:
 
@@ -181,6 +184,7 @@ Welcome! I'm an AI assistant that can help you explore and understand the codeba
 
 - **find_symbols**: Search for code symbols (functions, classes, files, or folders) by exact name
 - **vector_search**: Semantic search over AI-generated descriptions of code scopes using vector similarity
+- **grep_code**: Pattern-based search through code content (find function calls, imports, specific code patterns)
 - **get_code_analysis**: Get complete code implementation with relationships and dependencies
 - **get_expanded_context**: Get full context around a symbol including all nested references
 - **get_dependency_graph**: Generate Mermaid diagrams showing dependencies and relationships
@@ -192,6 +196,7 @@ Welcome! I'm an AI assistant that can help you explore and understand the codeba
 
 - "Find the BottomUpBatchProcessor class"
 - "Search for batch processing code"
+- "Find all places where authenticate() is called"
 - "Show me the code analysis for the process_node function in file path blarify/tools/process.py"
 - "Get expanded context for reference ID abc123..."
 - "Show me a dependency graph for the GraphBuilder class"

@@ -1825,7 +1825,7 @@ def grep_code_query() -> LiteralString:
         str: The Cypher query string
     """
     return """
-    MATCH (n:NODE {entityId: $entity_id, diff_identifier: $diff_identifier})
+    MATCH (n:NODE {entityId: $entity_id})
     WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
       AND n.text IS NOT NULL
       AND (

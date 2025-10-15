@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Vector Search Tool for Documentation
+Vector Search Tool for Code Scope Descriptions
 
-Searches documentation using semantic similarity with existing embeddings in Neo4j.
+Performs semantic search over AI-generated descriptions of code scopes (functions, classes, files)
+using vector similarity with embeddings stored in Neo4j.
 """
 
 import logging
@@ -22,18 +23,19 @@ logger = logging.getLogger(__name__)
 class VectorSearchInput(BaseModel):
     """Input schema for vector search."""
 
-    query: str = Field(description="The search query to find similar documentation")
+    query: str = Field(description="The search query to find similar code scope descriptions")
     top_k: int = Field(default=5, description="Number of top results to return (default: 5)", ge=1, le=20)
 
 
-class SearchDocumentation(BaseTool):
-    """Tool for searching documentation using vector similarity."""
+class VectorSearch(BaseTool):
+    """Tool for semantic search over code scope descriptions using vector similarity."""
 
-    name: str = "search_documentation"
+    name: str = "vector_search"
     description: str = (
-        "Semantic search through AI-generated documentation for all symbols. "
-        "Returns relevant symbols with reference IDs (tool handles), "
-        "file paths, and documentation summaries."
+        "Semantic search over AI-generated descriptions of code scopes (functions, classes, files, folders). "
+        "Use this for exploratory searches when you don't know exact symbol names but understand the functionality you're looking for "
+        "(e.g., 'email sending', 'authentication logic', 'database connection'). "
+        "Returns relevant code scopes with reference IDs, file paths, and their AI-generated descriptions."
     )
 
     args_schema: type[BaseModel] = VectorSearchInput  # type: ignore[assignment]
@@ -59,7 +61,7 @@ class SearchDocumentation(BaseTool):
         except ValueError as e:
             logger.warning(f"Could not initialize embedding service: {e}")
             self.embedding_service = None
-        logger.info("SearchDocumentationVectorTool initialized")
+        logger.info("VectorSearch tool initialized")
 
     def _run(
         self,
@@ -98,7 +100,7 @@ class SearchDocumentation(BaseTool):
             results = self.db_manager.query(vector_query, parameters)
 
             if not results:
-                return f"No documentation found matching: '{query}'"
+                return f"No code scopes found matching: '{query}'"
 
             # Format the results
             output = self._format_results(results, query)
@@ -122,9 +124,9 @@ class SearchDocumentation(BaseTool):
             Formatted string representation
         """
         output = "=" * 80 + "\n"
-        output += "📚 DOCUMENTATION SEARCH RESULTS\n"
-        output += f'🔍 Query: "{query}"\n'
-        output += f"📊 Found {len(results)} relevant documentation entries\n"
+        output += "🔍 VECTOR SEARCH RESULTS\n"
+        output += f'Query: "{query}"\n'
+        output += f"Found {len(results)} relevant code scopes\n"
         output += "=" * 80 + "\n\n"
 
         for i, result in enumerate(results, 1):
@@ -140,9 +142,9 @@ class SearchDocumentation(BaseTool):
                 name = title
             elif source_labels and isinstance(source_labels, list):
                 # Use source labels to build a name (e.g., "Class: ClassName" or "Function: functionName")
-                name = " | ".join(source_labels) if source_labels else "Documentation"
+                name = " | ".join(source_labels) if source_labels else "Code Scope"
             else:
-                name = "Documentation Entry"
+                name = "Code Scope"
 
             # Truncate content if too long
             if len(content) > 500:
@@ -153,11 +155,11 @@ class SearchDocumentation(BaseTool):
                 output += f"**File:** {source_path}\n"
             output += f"**Relevance Score:** {score:.3f}\n"
             output += f"**ID:** {node_id}\n"
-            output += "**Content:**\n"
+            output += "**Description:**\n"
             output += f"```\n{content}\n```\n"
             output += "-" * 40 + "\n\n"
 
         output += "=" * 80 + "\n"
-        output += "💡 Tip: Use higher scores (>0.8) for more relevant results\n"
+        output += "Tip: Higher relevance scores (>0.8) indicate more relevant matches\n"
 
         return output

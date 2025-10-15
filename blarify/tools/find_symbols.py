@@ -32,7 +32,8 @@ class Input(BaseModel):
 class FindSymbols(BaseTool):
     name: str = "find_symbols"
     description: str = (
-        "Search for code symbols (functions, classes, files, or folders) by exact name. "
+        "Search for code symbols (functions, classes, files, or folders) by EXACT name match. "
+        "Use this when you know the precise symbol name. "
         "Returns matching symbols with their IDs, file locations, and code previews. "
         "Both 'name' and 'type' parameters are required."
     )

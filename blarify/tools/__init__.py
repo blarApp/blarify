@@ -1,5 +1,5 @@
 from .find_symbols import FindSymbols
-from .search_documentation import SearchDocumentation
+from .search_documentation import VectorSearch
 from .get_code_analysis import GetCodeAnalysis
 from .get_expanded_context import GetExpandedContext
 from .get_blame_info import GetBlameInfo
@@ -13,7 +13,7 @@ from .get_node_workflows_tool import GetNodeWorkflowsTool
 __all__ = [
     # Main 6 refactored tools
     "FindSymbols",
-    "SearchDocumentation",
+    "VectorSearch",
     "GetCodeAnalysis",
     "GetExpandedContext",
     "GetBlameInfo",

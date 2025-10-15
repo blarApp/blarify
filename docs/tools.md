@@ -44,6 +44,7 @@ from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 from blarify.tools import (
     FindSymbols,
     VectorSearch,
+    GrepCode,
     GetCodeAnalysis,
     GetExpandedContext,
     GetBlameInfo,
@@ -62,6 +63,7 @@ db_manager = Neo4jManager(
 # Initialize tools
 find_symbols = FindSymbols(db_manager=db_manager)
 vector_search = VectorSearch(db_manager=db_manager)
+grep_code = GrepCode(db_manager=db_manager)
 code_analysis = GetCodeAnalysis(db_manager=db_manager)
 expanded_context = GetExpandedContext(db_manager=db_manager)
 blame_info = GetBlameInfo(
@@ -103,7 +105,25 @@ Perform **semantic search** over AI-generated descriptions of code scopes using 
 - Returns relevance scores
 - Requires OpenAI API key for embedding generation
 
-### 3. GetCodeAnalysis
+### 3. GrepCode
+Search for **code patterns** across the codebase using pattern matching.
+
+**Use Cases:**
+- Find function calls (e.g., where `send_email()` is called)
+- Locate import statements (e.g., all pandas imports)
+- Search for syntax patterns (e.g., all async functions, try blocks)
+- Find variable usage or assignments
+- Discover code snippets when you know what the code looks like
+
+**Key Features:**
+- Pattern-based search through code content
+- Case-sensitive and case-insensitive search options
+- File path filtering (glob patterns like `*.py`, `src/auth/*`)
+- Returns matching code with line numbers and context
+- Provides reference IDs for further analysis
+- Results include surrounding code lines for context
+
+### 4. GetCodeAnalysis
 Get complete code implementation with relationships and dependencies.
 
 **Use Cases:**
@@ -231,6 +251,59 @@ result = vector_search._run(
 - Requires `OPENAI_API_KEY` environment variable
 - Returns "Vector search unavailable" if API key is not configured
 - Minimum similarity threshold is 0.7
+
+---
+
+### GrepCode
+
+#### Input Parameters
+```python
+{
+    "pattern": str,                    # Code pattern to search for (required)
+    "case_sensitive": bool,            # Case-sensitive search (default: True)
+    "file_pattern": Optional[str],     # File path filter (e.g., "*.py", "src/auth/*")
+    "max_results": int                 # Max results to return (default: 20, max: 50)
+}
+```
+
+#### Returns
+```python
+{
+    "matches": [
+        {
+            "file_path": str,          # File location
+            "line_number": int,        # Line where pattern was found
+            "symbol_name": str,        # Name of containing function/class
+            "symbol_type": List[str],  # Types like ["FUNCTION", "CLASS"]
+            "code_snippet": str,       # Code with context lines
+            "id": str                  # Reference ID for further analysis
+        }
+    ]
+}
+```
+
+#### Example
+```python
+# Find function calls
+result = grep_code._run(pattern="send_email(")
+
+# Case-insensitive search for imports
+result = grep_code._run(
+    pattern="import pandas",
+    case_sensitive=False
+)
+
+# Search in specific files
+result = grep_code._run(
+    pattern="async def",
+    file_pattern="src/api/*.py"
+)
+```
+
+#### Notes
+- Returns code snippets with 2 lines of context before and after the match
+- File patterns support glob wildcards: `*` (any files), `**` (any directories)
+- Returns "No matches found" if pattern doesn't exist in codebase
 
 ---
 
@@ -417,7 +490,23 @@ print(results)
 # that you can then analyze further with other tools
 ```
 
-### Example 3: Understand Function Dependencies
+### Example 3: Search for Code Patterns
+
+```python
+# Find all function calls to authenticate
+matches = grep_code._run(
+    pattern="authenticate(",
+    max_results=10
+)
+
+# Print matches with line numbers and context
+for match in matches["matches"]:
+    print(f"{match['file_path']}:{match['line_number']}")
+    print(match['code_snippet'])
+    print()
+```
+
+### Example 4: Understand Function Dependencies
 
 ```python
 # Get dependency visualization
@@ -431,7 +520,7 @@ print(mermaid_diagram)
 # Paste into markdown viewer to see visual dependency graph
 ```
 
-### Example 4: Track Code Changes
+### Example 5: Track Code Changes
 
 ```python
 # Get blame information for a function
@@ -444,7 +533,7 @@ print(blame_output)
 # Shows who modified each line, when, and why
 ```
 
-### Example 5: Get Complete File Context
+### Example 6: Get Complete File Context
 
 ```python
 # Get fully expanded context
@@ -469,6 +558,7 @@ from langgraph.prebuilt import create_react_agent
 tools = [
     FindSymbols(db_manager=db_manager),
     VectorSearch(db_manager=db_manager),
+    GrepCode(db_manager=db_manager),
     GetCodeAnalysis(db_manager=db_manager),
     GetExpandedContext(db_manager=db_manager),
     GetBlameInfo(
@@ -569,6 +659,7 @@ except ValueError as e:
 |------|-----------------|
 | Don't know exact name | `VectorSearch` |
 | Know exact name | `FindSymbols` |
+| Find function calls, imports, patterns | `GrepCode` |
 | Need implementation details | `GetCodeAnalysis` |
 | Need full file content | `GetExpandedContext` |
 | Need visual dependencies | `GetDependencyGraph` |

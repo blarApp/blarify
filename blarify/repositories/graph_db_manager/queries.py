@@ -1423,7 +1423,7 @@ def find_code_workflows_query() -> LiteralString:
 
 
 def find_code_workflows(
-    db_manager: AbstractDbManager, entry_point_id: str, max_depth: int = 20, batch_size: int = 100
+    db_manager: AbstractDbManager, entry_point_id: str, max_depth: int = 5, batch_size: int = 100
 ) -> List[Dict[str, Any]]:
     """
     Finds workflow execution traces using direct code analysis with continuous path sequencing.

@@ -64,6 +64,7 @@ class GraphBuilder:
         save_to_db: bool = True,
         create_workflows: bool = False,
         create_documentation: bool = False,
+        max_workers: int = 75,
     ) -> Graph:
         """Build the code graph with optional persistence and documentation/workflow generation.
 
@@ -126,6 +127,7 @@ class GraphBuilder:
                     db_manager=self.db_manager,
                     agent_caller=agent_caller,
                     graph_environment=self.graph_environment,
+                    max_workers=max_workers,
                 )
                 doc_creator.create_documentation(generate_embeddings=self.generate_embeddings)
 

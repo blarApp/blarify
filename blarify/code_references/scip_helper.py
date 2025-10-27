@@ -226,9 +226,13 @@ class ScipReferenceResolver:
         try:
             import json
             import shutil
+            from json_repair import repair_json
 
             with open(tsconfig_path, "r") as f:
-                tsconfig = json.load(f)
+                content = f.read()
+
+            repaired = repair_json(content)
+            tsconfig = json.loads(repaired)
 
             extends_value = tsconfig.get("extends")
             if not extends_value:

@@ -494,11 +494,21 @@ class ScipReferenceResolver:
                 logger.info(f"✅ Generated {self.language} SCIP index at {index_output}")
                 return True
             else:
-                logger.error(f"Failed to generate SCIP index: {result.stderr.strip()}")
+                logger.error(
+                    f"Failed to generate SCIP index for {project_name}\n"
+                    f"Command: {' '.join(cmd)}\n"
+                    f"Working dir: {working_dir}\n"
+                    f"Return code: {result.returncode}\n"
+                    f"STDERR: {result.stderr.strip()}\n"
+                    f"STDOUT: {result.stdout.strip()}"
+                )
                 return False
 
+        except subprocess.TimeoutExpired:
+            logger.error(f"SCIP index generation timed out after 300s for {project_name}")
+            return False
         except Exception as e:
-            logger.error(f"Error generating SCIP index: {e}")
+            logger.error(f"Error generating SCIP index for {project_name}: {e}")
             return False
 
     def get_references_for_node(self, node: DefinitionNode) -> List[Reference]:

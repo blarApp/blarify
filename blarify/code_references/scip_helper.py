@@ -181,6 +181,103 @@ class ScipReferenceResolver:
 
         return tsconfig_files
 
+    def _find_workspace_package(self, package_name: str) -> Optional[str]:
+        """Find a workspace package by name in the monorepo.
+
+        Args:
+            package_name: Package name like "@vambe/tsconfig" or "tsconfig"
+
+        Returns:
+            Path to the package directory, or None if not found
+        """
+        from blarify.project_file_explorer.project_files_iterator import ProjectFilesIterator
+
+        blarignore_path = os.path.join(self.root_path, ".blarignore")
+        iterator = ProjectFilesIterator(
+            root_path=self.root_path,
+            blarignore_path=blarignore_path if os.path.exists(blarignore_path) else None,
+        )
+
+        for folder in iterator:
+            package_json_path = os.path.join(folder.path, "package.json")
+            if os.path.exists(package_json_path):
+                try:
+                    import json
+                    with open(package_json_path, "r") as f:
+                        package_data = json.load(f)
+                        if package_data.get("name") == package_name:
+                            return folder.path
+                except Exception as e:
+                    logger.debug(f"Error reading {package_json_path}: {e}")
+                    continue
+
+        return None
+
+    def _resolve_workspace_extends(self, tsconfig_path: str, package_root: str) -> Optional[str]:
+        """Resolve workspace package extends in tsconfig to actual file path.
+
+        Args:
+            tsconfig_path: Path to the tsconfig.json file
+            package_root: Root directory of the package
+
+        Returns:
+            Path to temporary tsconfig with resolved extends, or None if no resolution needed
+        """
+        try:
+            import json
+            import tempfile
+
+            with open(tsconfig_path, "r") as f:
+                tsconfig = json.load(f)
+
+            extends_value = tsconfig.get("extends")
+            if not extends_value:
+                return None
+
+            if not isinstance(extends_value, str) or not extends_value.startswith("@"):
+                return None
+
+            parts = extends_value.split("/")
+            if len(parts) < 2:
+                return None
+
+            package_name = f"{parts[0]}/{parts[1]}"
+            relative_path = "/".join(parts[2:]) if len(parts) > 2 else ""
+
+            workspace_package_dir = self._find_workspace_package(package_name)
+            if not workspace_package_dir:
+                logger.warning(f"Workspace package {package_name} not found in monorepo")
+                return None
+
+            resolved_path = os.path.join(workspace_package_dir, relative_path) if relative_path else workspace_package_dir
+            if not resolved_path.endswith(".json"):
+                resolved_path = os.path.join(resolved_path, "tsconfig.json")
+
+            if not os.path.exists(resolved_path):
+                logger.warning(f"Resolved tsconfig not found at {resolved_path}")
+                return None
+
+            relative_to_package = os.path.relpath(resolved_path, package_root)
+
+            modified_config = tsconfig.copy()
+            modified_config["extends"] = relative_to_package
+
+            temp_fd, temp_path = tempfile.mkstemp(suffix=".json", prefix="tsconfig_", dir=package_root)
+            try:
+                with os.fdopen(temp_fd, "w") as f:
+                    json.dump(modified_config, f, indent=2)
+                logger.info(f"Created temporary tsconfig with resolved extends: {relative_to_package}")
+                return temp_path
+            except Exception as e:
+                os.close(temp_fd)
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise e
+
+        except Exception as e:
+            logger.warning(f"Error resolving workspace extends in {tsconfig_path}: {e}")
+            return None
+
     def _generate_indexes_parallel(self, tsconfig_files: List[tuple[str, str]], max_workers: int = 4) -> Dict[str, str]:
         """Generate SCIP indexes for multiple packages in parallel.
 
@@ -454,6 +551,7 @@ class ScipReferenceResolver:
 
                     json.dump([], f)
 
+        temp_tsconfig: Optional[str] = None
         try:
             # Choose the appropriate indexer command based on language
             if self.language == "python":
@@ -469,13 +567,18 @@ class ScipReferenceResolver:
                     "--quiet",
                 ]
             elif self.language in ["typescript", "javascript"]:
-                # scip-typescript will automatically find tsconfig.json in the working directory
+                tsconfig_file = tsconfig_path or os.path.join(working_dir, "tsconfig.json")
+                temp_tsconfig = self._resolve_workspace_extends(tsconfig_file, working_dir)
+
                 cmd = [
                     "scip-typescript",
                     "index",
                     "--output",
                     os.path.basename(index_output),
                 ]
+
+                if temp_tsconfig:
+                    cmd.extend(["--tsconfig", os.path.basename(temp_tsconfig)])
             else:
                 logger.error(f"Unsupported language for SCIP indexing: {self.language}")
                 return False
@@ -510,6 +613,13 @@ class ScipReferenceResolver:
         except Exception as e:
             logger.error(f"Error generating SCIP index for {project_name}: {e}")
             return False
+        finally:
+            if temp_tsconfig and os.path.exists(temp_tsconfig):
+                try:
+                    os.remove(temp_tsconfig)
+                    logger.debug(f"Cleaned up temporary tsconfig: {temp_tsconfig}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary tsconfig {temp_tsconfig}: {e}")
 
     def get_references_for_node(self, node: DefinitionNode) -> List[Reference]:
         """Get all references for a single node using SCIP index."""

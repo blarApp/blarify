@@ -221,11 +221,11 @@ class ScipReferenceResolver:
             package_root: Root directory of the package
 
         Returns:
-            Path to temporary tsconfig with resolved extends, or None if no resolution needed
+            Path to backup of original tsconfig if modification was needed, None otherwise
         """
         try:
             import json
-            import tempfile
+            import shutil
 
             with open(tsconfig_path, "r") as f:
                 tsconfig = json.load(f)
@@ -259,20 +259,17 @@ class ScipReferenceResolver:
 
             relative_to_package = os.path.relpath(resolved_path, package_root)
 
+            backup_path = f"{tsconfig_path}.blarify_backup"
+            shutil.copy2(tsconfig_path, backup_path)
+
             modified_config = tsconfig.copy()
             modified_config["extends"] = relative_to_package
 
-            temp_fd, temp_path = tempfile.mkstemp(suffix=".json", prefix="tsconfig_", dir=package_root)
-            try:
-                with os.fdopen(temp_fd, "w") as f:
-                    json.dump(modified_config, f, indent=2)
-                logger.info(f"Created temporary tsconfig with resolved extends: {relative_to_package}")
-                return temp_path
-            except Exception as e:
-                os.close(temp_fd)
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise e
+            with open(tsconfig_path, "w") as f:
+                json.dump(modified_config, f, indent=2)
+
+            logger.info(f"Resolved workspace extends to: {relative_to_package}")
+            return backup_path
 
         except Exception as e:
             logger.warning(f"Error resolving workspace extends in {tsconfig_path}: {e}")
@@ -551,7 +548,7 @@ class ScipReferenceResolver:
 
                     json.dump([], f)
 
-        temp_tsconfig: Optional[str] = None
+        backup_tsconfig: Optional[str] = None
         try:
             # Choose the appropriate indexer command based on language
             if self.language == "python":
@@ -568,7 +565,7 @@ class ScipReferenceResolver:
                 ]
             elif self.language in ["typescript", "javascript"]:
                 tsconfig_file = tsconfig_path or os.path.join(working_dir, "tsconfig.json")
-                temp_tsconfig = self._resolve_workspace_extends(tsconfig_file, working_dir)
+                backup_tsconfig = self._resolve_workspace_extends(tsconfig_file, working_dir)
 
                 cmd = [
                     "scip-typescript",
@@ -576,9 +573,6 @@ class ScipReferenceResolver:
                     "--output",
                     os.path.basename(index_output),
                 ]
-
-                if temp_tsconfig:
-                    cmd.extend(["--tsconfig", os.path.basename(temp_tsconfig)])
             else:
                 logger.error(f"Unsupported language for SCIP indexing: {self.language}")
                 return False
@@ -614,12 +608,14 @@ class ScipReferenceResolver:
             logger.error(f"Error generating SCIP index for {project_name}: {e}")
             return False
         finally:
-            if temp_tsconfig and os.path.exists(temp_tsconfig):
+            if backup_tsconfig and os.path.exists(backup_tsconfig):
                 try:
-                    os.remove(temp_tsconfig)
-                    logger.debug(f"Cleaned up temporary tsconfig: {temp_tsconfig}")
+                    import shutil
+                    tsconfig_file = tsconfig_path or os.path.join(working_dir, "tsconfig.json")
+                    shutil.move(backup_tsconfig, tsconfig_file)
+                    logger.debug("Restored original tsconfig from backup")
                 except Exception as e:
-                    logger.warning(f"Failed to clean up temporary tsconfig {temp_tsconfig}: {e}")
+                    logger.warning(f"Failed to restore original tsconfig from {backup_tsconfig}: {e}")
 
     def get_references_for_node(self, node: DefinitionNode) -> List[Reference]:
         """Get all references for a single node using SCIP index."""

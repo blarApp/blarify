@@ -87,9 +87,15 @@ class ProjectFilesIterator:
 
         is_path_in_paths_to_skip = any(path.startswith(path_to_skip) for path_to_skip in self.paths_to_skip)
 
-        is_file_size_too_big = os.path.getsize(path) > self._mb_to_bytes(self.max_file_size_mb)
-
         is_extension_to_skip = any(path.endswith(extension) for extension in self.extensions_to_skip)
+
+        if os.path.islink(path) and not os.path.exists(path):
+            return True
+
+        try:
+            is_file_size_too_big = os.path.getsize(path) > self._mb_to_bytes(self.max_file_size_mb)
+        except (FileNotFoundError, OSError):
+            return True
 
         return is_basename_in_names_to_skip or is_path_in_paths_to_skip or is_file_size_too_big or is_extension_to_skip
 

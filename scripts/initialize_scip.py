@@ -16,6 +16,15 @@ import urllib.request
 import logging
 from typing import Optional
 
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from blarify.code_references.scip_helper import ScipReferenceResolver
+    scip_helper_available = True
+except ImportError:
+    scip_helper_available = False
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -147,6 +156,14 @@ def create_scip_index(project_root: str, project_name: str = "project", language
         logger.error(f"❌ Cannot create SCIP index without scip-{language}")
         return False
 
+    if language.lower() in ["typescript", "javascript"] and scip_helper_available:
+        try:
+            resolver = ScipReferenceResolver(project_root, language=language)
+            return resolver.generate_index_if_needed(project_name)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not use ScipReferenceResolver: {e}")
+            logger.info("Falling back to direct index generation")
+
     try:
         logger.info(f"📚 Creating SCIP index for {language} project '{project_name}'...")
 
@@ -201,7 +218,7 @@ def test_scip_bindings(project_root: str):
         import scip_pb2 as scip
 
         # Try to create a simple SCIP object
-        index = scip.Index()
+        _ = scip.Index()
         logger.info("✅ SCIP protobuf bindings are working correctly")
         return True
 

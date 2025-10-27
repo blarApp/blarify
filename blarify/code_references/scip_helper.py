@@ -10,9 +10,10 @@ while maintaining identical accuracy.
 
 import os
 import logging
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING, Any
 from pathlib import Path
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from blarify.graph.node import DefinitionNode
 from .types.Reference import Reference
@@ -25,9 +26,19 @@ scip_available = False
 scip = None
 
 if TYPE_CHECKING:
-    from blarify import scip_pb2 as scip
+    from blarify import scip_pb2 as scip_module
     scip_available = True
+
+    from typing import TypeAlias
+    ScipIndex: TypeAlias = scip_module.Index  # type: ignore[attr-defined]
+    ScipDocument: TypeAlias = scip_module.Document  # type: ignore[attr-defined]
+    ScipOccurrence: TypeAlias = scip_module.Occurrence  # type: ignore[attr-defined]
 else:
+    from typing import TypeAlias
+    ScipIndex: TypeAlias = Any
+    ScipDocument: TypeAlias = Any
+    ScipOccurrence: TypeAlias = Any
+
     # Try multiple import paths for maximum compatibility
     import_attempts = [
         # Try package-relative import first
@@ -113,11 +124,15 @@ class ScipReferenceResolver:
         self.root_path = root_path
         self.scip_index_path = scip_index_path or os.path.join(root_path, "index.scip")
         self.language = language or self._detect_project_language()
-        self._index: Optional["scip.Index"] = None
-        self._symbol_to_occurrences: Dict[str, List["scip.Occurrence"]] = {}
-        self._document_by_path: Dict[str, "scip.Document"] = {}
-        self._occurrence_to_document: Dict[int, "scip.Document"] = {}  # Use id() as key
+        self._index: Optional[ScipIndex] = None
+        self._symbol_to_occurrences: Dict[str, List[ScipOccurrence]] = {}
+        self._document_by_path: Dict[str, ScipDocument] = {}
+        self._occurrence_to_document: Dict[int, ScipDocument] = {}  # Use id() as key
         self._loaded = False
+
+        self._monorepo_mode = False
+        self._package_indexes: Dict[str, tuple[ScipIndex, Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument]]] = {}
+        self._path_to_package: Dict[str, str] = {}
 
     def _detect_project_language(self) -> str:
         """Auto-detect the project language."""
@@ -140,6 +155,79 @@ class ScipReferenceResolver:
             logger.warning("Could not import ProjectDetector, defaulting to Python")
             return "python"
 
+    def _find_all_tsconfigs(self) -> List[tuple[str, str]]:
+        """Find all tsconfig.json files in the project for monorepo support.
+
+        Returns:
+            List of (package_root, tsconfig_path) tuples
+        """
+        from blarify.project_file_explorer.project_files_iterator import ProjectFilesIterator
+
+        tsconfig_files: List[tuple[str, str]] = []
+        blarignore_path = os.path.join(self.root_path, ".blarignore")
+
+        iterator = ProjectFilesIterator(
+            root_path=self.root_path,
+            blarignore_path=blarignore_path if os.path.exists(blarignore_path) else None,
+        )
+
+        for folder in iterator:
+            tsconfig_path = os.path.join(folder.path, "tsconfig.json")
+            if os.path.exists(tsconfig_path):
+                tsconfig_files.append((folder.path, tsconfig_path))
+
+        if tsconfig_files:
+            logger.info(f"Found {len(tsconfig_files)} tsconfig.json files in monorepo")
+
+        return tsconfig_files
+
+    def _generate_indexes_parallel(self, tsconfig_files: List[tuple[str, str]], max_workers: int = 4) -> Dict[str, str]:
+        """Generate SCIP indexes for multiple packages in parallel.
+
+        Args:
+            tsconfig_files: List of (package_root, tsconfig_path) tuples
+            max_workers: Maximum number of parallel workers
+
+        Returns:
+            Dictionary mapping package_root to index_path for successful generations
+        """
+        index_mapping: Dict[str, str] = {}
+
+        def generate_package_index(package_data: tuple[str, str]) -> tuple[str, Optional[str]]:
+            package_root, tsconfig_path = package_data
+            package_name = os.path.basename(package_root)
+            index_path = os.path.join(package_root, "index.scip")
+
+            logger.info(f"Generating SCIP index for package: {package_name}")
+            success = self._generate_index(
+                project_name=package_name,
+                tsconfig_path=tsconfig_path,
+                package_root=package_root,
+                output_path=index_path
+            )
+
+            if success:
+                return (package_root, index_path)
+            else:
+                logger.warning(f"Failed to generate index for package: {package_name}")
+                return (package_root, None)
+
+        logger.info(f"Starting parallel index generation for {len(tsconfig_files)} packages with {max_workers} workers")
+        start_time = time.time()
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_package = {executor.submit(generate_package_index, pkg): pkg for pkg in tsconfig_files}
+
+            for future in as_completed(future_to_package):
+                package_root, index_path = future.result()
+                if index_path:
+                    index_mapping[package_root] = index_path
+
+        elapsed_time = time.time() - start_time
+        logger.info(f"Generated {len(index_mapping)}/{len(tsconfig_files)} indexes in {elapsed_time:.2f}s")
+
+        return index_mapping
+
     def ensure_loaded(self) -> bool:
         """Load the SCIP index if not already loaded."""
         if not scip_available:
@@ -149,16 +237,22 @@ class ScipReferenceResolver:
         if self._loaded:
             return True
 
-        if not os.path.exists(self.scip_index_path):
-            logger.warning(f"SCIP index not found at {self.scip_index_path}")
-            return False
-
         try:
             start_time = time.time()
             self._load_index()
             load_time = time.time() - start_time
+
+            # Check if any indexes were loaded (either single or monorepo)
+            total_docs = len(self._document_by_path) if not self._monorepo_mode else sum(
+                len(data[2]) for data in self._package_indexes.values()
+            )
+
+            if total_docs == 0:
+                logger.warning("No SCIP indexes found or loaded")
+                return False
+
             logger.info(
-                f"📚 Loaded SCIP index in {load_time:.2f}s: {len(self._document_by_path)} documents, {len(self._symbol_to_occurrences)} symbols"
+                f"📚 Loaded SCIP index in {load_time:.2f}s: {total_docs} documents"
             )
             self._loaded = True
             return True
@@ -167,35 +261,112 @@ class ScipReferenceResolver:
             return False
 
     def _load_index(self):
-        """Load and parse the SCIP index file."""
-        with open(self.scip_index_path, "rb") as f:
-            data = f.read()
+        """Load and parse the SCIP index file(s). Detects and handles monorepos."""
+        if self.language in ["typescript", "javascript"]:
+            tsconfig_files = self._find_all_tsconfigs()
 
-        self._index = scip.Index()
-        self._index.ParseFromString(data)
+            if len(tsconfig_files) > 1:
+                self._monorepo_mode = True
+                logger.info(f"Detected TypeScript monorepo with {len(tsconfig_files)} packages")
+                self._load_multiple_indexes(tsconfig_files)
+                return
 
-        # Build lookup tables for fast querying
-        self._build_lookup_tables()
+        if os.path.exists(self.scip_index_path):
+            with open(self.scip_index_path, "rb") as f:
+                data = f.read()
 
-    def _build_lookup_tables(self):
-        """Build efficient lookup tables from the SCIP index."""
-        if not self._index:
-            return
+            self._index = scip.Index()  # type: ignore[union-attr]
+            self._index.ParseFromString(data)  # type: ignore[union-attr]
 
-        # Index documents by relative path
-        for document in self._index.documents:
-            self._document_by_path[document.relative_path] = document
+            self._symbol_to_occurrences, self._document_by_path, self._occurrence_to_document = self._build_lookup_tables(self._index)
+        else:
+            logger.warning(f"SCIP index not found at {self.scip_index_path}")
 
-            # Index occurrences by symbol and build occurrence-to-document mapping
+    def _load_multiple_indexes(self, tsconfig_files: List[tuple[str, str]]) -> None:
+        """Load multiple SCIP indexes for monorepo support."""
+        for package_root, _ in tsconfig_files:
+            index_path = os.path.join(package_root, "index.scip")
+
+            if not os.path.exists(index_path):
+                logger.warning(f"Index not found for package at {package_root}, skipping")
+                continue
+
+            try:
+                with open(index_path, "rb") as f:
+                    data = f.read()
+
+                index = scip.Index()  # type: ignore[union-attr]
+                index.ParseFromString(data)
+
+                symbol_to_occurrences, document_by_path, occurrence_to_document = self._build_lookup_tables(index)
+
+                self._package_indexes[package_root] = (index, symbol_to_occurrences, document_by_path, occurrence_to_document)
+
+                for doc_path in document_by_path.keys():
+                    full_path = os.path.join(package_root, doc_path)
+                    self._path_to_package[full_path] = package_root
+
+                logger.info(f"Loaded index for package at {package_root}: {len(document_by_path)} documents")
+
+            except Exception as e:
+                logger.error(f"Failed to load index for package at {package_root}: {e}")
+
+    def _get_index_for_path(self, file_path: str) -> Optional[tuple[Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument]]]:
+        """Get the correct index data for a given file path in monorepo mode.
+
+        Args:
+            file_path: Absolute file path
+
+        Returns:
+            Tuple of (symbol_to_occurrences, document_by_path, occurrence_to_document) or None if not found
+        """
+        if not self._monorepo_mode:
+            return (self._symbol_to_occurrences, self._document_by_path, self._occurrence_to_document)
+
+        package_roots = sorted(self._package_indexes.keys(), key=len, reverse=True)
+        for package_root in package_roots:
+            if file_path.startswith(package_root):
+                _, symbol_map, doc_map, occ_map = self._package_indexes[package_root]
+                return (symbol_map, doc_map, occ_map)
+
+        logger.warning(f"No index found for file path: {file_path}")
+        return None
+
+    def _build_lookup_tables(self, index: ScipIndex) -> tuple[Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument]]:
+        """Build efficient lookup tables from a SCIP index.
+
+        Args:
+            index: The SCIP index to build lookup tables from
+
+        Returns:
+            Tuple of (symbol_to_occurrences, document_by_path, occurrence_to_document)
+        """
+        symbol_to_occurrences: Dict[str, List[ScipOccurrence]] = {}
+        document_by_path: Dict[str, ScipDocument] = {}
+        occurrence_to_document: Dict[int, ScipDocument] = {}
+
+        for document in index.documents:
+            document_by_path[document.relative_path] = document
+
             for occurrence in document.occurrences:
-                if occurrence.symbol not in self._symbol_to_occurrences:
-                    self._symbol_to_occurrences[occurrence.symbol] = []
-                self._symbol_to_occurrences[occurrence.symbol].append(occurrence)
-                # Use id() of the occurrence object as key since protobuf objects aren't hashable
-                self._occurrence_to_document[id(occurrence)] = document
+                if occurrence.symbol not in symbol_to_occurrences:
+                    symbol_to_occurrences[occurrence.symbol] = []
+                symbol_to_occurrences[occurrence.symbol].append(occurrence)
+                occurrence_to_document[id(occurrence)] = document
+
+        return symbol_to_occurrences, document_by_path, occurrence_to_document
 
     def generate_index_if_needed(self, project_name: str = "blarify") -> bool:
         """Generate SCIP index if it doesn't exist or is outdated."""
+        # Check for monorepo
+        if self.language in ["typescript", "javascript"]:
+            tsconfig_files = self._find_all_tsconfigs()
+
+            if len(tsconfig_files) > 1:
+                logger.info(f"Detected TypeScript monorepo with {len(tsconfig_files)} packages")
+                return self._generate_indexes_if_needed_monorepo(tsconfig_files)
+
+        # Single index project
         if os.path.exists(self.scip_index_path):
             # Check if index is newer than source files (simple heuristic)
             index_mtime = os.path.getmtime(self.scip_index_path)
@@ -219,13 +390,64 @@ class ScipReferenceResolver:
         logger.info(f"🔄 Generating SCIP index for {self.language}...")
         return self._generate_index(project_name)
 
-    def _generate_index(self, project_name: str) -> bool:
-        """Generate SCIP index using the appropriate language indexer."""
+    def _generate_indexes_if_needed_monorepo(self, tsconfig_files: List[tuple[str, str]]) -> bool:
+        """Generate SCIP indexes for monorepo packages only if needed.
+
+        Args:
+            tsconfig_files: List of (package_root, tsconfig_path) tuples
+
+        Returns:
+            True if all indexes exist and are up to date or were successfully generated
+        """
+        packages_needing_update: List[tuple[str, str]] = []
+
+        for package_root, tsconfig_path in tsconfig_files:
+            index_path = os.path.join(package_root, "index.scip")
+
+            if os.path.exists(index_path):
+                # Check if index is newer than source files in this package
+                index_mtime = os.path.getmtime(index_path)
+                source_files = []
+                for ext in ["*.ts", "*.tsx", "*.js", "*.jsx"]:
+                    source_files.extend(list(Path(package_root).rglob(ext)))
+
+                if source_files:
+                    newest_source = max(os.path.getmtime(f) for f in source_files)
+                    if index_mtime > newest_source:
+                        logger.info(f"📚 SCIP index for {os.path.basename(package_root)} is up to date")
+                        continue
+
+            packages_needing_update.append((package_root, tsconfig_path))
+
+        if not packages_needing_update:
+            logger.info("✅ All SCIP indexes are up to date")
+            return True
+
+        logger.info(f"🔄 Generating SCIP indexes for {len(packages_needing_update)} packages...")
+        index_mapping = self._generate_indexes_parallel(packages_needing_update, max_workers=4)
+
+        return len(index_mapping) == len(packages_needing_update)
+
+    def _generate_index(self, project_name: str, tsconfig_path: Optional[str] = None, package_root: Optional[str] = None, output_path: Optional[str] = None) -> bool:
+        """Generate SCIP index using the appropriate language indexer.
+
+        Args:
+            project_name: Name of the project
+            tsconfig_path: Path to tsconfig.json for TypeScript projects (for monorepo support)
+            package_root: Root directory of the package (for monorepo support)
+            output_path: Custom output path for the index file
+
+        Returns:
+            True if index generation was successful, False otherwise
+        """
         import subprocess
+
+        working_dir = package_root or self.root_path
+        index_output = output_path or self.scip_index_path
 
         # Create empty-env.json for Python projects (required by scip-python)
         if self.language == "python":
-            env_file = os.path.join(self.root_path, "empty-env.json")
+            env_file = os.path.join(working_dir, "empty-env.json")
             if not os.path.exists(env_file):
                 with open(env_file, "w") as f:
                     import json
@@ -241,36 +463,35 @@ class ScipReferenceResolver:
                     "--project-name",
                     project_name,
                     "--output",
-                    self.scip_index_path,
+                    index_output,
                     "--environment",
-                    os.path.join(self.root_path, "empty-env.json"),
+                    os.path.join(working_dir, "empty-env.json"),
                     "--quiet",
                 ]
             elif self.language in ["typescript", "javascript"]:
-                # scip-typescript has a simpler command structure without --project-name or --environment
-                # It outputs to index.scip by default, so we need to handle output differently
+                # scip-typescript will automatically find tsconfig.json in the working directory
                 cmd = [
                     "scip-typescript",
                     "index",
                     "--output",
-                    os.path.basename(self.scip_index_path),  # Only filename, not full path
+                    os.path.basename(index_output),
                 ]
             else:
                 logger.error(f"Unsupported language for SCIP indexing: {self.language}")
                 return False
 
-            result = subprocess.run(cmd, cwd=self.root_path, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, cwd=working_dir, capture_output=True, text=True, timeout=300)
 
             if result.returncode == 0:
                 # For TypeScript, we may need to move the file if it was created with a different name
                 if self.language in ["typescript", "javascript"]:
-                    actual_output = os.path.join(self.root_path, os.path.basename(self.scip_index_path))
-                    if actual_output != self.scip_index_path and os.path.exists(actual_output):
+                    actual_output = os.path.join(working_dir, os.path.basename(index_output))
+                    if actual_output != index_output and os.path.exists(actual_output):
                         import shutil
 
-                        shutil.move(actual_output, self.scip_index_path)
+                        shutil.move(actual_output, index_output)
 
-                logger.info(f"✅ Generated {self.language} SCIP index at {self.scip_index_path}")
+                logger.info(f"✅ Generated {self.language} SCIP index at {index_output}")
                 return True
             else:
                 logger.error(f"Failed to generate SCIP index: {result.stderr.strip()}")
@@ -350,7 +571,8 @@ class ScipReferenceResolver:
             for node in batch:
                 symbol = node_to_symbol[node]
                 if symbol is not None:
-                    results[node] = self._get_references_for_symbol(symbol)
+                    file_path = node.path.replace("file://", "")
+                    results[node] = self._get_references_for_symbol(symbol, file_path)
                 else:
                     results[node] = []  # No symbol found for this node
                 progress.update(1)
@@ -363,22 +585,26 @@ class ScipReferenceResolver:
 
     def _find_symbol_for_node(self, node: DefinitionNode) -> Optional[str]:
         """Find the SCIP symbol identifier for a given node."""
-        # Convert file URI to relative path
         from blarify.utils.path_calculator import PathCalculator
 
-        relative_path = PathCalculator.get_relative_path_from_uri(root_uri=f"file://{self.root_path}", uri=node.path)
+        file_path = node.path.replace("file://", "")
+        index_data = self._get_index_for_path(file_path)
 
-        # Find document
-        document = self._document_by_path.get(relative_path)
+        if not index_data:
+            return None
+
+        _, document_by_path, _ = index_data
+
+        relative_path = PathCalculator.get_relative_path_from_uri(root_uri=f"file://{self.root_path}", uri=node.path)
+        document = document_by_path.get(relative_path)
+
         if not document:
             return None
 
-        # Look for a definition occurrence at the node's position
         for occurrence in document.occurrences:
-            if not (occurrence.symbol_roles & scip.SymbolRole.Definition):
+            if not (occurrence.symbol_roles & scip.SymbolRole.Definition):  # type: ignore[union-attr]
                 continue
 
-            # Check if position matches exactly (line and character)
             if (
                 occurrence.range
                 and len(occurrence.range) >= 2
@@ -389,12 +615,39 @@ class ScipReferenceResolver:
 
         return None
 
-    def _batch_find_symbols_for_nodes(self, nodes: List[DefinitionNode]) -> Dict[DefinitionNode, Optional[str]]:
-        """Efficiently find symbols for multiple nodes by grouping by document."""
+    def _build_position_to_symbol_map(self, document: ScipDocument) -> Dict[tuple[int, int], str]:
+        """Build a position-to-symbol mapping for a document.
+
+        Args:
+            document: The SCIP document to process
+
+        Returns:
+            Dictionary mapping (line, character) to symbol
+        """
+        position_to_symbol: Dict[tuple[int, int], str] = {}
+
+        for occurrence in document.occurrences:
+            if not (occurrence.symbol_roles & scip.SymbolRole.Definition):  # type: ignore[union-attr]
+                continue
+            if occurrence.range and len(occurrence.range) >= 2:
+                pos_key = (occurrence.range[0], occurrence.range[1])
+                position_to_symbol[pos_key] = occurrence.symbol
+
+        return position_to_symbol
+
+    def _match_nodes_to_symbols(self, nodes: List[DefinitionNode], document_by_path: Dict[str, ScipDocument]) -> Dict[DefinitionNode, Optional[str]]:
+        """Match nodes to their symbols using document position index.
+
+        Args:
+            nodes: List of nodes to match
+            document_by_path: Document lookup by relative path
+
+        Returns:
+            Dictionary mapping nodes to their symbols
+        """
         from blarify.utils.path_calculator import PathCalculator
 
-        # Group nodes by their relative path
-        nodes_by_path = {}
+        nodes_by_path: Dict[str, List[DefinitionNode]] = {}
         for node in nodes:
             relative_path = PathCalculator.get_relative_path_from_uri(
                 root_uri=f"file://{self.root_path}", uri=node.path
@@ -403,33 +656,55 @@ class ScipReferenceResolver:
                 nodes_by_path[relative_path] = []
             nodes_by_path[relative_path].append(node)
 
-        node_to_symbol = {}
+        node_to_symbol: Dict[DefinitionNode, Optional[str]] = {}
 
-        # Process each document once
         for relative_path, path_nodes in nodes_by_path.items():
-            document = self._document_by_path.get(relative_path)
+            document = document_by_path.get(relative_path)
             if not document:
                 for node in path_nodes:
                     node_to_symbol[node] = None
                 continue
 
-            # Build a position index for this document's definition occurrences
-            position_to_symbol = {}
-            for occurrence in document.occurrences:
-                if not (occurrence.symbol_roles & scip.SymbolRole.Definition):
-                    continue
-                if occurrence.range and len(occurrence.range) >= 2:
-                    pos_key = (occurrence.range[0], occurrence.range[1])
-                    position_to_symbol[pos_key] = occurrence.symbol
+            position_to_symbol = self._build_position_to_symbol_map(document)
 
-            # Match nodes to symbols using the position index
             for node in path_nodes:
                 pos_key = (node.definition_range.start_dict["line"], node.definition_range.start_dict["character"])
                 node_to_symbol[node] = position_to_symbol.get(pos_key)
 
         return node_to_symbol
 
-    def _is_reference_occurrence(self, occurrence: "scip.Occurrence") -> bool:
+    def _batch_find_symbols_for_nodes(self, nodes: List[DefinitionNode]) -> Dict[DefinitionNode, Optional[str]]:
+        """Efficiently find symbols for multiple nodes by grouping by document."""
+        node_to_symbol: Dict[DefinitionNode, Optional[str]] = {}
+
+        if self._monorepo_mode:
+            nodes_by_package: Dict[str, List[DefinitionNode]] = {}
+
+            for node in nodes:
+                file_path = node.path.replace("file://", "")
+                package_root = None
+
+                for pkg_root in sorted(self._package_indexes.keys(), key=len, reverse=True):
+                    if file_path.startswith(pkg_root):
+                        package_root = pkg_root
+                        break
+
+                if package_root:
+                    if package_root not in nodes_by_package:
+                        nodes_by_package[package_root] = []
+                    nodes_by_package[package_root].append(node)
+                else:
+                    node_to_symbol[node] = None
+
+            for package_root, package_nodes in nodes_by_package.items():
+                _, _, document_by_path, _ = self._package_indexes[package_root]
+                node_to_symbol.update(self._match_nodes_to_symbols(package_nodes, document_by_path))
+        else:
+            node_to_symbol = self._match_nodes_to_symbols(nodes, self._document_by_path)
+
+        return node_to_symbol
+
+    def _is_reference_occurrence(self, occurrence: ScipOccurrence) -> bool:
         """Check if an occurrence is a reference (not a definition).
 
         TypeScript and JavaScript SCIP indexers use symbol_roles=0 for references,
@@ -442,7 +717,7 @@ class ScipReferenceResolver:
             True if this is a reference occurrence, False otherwise
         """
         # Always skip definitions
-        if occurrence.symbol_roles & scip.SymbolRole.Definition:
+        if occurrence.symbol_roles & scip.SymbolRole.Definition:  # type: ignore[union-attr]
             return False
 
         # Language-specific behavior
@@ -452,48 +727,74 @@ class ScipReferenceResolver:
             return (
                 occurrence.symbol_roles == 0
                 or (occurrence.symbol_roles & (
-                    scip.SymbolRole.ReadAccess |
-                    scip.SymbolRole.WriteAccess |
-                    scip.SymbolRole.Import
+                    scip.SymbolRole.ReadAccess |  # type: ignore[union-attr]
+                    scip.SymbolRole.WriteAccess |  # type: ignore[union-attr]
+                    scip.SymbolRole.Import  # type: ignore[union-attr]
                 )) != 0
             )
         else:
             # Python and other languages: require explicit access flags
             return (
                 occurrence.symbol_roles & (
-                    scip.SymbolRole.ReadAccess |
-                    scip.SymbolRole.WriteAccess |
-                    scip.SymbolRole.Import
+                    scip.SymbolRole.ReadAccess |  # type: ignore[union-attr]
+                    scip.SymbolRole.WriteAccess |  # type: ignore[union-attr]
+                    scip.SymbolRole.Import  # type: ignore[union-attr]
                 )
             ) != 0
 
-    def _get_references_for_symbol(self, symbol: str) -> List[Reference]:
-        """Get references for a specific symbol (optimized version)."""
-        occurrences = self._symbol_to_occurrences.get(symbol, [])
-        references = []
+    def _get_references_for_symbol(self, symbol: str, file_path: Optional[str] = None) -> List[Reference]:
+        """Get references for a specific symbol (optimized version).
 
-        for occurrence in occurrences:
-            # Use the new helper function to check if this is a reference
-            if not self._is_reference_occurrence(occurrence):
-                continue
+        Args:
+            symbol: The symbol to find references for
+            file_path: File path to route to correct index in monorepo mode (required if monorepo_mode is True)
 
-            # Find the document for this occurrence
-            doc = self._find_document_for_occurrence(occurrence)
-            if not doc:
-                continue
+        Returns:
+            List of references to the symbol
+        """
+        references: List[Reference] = []
 
-            # Convert SCIP occurrence to Reference
-            ref = self._occurrence_to_reference(occurrence, doc)
-            if ref:
-                references.append(ref)
+        if self._monorepo_mode and file_path:
+            index_data = self._get_index_for_path(file_path)
+            if not index_data:
+                return references
+
+            symbol_to_occurrences, _, occurrence_to_document = index_data
+            occurrences = symbol_to_occurrences.get(symbol, [])
+
+            for occurrence in occurrences:
+                if not self._is_reference_occurrence(occurrence):
+                    continue
+
+                doc = occurrence_to_document.get(id(occurrence))
+                if not doc:
+                    continue
+
+                ref = self._occurrence_to_reference(occurrence, doc)
+                if ref:
+                    references.append(ref)
+        else:
+            occurrences = self._symbol_to_occurrences.get(symbol, [])
+
+            for occurrence in occurrences:
+                if not self._is_reference_occurrence(occurrence):
+                    continue
+
+                doc = self._occurrence_to_document.get(id(occurrence))
+                if not doc:
+                    continue
+
+                ref = self._occurrence_to_reference(occurrence, doc)
+                if ref:
+                    references.append(ref)
 
         return references
 
-    def _find_document_for_occurrence(self, occurrence: "scip.Occurrence") -> Optional["scip.Document"]:
+    def _find_document_for_occurrence(self, occurrence: ScipOccurrence) -> Optional[ScipDocument]:
         """Find the document containing an occurrence."""
         return self._occurrence_to_document.get(id(occurrence))
 
-    def _occurrence_to_reference(self, occurrence: "scip.Occurrence", document: "scip.Document") -> Optional[Reference]:
+    def _occurrence_to_reference(self, occurrence: ScipOccurrence, document: ScipDocument) -> Optional[Reference]:
         """Convert a SCIP occurrence to a Reference object."""
         if not occurrence.range or len(occurrence.range) < 3:
             return None

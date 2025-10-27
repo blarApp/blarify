@@ -131,8 +131,9 @@ class ScipReferenceResolver:
         self._loaded = False
 
         self._monorepo_mode = False
-        self._package_indexes: Dict[str, tuple[ScipIndex, Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument]]] = {}
+        self._package_indexes: Dict[str, tuple[ScipIndex, Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument], Dict[int, str]]] = {}
         self._path_to_package: Dict[str, str] = {}
+        self._occurrence_to_repo_path: Dict[int, str] = {}
 
     def _detect_project_language(self) -> str:
         """Auto-detect the project language."""
@@ -376,7 +377,7 @@ class ScipReferenceResolver:
             self._index = scip.Index()  # type: ignore[union-attr]
             self._index.ParseFromString(data)  # type: ignore[union-attr]
 
-            self._symbol_to_occurrences, self._document_by_path, self._occurrence_to_document = self._build_lookup_tables(self._index)
+            self._symbol_to_occurrences, self._document_by_path, self._occurrence_to_document, self._occurrence_to_repo_path = self._build_lookup_tables(self._index)
         else:
             logger.warning(f"SCIP index not found at {self.scip_index_path}")
 
@@ -396,12 +397,12 @@ class ScipReferenceResolver:
                 index = scip.Index()  # type: ignore[union-attr]
                 index.ParseFromString(data)
 
-                symbol_to_occurrences, document_by_path, occurrence_to_document = self._build_lookup_tables(index)
+                symbol_to_occurrences, document_by_path, occurrence_to_document, occurrence_to_repo_path = self._build_lookup_tables(index, package_root)
 
-                self._package_indexes[package_root] = (index, symbol_to_occurrences, document_by_path, occurrence_to_document)
+                self._package_indexes[package_root] = (index, symbol_to_occurrences, document_by_path, occurrence_to_document, occurrence_to_repo_path)
 
                 for doc_path in document_by_path.keys():
-                    full_path = os.path.join(package_root, doc_path)
+                    full_path = os.path.join(self.root_path, doc_path)
                     self._path_to_package[full_path] = package_root
 
                 logger.info(f"Loaded index for package at {package_root}: {len(document_by_path)} documents")
@@ -409,50 +410,59 @@ class ScipReferenceResolver:
             except Exception as e:
                 logger.error(f"Failed to load index for package at {package_root}: {e}")
 
-    def _get_index_for_path(self, file_path: str) -> Optional[tuple[Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument]]]:
+    def _get_index_for_path(self, file_path: str) -> Optional[tuple[Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument], Dict[int, str]]]:
         """Get the correct index data for a given file path in monorepo mode.
 
         Args:
             file_path: Absolute file path
 
         Returns:
-            Tuple of (symbol_to_occurrences, document_by_path, occurrence_to_document) or None if not found
+            Tuple of (symbol_to_occurrences, document_by_path, occurrence_to_document, occurrence_to_repo_path) or None if not found
         """
         if not self._monorepo_mode:
-            return (self._symbol_to_occurrences, self._document_by_path, self._occurrence_to_document)
+            return (self._symbol_to_occurrences, self._document_by_path, self._occurrence_to_document, self._occurrence_to_repo_path)
 
         package_roots = sorted(self._package_indexes.keys(), key=len, reverse=True)
         for package_root in package_roots:
             if file_path.startswith(package_root):
-                _, symbol_map, doc_map, occ_map = self._package_indexes[package_root]
-                return (symbol_map, doc_map, occ_map)
+                _, symbol_map, doc_map, occ_map, repo_path_map = self._package_indexes[package_root]
+                return (symbol_map, doc_map, occ_map, repo_path_map)
 
         logger.warning(f"No index found for file path: {file_path}")
         return None
 
-    def _build_lookup_tables(self, index: ScipIndex) -> tuple[Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument]]:
+    def _build_lookup_tables(self, index: ScipIndex, package_root: Optional[str] = None) -> tuple[Dict[str, List[ScipOccurrence]], Dict[str, ScipDocument], Dict[int, ScipDocument], Dict[int, str]]:
         """Build efficient lookup tables from a SCIP index.
 
         Args:
             index: The SCIP index to build lookup tables from
+            package_root: Package root for monorepo normalization (paths will be made relative to self.root_path)
 
         Returns:
-            Tuple of (symbol_to_occurrences, document_by_path, occurrence_to_document)
+            Tuple of (symbol_to_occurrences, document_by_path, occurrence_to_document, occurrence_to_repo_path)
         """
         symbol_to_occurrences: Dict[str, List[ScipOccurrence]] = {}
         document_by_path: Dict[str, ScipDocument] = {}
         occurrence_to_document: Dict[int, ScipDocument] = {}
+        occurrence_to_repo_path: Dict[int, str] = {}
 
         for document in index.documents:
-            document_by_path[document.relative_path] = document
+            if package_root:
+                package_relative_to_repo = os.path.relpath(package_root, self.root_path)
+                normalized_path = os.path.join(package_relative_to_repo, document.relative_path)
+            else:
+                normalized_path = document.relative_path
+
+            document_by_path[normalized_path] = document
 
             for occurrence in document.occurrences:
                 if occurrence.symbol not in symbol_to_occurrences:
                     symbol_to_occurrences[occurrence.symbol] = []
                 symbol_to_occurrences[occurrence.symbol].append(occurrence)
                 occurrence_to_document[id(occurrence)] = document
+                occurrence_to_repo_path[id(occurrence)] = normalized_path
 
-        return symbol_to_occurrences, document_by_path, occurrence_to_document
+        return symbol_to_occurrences, document_by_path, occurrence_to_document, occurrence_to_repo_path
 
     def generate_index_if_needed(self, project_name: str = "blarify") -> bool:
         """Generate SCIP index if it doesn't exist or is outdated."""
@@ -713,7 +723,7 @@ class ScipReferenceResolver:
         if not index_data:
             return None
 
-        _, document_by_path, _ = index_data
+        _, document_by_path, _, _ = index_data
 
         relative_path = PathCalculator.get_relative_path_from_uri(root_uri=f"file://{self.root_path}", uri=node.path)
         document = document_by_path.get(relative_path)
@@ -817,7 +827,7 @@ class ScipReferenceResolver:
                     node_to_symbol[node] = None
 
             for package_root, package_nodes in nodes_by_package.items():
-                _, _, document_by_path, _ = self._package_indexes[package_root]
+                _, _, document_by_path, _, _ = self._package_indexes[package_root]
                 node_to_symbol.update(self._match_nodes_to_symbols(package_nodes, document_by_path))
         else:
             node_to_symbol = self._match_nodes_to_symbols(nodes, self._document_by_path)
@@ -879,7 +889,7 @@ class ScipReferenceResolver:
             if not index_data:
                 return references
 
-            symbol_to_occurrences, _, occurrence_to_document = index_data
+            symbol_to_occurrences, _, occurrence_to_document, occurrence_to_repo_path = index_data
             occurrences = symbol_to_occurrences.get(symbol, [])
 
             for occurrence in occurrences:
@@ -890,7 +900,8 @@ class ScipReferenceResolver:
                 if not doc:
                     continue
 
-                ref = self._occurrence_to_reference(occurrence, doc)
+                repo_path = occurrence_to_repo_path.get(id(occurrence))
+                ref = self._occurrence_to_reference(occurrence, doc, repo_path)
                 if ref:
                     references.append(ref)
         else:
@@ -904,7 +915,8 @@ class ScipReferenceResolver:
                 if not doc:
                     continue
 
-                ref = self._occurrence_to_reference(occurrence, doc)
+                repo_path = self._occurrence_to_repo_path.get(id(occurrence))
+                ref = self._occurrence_to_reference(occurrence, doc, repo_path)
                 if ref:
                     references.append(ref)
 
@@ -914,7 +926,7 @@ class ScipReferenceResolver:
         """Find the document containing an occurrence."""
         return self._occurrence_to_document.get(id(occurrence))
 
-    def _occurrence_to_reference(self, occurrence: ScipOccurrence, document: ScipDocument) -> Optional[Reference]:
+    def _occurrence_to_reference(self, occurrence: ScipOccurrence, document: ScipDocument, repo_relative_path: Optional[str] = None) -> Optional[Reference]:
         """Convert a SCIP occurrence to a Reference object."""
         if not occurrence.range or len(occurrence.range) < 3:
             return None
@@ -927,15 +939,17 @@ class ScipReferenceResolver:
             end_char = occurrence.range[2] if len(occurrence.range) == 3 else occurrence.range[3]
             end_line = start_line if len(occurrence.range) == 3 else occurrence.range[2]
 
+            relative_path = repo_relative_path if repo_relative_path else document.relative_path
+
             # Create a Reference object compatible with the existing system
             reference_data = {
-                "uri": f"file://{os.path.join(self.root_path, document.relative_path)}",
+                "uri": f"file://{os.path.join(self.root_path, relative_path)}",
                 "range": {
                     "start": {"line": start_line, "character": start_char},
                     "end": {"line": end_line, "character": end_char},
                 },
-                "relativePath": document.relative_path,
-                "absolutePath": os.path.join(self.root_path, document.relative_path),
+                "relativePath": relative_path,
+                "absolutePath": os.path.join(self.root_path, relative_path),
             }
 
             return Reference(reference_data)

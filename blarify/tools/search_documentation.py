@@ -25,6 +25,9 @@ class VectorSearchInput(BaseModel):
 
     query: str = Field(description="The search query to find similar code scope descriptions")
     top_k: int = Field(default=5, description="Number of top results to return (default: 5)", ge=1, le=20)
+    min_similarity: float = Field(
+        default=0.7, description="Minimum similarity threshold (default: 0.7)", ge=0.0, le=1.0
+    )
 
 
 class VectorSearch(BaseTool):
@@ -67,6 +70,7 @@ class VectorSearch(BaseTool):
         self,
         query: str,
         top_k: int = 5,
+        min_similarity: float = 0.7,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """
@@ -75,6 +79,7 @@ class VectorSearch(BaseTool):
         Args:
             query: The search query text
             top_k: Number of top results to return
+            min_similarity: Minimum similarity threshold for results
             run_manager: Callback manager for tool execution
 
         Returns:
@@ -95,7 +100,7 @@ class VectorSearch(BaseTool):
             parameters = {
                 "query_embedding": query_embedding,
                 "top_k": top_k,
-                "min_similarity": 0.7,  # Default minimum similarity threshold
+                "min_similarity": min_similarity,
             }
             results = self.db_manager.query(vector_query, parameters)
 

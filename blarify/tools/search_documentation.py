@@ -105,7 +105,12 @@ class VectorSearch(BaseTool):
             results = self.db_manager.query(vector_query, parameters)
 
             if not results:
-                return f"No code scopes found matching: '{query}'"
+                return (
+                    f"No code scopes found matching\n"
+                    f"Suggestions:\n"
+                    f"- Try simplifying your query to use more general terms\n"
+                    f"- Lower the min_similarity threshold (current: {min_similarity})"
+                )
 
             # Format the results
             output = self._format_results(results, query)

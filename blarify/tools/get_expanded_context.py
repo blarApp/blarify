@@ -272,9 +272,12 @@ class GetExpandedContext(BaseTool):
     ) -> str:
         """Returns both code details and file context with expanded child references."""
         # Resolve the reference ID from inputs
-        node_id = resolve_reference_id(
-            self.db_manager, reference_id=reference_id, file_path=file_path, symbol_name=symbol_name
-        )
+        try:
+            node_id = resolve_reference_id(
+                self.db_manager, reference_id=reference_id, file_path=file_path, symbol_name=symbol_name
+            )
+        except ValueError as e:
+            return str(e)
 
         try:
             node_result: NodeSearchResultResponse = self.db_manager.get_node_by_id(node_id=node_id)

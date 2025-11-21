@@ -204,6 +204,8 @@ class ProjectGraphCreator:
 
         # Process the results and create relationships
         processed_files = set()
+        file_relationship_counts: Dict[str, int] = {}
+
         for node, references in batch_results.items():
             file_node = nodes_by_file[node]
 
@@ -221,7 +223,18 @@ class ProjectGraphCreator:
             relationships = self._create_node_relationships_from_references(
                 node=node, references=references, tree_sitter_helper=tree_sitter_helper
             )
+
+            file_key = file_node.name
+            file_relationship_counts[file_key] = file_relationship_counts.get(file_key, 0) + len(relationships)
+
             references_relationships.extend(relationships)
+
+        sorted_files = sorted(file_relationship_counts.items(), key=lambda x: x[1], reverse=True)
+        top_5_files = sorted_files[:5]
+
+        logger.info("Top 5 files with most relationships created:")
+        for idx, (file_name, count) in enumerate(top_5_files, 1):
+            logger.info(f"  {idx}. {file_name}: {count} relationships")
 
         self.graph.add_references_relationships(references_relationships=references_relationships)
 

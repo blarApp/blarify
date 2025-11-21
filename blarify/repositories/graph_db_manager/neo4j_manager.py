@@ -98,15 +98,22 @@ class Neo4jManager(AbstractDbManager):
         if self.repo_id is None:
             raise ValueError("repo_id is required for creating edges. Cannot create edges with entity-wide scope.")
 
+        batch_size = 10000
+        total_edges = len(edgesList)
+        logger.info(f"Creating {total_edges} edges in batches of {batch_size}")
+
         with self.driver.session() as session:
-            session.execute_write(
-                self._create_edges_txn,
-                edgesList,
-                1000,
-                entityId=self.entity_id,
-                repoId=self.repo_id,
-                environment=self.environment.value,
-            )
+            for i in range(0, total_edges, batch_size):
+                batch = edgesList[i:i + batch_size]
+                logger.info(f"Processing edges batch {i // batch_size + 1}/{(total_edges + batch_size - 1) // batch_size} ({i}/{total_edges})")
+                session.execute_write(
+                    self._create_edges_txn,
+                    batch,
+                    1000,
+                    entityId=self.entity_id,
+                    repoId=self.repo_id,
+                    environment=self.environment.value,
+                )
 
     @staticmethod
     def _create_nodes_txn(

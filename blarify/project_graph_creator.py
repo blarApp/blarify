@@ -224,7 +224,7 @@ class ProjectGraphCreator:
                 node=node, references=references, tree_sitter_helper=tree_sitter_helper
             )
 
-            file_key = file_node.name
+            file_key = file_node.pure_path
             file_relationship_counts[file_key] = file_relationship_counts.get(file_key, 0) + len(relationships)
 
             references_relationships.extend(relationships)
@@ -233,8 +233,8 @@ class ProjectGraphCreator:
         top_5_files = sorted_files[:5]
 
         logger.info("Top 5 files with most relationships created:")
-        for idx, (file_name, count) in enumerate(top_5_files, 1):
-            logger.info(f"  {idx}. {file_name}: {count} relationships")
+        for idx, (file_path, count) in enumerate(top_5_files, 1):
+            logger.info(f"  {idx}. {file_path}: {count} relationships")
 
         self.graph.add_references_relationships(references_relationships=references_relationships)
 

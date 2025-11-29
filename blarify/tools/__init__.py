@@ -5,6 +5,7 @@ from .get_code_analysis import GetCodeAnalysis
 from .get_expanded_context import GetExpandedContext
 from .get_blame_info import GetBlameInfo
 from .get_dependency_graph import GetDependencyGraph
+from .get_directory_tree import GetDirectoryTree
 
 # Keep backward compatibility imports for tools not part of main 6
 from .get_file_context_tool import GetFileContextByIdTool
@@ -12,7 +13,7 @@ from .get_commit_by_id_tool import GetCommitByIdTool
 from .get_node_workflows_tool import GetNodeWorkflowsTool
 
 __all__ = [
-    # Main 7 refactored tools
+    # Main 8 refactored tools
     "FindSymbols",
     "VectorSearch",
     "GrepCode",
@@ -20,6 +21,7 @@ __all__ = [
     "GetExpandedContext",
     "GetBlameInfo",
     "GetDependencyGraph",
+    "GetDirectoryTree",
     # Additional tools kept for backward compatibility
     "GetFileContextByIdTool",
     "GetCommitByIdTool",

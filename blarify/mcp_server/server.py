@@ -22,6 +22,7 @@ from blarify.tools import (
     GetCodeAnalysis,
     GetCommitByIdTool,
     GetDependencyGraph,
+    GetDirectoryTree,
     GetExpandedContext,
     GetFileContextByIdTool,
     GetNodeWorkflowsTool,
@@ -87,6 +88,7 @@ class BlarifyMCPServer:
                 repo_name="",  # Will be configured via environment
             ),
             GetDependencyGraph(db_manager=self.db_manager),
+            GetDirectoryTree(db_manager=self.db_manager),
             # Keep additional tools for backward compatibility
             GetCommitByIdTool(db_manager=self.db_manager),
             GetFileContextByIdTool(db_manager=self.db_manager),

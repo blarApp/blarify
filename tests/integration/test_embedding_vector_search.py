@@ -147,6 +147,7 @@ class TestEmbeddingVectorSearch:
             "query_embedding": query_embedding,
             "top_k": 10,
             "min_similarity": 0.5,
+            "scope_type": "FUNCTION",
         }
 
         results = db_manager.query(cypher_query=query, parameters=parameters)
@@ -498,6 +499,7 @@ class TestEmbeddingVectorSearch:
             "query_embedding": query_embedding,
             "top_k": 2,  # Find top 2 similar
             "min_similarity": 0.0,  # Accept all similarities
+            "scope_type": "FUNCTION",
         }
 
         results = db_manager.query(cypher_query=query, parameters=parameters)
@@ -525,4 +527,103 @@ class TestEmbeddingVectorSearch:
             assert all(r.similarity_score <= search_results[0].similarity_score for r in search_results[1:])
 
         # Clean up
+        db_manager.close()
+
+    @pytest.mark.asyncio
+    async def test_vector_search_scope_type_filtering(
+        self,
+        docker_check: Any,
+        test_data_isolation: Dict[str, Any],
+        test_graph_environment: GraphEnvironment,
+        mock_embeddings: Dict[str, List[float]],
+    ) -> None:
+        """Test that scope_type filtering returns only matching scope types."""
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password="test-password",
+            entity_id=test_data_isolation["entity_id"],
+            repo_id=test_data_isolation["repo_id"],
+        )
+
+        # Create nodes with different scope types
+        nodes_to_create = [
+            DocumentationNode(
+                content="Authentication handler function",
+                info_type="function",
+                source_type="docstring",
+                source_path="file:///src/auth/handler.py",
+                source_name="authenticate_user",
+                source_id="auth_func_001",
+                source_labels=["FUNCTION", "PYTHON"],
+                graph_environment=test_graph_environment,
+                content_embedding=mock_embeddings["doc1"],
+            ).as_object(),
+            DocumentationNode(
+                content="User class for authentication",
+                info_type="class",
+                source_type="docstring",
+                source_path="file:///src/auth/user.py",
+                source_name="User",
+                source_id="user_class_002",
+                source_labels=["CLASS", "PYTHON"],
+                graph_environment=test_graph_environment,
+                content_embedding=mock_embeddings["doc2"],
+            ).as_object(),
+            DocumentationNode(
+                content="Authentication module file",
+                info_type="module",
+                source_type="docstring",
+                source_path="file:///src/auth/__init__.py",
+                source_name="auth",
+                source_id="auth_file_003",
+                source_labels=["FILE", "PYTHON"],
+                graph_environment=test_graph_environment,
+                content_embedding=mock_embeddings["doc3"],
+            ).as_object(),
+        ]
+
+        db_manager.create_nodes(nodes_to_create)
+
+        try:
+            db_manager.query(cypher_query=create_vector_index_query(), parameters={})
+        except Exception:
+            pass
+
+        query_embedding = mock_embeddings["doc1"]
+
+        # Search for FUNCTION scope type only
+        query = vector_similarity_search_query()
+        parameters = {
+            "query_embedding": query_embedding,
+            "top_k": 10,
+            "min_similarity": 0.0,
+            "scope_type": "FUNCTION",
+        }
+        results = db_manager.query(cypher_query=query, parameters=parameters)
+
+        # Should only return FUNCTION nodes
+        assert len(results) == 1, "Should find exactly one FUNCTION node"
+        assert "FUNCTION" in results[0]["source_labels"], "Result should be a FUNCTION"
+
+        # Search for CLASS scope type only
+        parameters["scope_type"] = "CLASS"
+        results = db_manager.query(cypher_query=query, parameters=parameters)
+
+        assert len(results) == 1, "Should find exactly one CLASS node"
+        assert "CLASS" in results[0]["source_labels"], "Result should be a CLASS"
+
+        # Search for FILE scope type only
+        parameters["scope_type"] = "FILE"
+        results = db_manager.query(cypher_query=query, parameters=parameters)
+
+        assert len(results) == 1, "Should find exactly one FILE node"
+        assert "FILE" in results[0]["source_labels"], "Result should be a FILE"
+
+        # Search for FOLDER scope type (no matches expected)
+        parameters["scope_type"] = "FOLDER"
+        results = db_manager.query(cypher_query=query, parameters=parameters)
+
+        assert len(results) == 0, "Should find no FOLDER nodes"
+
         db_manager.close()

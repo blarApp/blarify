@@ -7,7 +7,7 @@ using vector similarity with embeddings stored in Neo4j.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
@@ -20,10 +20,16 @@ from blarify.services.embedding_service import EmbeddingService
 logger = logging.getLogger(__name__)
 
 
+VALID_SCOPE_TYPES = ["FOLDER", "FILE", "CLASS", "FUNCTION"]
+
+
 class VectorSearchInput(BaseModel):
     """Input schema for vector search."""
 
     query: str = Field(description="The search query to find similar code scope descriptions")
+    scope_type: Literal["FOLDER", "FILE", "CLASS", "FUNCTION"] = Field(
+        description="Filter by scope type: FOLDER, FILE, CLASS, or FUNCTION"
+    )
     top_k: int = Field(default=5, description="Number of top results to return (default: 5)", ge=1, le=20)
     min_similarity: float = Field(
         default=0.7, description="Minimum similarity threshold (default: 0.7)", ge=0.0, le=1.0
@@ -69,6 +75,7 @@ class VectorSearch(BaseTool):
     def _run(
         self,
         query: str,
+        scope_type: str,
         top_k: int = 5,
         min_similarity: float = 0.7,
         run_manager: Optional[CallbackManagerForToolRun] = None,
@@ -78,6 +85,7 @@ class VectorSearch(BaseTool):
 
         Args:
             query: The search query text
+            scope_type: Type of code scope to filter (FOLDER, FILE, CLASS, FUNCTION)
             top_k: Number of top results to return
             min_similarity: Minimum similarity threshold for results
             run_manager: Callback manager for tool execution
@@ -86,21 +94,22 @@ class VectorSearch(BaseTool):
             Formatted string with search results
         """
         try:
-            # Check if embedding service is available
+            if scope_type not in VALID_SCOPE_TYPES:
+                return f"Invalid scope_type '{scope_type}'. Must be one of: FOLDER, FILE, CLASS, FUNCTION."
+
             if not self.embedding_service:
                 return "Vector search unavailable: OPENAI_API_KEY not configured"
 
-            # Generate embedding for the query
             query_embedding = self.embedding_service.embed_single_text(query)
             if not query_embedding:
                 return f"Failed to generate embedding for query: '{query}'"
 
-            # Perform vector search using Neo4j manager
             vector_query = vector_similarity_search_query()
             parameters = {
                 "query_embedding": query_embedding,
                 "top_k": top_k,
                 "min_similarity": min_similarity,
+                "scope_type": scope_type,
             }
             results = self.db_manager.query(vector_query, parameters)
 

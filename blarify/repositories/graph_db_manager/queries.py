@@ -2304,7 +2304,9 @@ def vector_similarity_search_query() -> LiteralString:
     return """
     CALL db.index.vector.queryNodes('documentation_embeddings', $top_k, $query_embedding)
     YIELD node, score
-    WHERE score >= $min_similarity and ($repo_ids IS NULL OR node.repoId IN $repo_ids)
+    WHERE score >= $min_similarity
+      AND ($repo_ids IS NULL OR node.repoId IN $repo_ids)
+      AND $scope_type IN node.source_labels
     RETURN node.source_node_id as node_id,
            node.title as title,
            node.content as content,

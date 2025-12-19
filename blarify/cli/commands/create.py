@@ -266,6 +266,7 @@ def add_arguments(parser: ArgumentParser) -> None:
     )
     parser.add_argument("--neo4j-username", help="Neo4j username")
     parser.add_argument("--neo4j-password", help="Neo4j password")
+    parser.add_argument("--neo4j-database", help="Neo4j database name (optional, defaults to Neo4j's default database)")
 
     # Graph building options
     parser.add_argument(
@@ -385,6 +386,7 @@ def execute(args: Namespace) -> int:
             uri=args.neo4j_uri,
             user=args.neo4j_username,
             password=args.neo4j_password,
+            database=args.neo4j_database,
             repo_id=repo_id,
             entity_id=args.entity_id,
         )

@@ -34,11 +34,13 @@ class Neo4jManager(AbstractDbManager):
         uri: Optional[str] = None,
         user: Optional[str] = None,
         password: Optional[str] = None,
+        database: Optional[str] = None,
         max_connections: int = 50,
     ):
         uri = uri or os.getenv("NEO4J_URI")
         user = user or os.getenv("NEO4J_USERNAME")
         password = password or os.getenv("NEO4J_PASSWORD")
+        self.database = database or os.getenv("NEO4J_DATABASE")
 
         if not uri or not user or not password:
             raise ValueError("Missing required Neo4j connection parameters")
@@ -83,7 +85,7 @@ class Neo4jManager(AbstractDbManager):
         if self.repo_id is None:
             raise ValueError("repo_id is required for creating nodes. Cannot create nodes with entity-wide scope.")
 
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             session.execute_write(
                 self._create_nodes_txn,
                 nodeList,
@@ -102,7 +104,7 @@ class Neo4jManager(AbstractDbManager):
         total_edges = len(edgesList)
         logger.info(f"Creating {total_edges} edges in batches of {batch_size}")
 
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             for i in range(0, total_edges, batch_size):
                 batch = edgesList[i:i + batch_size]
                 logger.info(f"Processing edges batch {i // batch_size + 1}/{(total_edges + batch_size - 1) // batch_size} ({i}/{total_edges})")
@@ -205,7 +207,7 @@ class Neo4jManager(AbstractDbManager):
         if self.repo_id is None:
             raise ValueError("repo_id is required for deleting nodes. Cannot delete nodes with entity-wide scope.")
 
-        with self.driver.session() as session:
+        with self.driver.session(database=self.database) as session:
             result = session.run(
                 """
                 MATCH (n {path: $path, repoId: $repo_id, entityId: $entity_id})
@@ -243,7 +245,7 @@ class Neo4jManager(AbstractDbManager):
             parameters["entity_id"] = self.entity_id
 
         try:
-            with self.driver.session() as session:
+            with self.driver.session(database=self.database) as session:
                 result = []
                 if transaction:
                     result = session.execute_write(

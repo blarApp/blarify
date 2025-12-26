@@ -324,3 +324,79 @@ def get_hierarchical_parents_query() -> LiteralString:
          info.node.end_line as end_line
     ORDER BY info.sortKey ASC, info.depth ASC
     """
+
+
+def get_direct_callers_of_nodes_in_files_query() -> LiteralString:
+    """
+    Find nodes that directly CALL functions within the specified file paths (1 level).
+
+    This query finds all FUNCTION nodes that call any function defined within
+    the specified files. Used to identify which callers need re-documentation
+    when a file changes.
+
+    Expected params: $entity_id, $repo_ids (optional), $file_paths
+    """
+    return """
+    MATCH (file:FILE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR file.repoId IN $repo_ids)
+      AND file.node_path IN $file_paths
+    MATCH (file)-[:FUNCTION_DEFINITION|CLASS_DEFINITION*1..]->(target:FUNCTION)
+    MATCH (caller:FUNCTION)-[:CALLS]->(target)
+    WHERE NOT caller.node_path STARTS WITH file.node_path
+    RETURN DISTINCT caller.node_id as id, caller.node_path as path
+    """
+
+
+def reset_processing_status_for_nodes_query() -> LiteralString:
+    """
+    Reset processing_status to NULL for specified nodes in a single batch.
+
+    Used during incremental documentation to mark affected nodes (callers, parent folders)
+    for re-processing without affecting unrelated nodes.
+
+    Expected params: $entity_id, $repo_ids (optional), $node_ids
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
+      AND n.node_id IN $node_ids
+    SET n.processing_status = NULL, n.processing_run_id = NULL
+    RETURN count(n) as reset_count
+    """
+
+
+def get_parent_folders_for_files_query() -> LiteralString:
+    """
+    Get all parent folder nodes for the specified file paths.
+
+    Traverses up the CONTAINS relationship to find all ancestor folders.
+    Used to identify which folders need re-documentation when a file changes.
+
+    Expected params: $entity_id, $repo_ids (optional), $file_paths
+    """
+    return """
+    MATCH (file:FILE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR file.repoId IN $repo_ids)
+      AND file.node_path IN $file_paths
+    MATCH (parent:FOLDER)-[:CONTAINS*1..]->(file)
+    RETURN DISTINCT parent.node_id as id, parent.node_path as path
+    """
+
+
+def get_latest_processing_run_id_query() -> LiteralString:
+    """
+    Get the most recent processing_run_id from any completed node.
+
+    Used to retrieve the run_id from the previous documentation run,
+    so incremental updates can reuse it and skip already-processed nodes.
+
+    Expected params: $entity_id, $repo_ids (optional)
+    """
+    return """
+    MATCH (n:NODE {entityId: $entity_id})
+    WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
+      AND n.processing_run_id IS NOT NULL
+      AND n.processing_status = 'completed'
+    RETURN n.processing_run_id as run_id
+    LIMIT 1
+    """

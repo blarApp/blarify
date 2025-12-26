@@ -23,7 +23,6 @@ from blarify.agents.prompt_templates import (
 )
 from blarify.documentation.queries.batch_processing_queries import (
     get_child_descriptions_query,
-    get_hierarchical_parents_query,
     get_leaf_nodes_under_node_query,
     get_remaining_pending_functions_query,
 )
@@ -103,6 +102,7 @@ class BottomUpBatchProcessor:
         overwrite_documentation: bool = False,
         batch_size: int = 1000,
         generate_embeddings: bool = False,
+        processing_run_id: Optional[str] = None,
     ):
         """
         Initialize the query-based batch processor.
@@ -117,6 +117,7 @@ class BottomUpBatchProcessor:
             root_node: Optional root node to start processing from
             overwrite_documentation: Whether to overwrite existing documentation
             batch_size: Number of nodes to process in each batch
+            processing_run_id: Optional run ID for incremental updates (reuses previous run's ID)
         """
         self.db_manager = db_manager
         self.agent_caller = agent_caller
@@ -127,8 +128,8 @@ class BottomUpBatchProcessor:
         self.batch_size = batch_size
         self.generate_embeddings = generate_embeddings
 
-        # Unique ID for this processing run
-        self.processing_run_id = str(uuid.uuid4())
+        # Use provided run_id or generate new one
+        self.processing_run_id = processing_run_id or str(uuid.uuid4())
 
         # Initialize embedding service if needed
         self.embedding_service = None
@@ -140,44 +141,6 @@ class BottomUpBatchProcessor:
         # Track nodes during processing
         self.all_documentation_nodes: List[DocumentationNode] = []
         self.all_source_nodes: List[NodeWithContentDto] = []
-
-    def process_upstream_definitions(self, node_path: str) -> ProcessingResult:
-        """
-        Process upstream definition dependencies for a given node path.
-
-        Args:
-            node_path: Path to the node (folder or file) to process
-        Returns:
-            ProcessingResult with processing statistics
-        """
-        try:
-            # Reset tracking lists for this processing run
-            self.all_documentation_nodes = []
-            self.all_source_nodes = []
-
-            # Get root node
-            root_node = self.root_node
-            if not root_node:
-                root_node = get_node_by_path(self.db_manager, node_path)
-                if not root_node:
-                    return ProcessingResult(node_path=node_path, error=f"Node not found: {node_path}")
-
-            # Process using queries
-            total_processed = self._process_upstream_definitions(root_node)
-
-            return ProcessingResult(
-                node_path=node_path,
-                hierarchical_analysis={"complete": True},
-                total_nodes_processed=total_processed,
-                error=None,
-                information_nodes=[],
-                documentation_nodes=self.all_documentation_nodes,
-                source_nodes=self.all_source_nodes,
-            )
-
-        except Exception as e:
-            logger.exception(f"Error in upstream definition processing: {e}")
-            return ProcessingResult(node_path=node_path, error=str(e))
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
@@ -217,29 +180,6 @@ class BottomUpBatchProcessor:
         except Exception as e:
             logger.exception(f"Error in query-based processing: {e}")
             return ProcessingResult(node_path=node_path, error=str(e))
-
-    def _process_upstream_definitions(self, root_node: NodeWithContentDto) -> int:
-        """Process upstream definitions using database queries."""
-
-        hierarchical_parents = self.db_manager.query(
-            cypher_query=get_hierarchical_parents_query(),
-            parameters={"node_id": root_node.id},
-        )
-
-        for parent in hierarchical_parents:
-            parent_node = NodeWithContentDto(
-                id=parent["id"],
-                name=parent["name"],
-                labels=parent["labels"],
-                path=parent["path"],
-                start_line=parent.get("start_line"),
-                end_line=parent.get("end_line"),
-                content=parent.get("content", ""),
-            )
-            child_descriptions = self.__get_child_descriptions(root_node)
-            self._process_parent_node(parent_node, child_descriptions=child_descriptions)
-
-        return len(hierarchical_parents)
 
     def _process_node_query_based(self, root_node: NodeWithContentDto) -> int:
         """Process using database queries without memory storage."""

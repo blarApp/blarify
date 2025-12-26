@@ -139,6 +139,7 @@ class GraphBuilder:
         save_to_db: bool = True,
         create_workflows: bool = False,
         create_documentation: bool = False,
+        max_workers: int = 75,
     ) -> Graph:
         """Incrementally update the code graph for specific files with optional persistence and documentation/workflow generation.
 
@@ -150,6 +151,7 @@ class GraphBuilder:
             save_to_db: Whether to save the graph to database (requires db_manager)
             create_workflows: Whether to discover and create workflows (requires db_manager and save_to_db)
             create_documentation: Whether to generate documentation (requires db_manager and save_to_db)
+            max_workers: Maximum number of parallel workers for documentation creation
 
         Returns:
             Graph object containing updated code nodes
@@ -214,6 +216,7 @@ class GraphBuilder:
                     db_manager=self.db_manager,
                     agent_caller=agent_caller,
                     graph_environment=self.graph_environment,
+                    max_workers=max_workers,
                 )
                 doc_creator.create_documentation(target_paths=node_paths, generate_embeddings=self.generate_embeddings)
 

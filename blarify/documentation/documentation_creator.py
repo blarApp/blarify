@@ -8,6 +8,7 @@ ProjectGraphCreator patterns.
 
 import time
 import logging
+import uuid
 from typing import List, Optional, TYPE_CHECKING, Dict, Any
 
 if TYPE_CHECKING:
@@ -23,6 +24,12 @@ from ..repositories.graph_db_manager.queries import (
     get_documentation_nodes_for_embedding_query,
     update_documentation_embeddings_query,
     create_vector_index_query,
+)
+from .queries import (
+    get_direct_callers_of_nodes_in_files_query,
+    get_latest_processing_run_id_query,
+    get_parent_folders_for_files_query,
+    reset_processing_status_for_nodes_query,
 )
 from .queries.workflow_queries import cleanup_orphaned_documentation_query
 from ..graph.graph_environment import GraphEnvironment
@@ -209,11 +216,16 @@ class DocumentationCreator:
         generate_embeddings: bool = False,
     ) -> DocumentationResult:
         """
-        Create documentation for specific paths - optimized for SWE benchmarks.
+        Create documentation for specific paths - for incremental updates.
+
+        This method:
+        1. Gets the previous run_id from the last full documentation run
+        2. Resets processing_status for affected nodes (callers + parent folders)
+        3. Processes from ROOT with the old run_id (only NULL-status nodes get processed)
 
         Args:
-            target_paths: List of specific paths to document
-            framework_info: Framework detection results
+            target_paths: List of specific file paths to document
+            generate_embeddings: Whether to generate embeddings for documentation nodes
 
         Returns:
             DocumentationResult with targeted documentation
@@ -221,83 +233,96 @@ class DocumentationCreator:
         try:
             logger.info(f"Creating targeted documentation for {len(target_paths)} paths")
 
-            all_information_nodes = []
-            all_documentation_nodes = []
-            all_source_nodes = []
-            analyzed_nodes = []
-            warnings = []
+            # Step 1: Get the old run_id from previous full documentation
+            previous_run_id = self._get_previous_run_id()
+            if not previous_run_id:
+                logger.warning("No previous run_id found, generating new one")
+                previous_run_id = str(uuid.uuid4())
 
-            try:
-                entry_points_paths = self._discover_entry_points(file_paths=target_paths)
+            # Step 2: Reset processing status for affected nodes
+            self._reset_affected_nodes_status(target_paths)
 
-                # Use BottomUpBatchProcessor for each target path
-                # Phase 1 - Process execution stacks from entry points
-                processor = BottomUpBatchProcessor(
-                    db_manager=self.db_manager,
-                    agent_caller=self.agent_caller,
-                    graph_environment=self.graph_environment,
-                    max_workers=self.max_workers,
-                    overwrite_documentation=self.overwrite_documentation,
-                    generate_embeddings=generate_embeddings,
-                )
-                for entry_point in entry_points_paths:
-                    processor_result = processor.process_node(entry_point)
+            # Step 3: Get root path and process from root with old run_id
+            root_path = get_root_path(db_manager=self.db_manager)
+            if not root_path:
+                return DocumentationResult(error="No root path found")
 
-                    if processor_result.error:
-                        warnings.append(
-                            f"Error processing path {target_paths} entry point {entry_point}: {processor_result.error}"
-                        )
-                        continue
+            processor = BottomUpBatchProcessor(
+                db_manager=self.db_manager,
+                agent_caller=self.agent_caller,
+                graph_environment=self.graph_environment,
+                max_workers=self.max_workers,
+                overwrite_documentation=self.overwrite_documentation,
+                generate_embeddings=generate_embeddings,
+                processing_run_id=previous_run_id,
+            )
 
-                    # Collect results
-                    all_documentation_nodes.extend(processor_result.documentation_nodes)
-                    all_source_nodes.extend(processor_result.source_nodes)
-                    analyzed_nodes.append(
-                        {
-                            "path": entry_point,
-                            "node_count": len(processor_result.information_nodes),
-                            "hierarchical_analysis": processor_result.hierarchical_analysis,
-                        }
-                    )
-
-                    logger.info(f"Processed {target_paths}: {len(processor_result.documentation_nodes)} nodes")
-
-                # Phase 2: Process upstream definition dependencies
-                for target_path in target_paths:
-                    processor_result = processor.process_upstream_definitions(target_path)
-
-                    if processor_result.error:
-                        warnings.append(
-                            f"Error processing upstream definitions for path {target_paths}: {processor_result.error}"
-                        )
-                        continue
-                    all_information_nodes.extend(processor_result.information_nodes)
-                    all_documentation_nodes.extend(processor_result.documentation_nodes)
-                    all_source_nodes.extend(processor_result.source_nodes)
-
-            except Exception as e:
-                error_msg = f"Error processing path {target_paths}: {str(e)}"
-                logger.exception(error_msg)
-                warnings.append(error_msg)
+            result = processor.process_node(root_path)
 
             # Cleanup orphaned documentation nodes after incremental update
             orphans_deleted = self.cleanup_orphaned_documentation()
             if orphans_deleted > 0:
                 logger.info(f"Cleaned up {orphans_deleted} orphaned documentation nodes")
 
-            logger.info(f"Targeted documentation completed: {len(all_documentation_nodes)} total nodes")
+            logger.info(f"Targeted documentation completed: {len(result.documentation_nodes)} total nodes")
 
             return DocumentationResult(
-                information_nodes=all_information_nodes,
-                documentation_nodes=all_documentation_nodes,
-                source_nodes=all_source_nodes,
-                analyzed_nodes=analyzed_nodes,
-                warnings=warnings,
+                information_nodes=result.information_nodes,
+                documentation_nodes=result.documentation_nodes,
+                source_nodes=result.source_nodes,
+                total_nodes_processed=result.total_nodes_processed,
+                warnings=[result.error] if result.error else [],
             )
 
         except Exception as e:
             logger.exception(f"Error in targeted documentation creation: {e}")
             return DocumentationResult(error=str(e))
+
+    def _get_previous_run_id(self) -> Optional[str]:
+        """Get the run_id from the previous documentation run."""
+        try:
+            result = self.db_manager.query(
+                cypher_query=get_latest_processing_run_id_query(),
+                parameters={},
+            )
+            if result and result[0].get("run_id"):
+                return str(result[0]["run_id"])
+            return None
+        except Exception as e:
+            logger.warning(f"Error getting previous run_id: {e}")
+            return None
+
+    def _reset_affected_nodes_status(self, file_paths: List[str]) -> None:
+        """Reset processing_status for nodes that need re-documentation."""
+        try:
+            nodes_to_reset: List[str] = []
+
+            # 1. Get direct callers (1 level) of ANY node in changed files
+            callers = self.db_manager.query(
+                cypher_query=get_direct_callers_of_nodes_in_files_query(),
+                parameters={"file_paths": file_paths},
+            )
+            if callers:
+                nodes_to_reset.extend([c["id"] for c in callers if c.get("id")])
+
+            # 2. Get parent folders
+            parents = self.db_manager.query(
+                cypher_query=get_parent_folders_for_files_query(),
+                parameters={"file_paths": file_paths},
+            )
+            if parents:
+                nodes_to_reset.extend([p["id"] for p in parents if p.get("id")])
+
+            # 3. Reset all in one batch
+            if nodes_to_reset:
+                self.db_manager.query(
+                    cypher_query=reset_processing_status_for_nodes_query(),
+                    parameters={"node_ids": nodes_to_reset},
+                )
+                logger.info(f"Reset processing status for {len(nodes_to_reset)} affected nodes")
+
+        except Exception as e:
+            logger.warning(f"Error resetting affected nodes: {e}")
 
     def _create_full_documentation(self, generate_embeddings: bool = False) -> DocumentationResult:
         """

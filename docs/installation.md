@@ -207,7 +207,7 @@ except Exception as e:
 #### For Neo4j:
 ```python
 # test_neo4j.py
-from blarify.db_managers.neo4j_manager import Neo4jManager
+from blarify.repositories.graph_db_manager.neo4j_manager import Neo4jManager
 
 try:
     manager = Neo4jManager(repo_id="test", entity_id="test")

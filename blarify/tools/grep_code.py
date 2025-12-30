@@ -52,7 +52,8 @@ class GrepCode(BaseTool):
     description: str = (
         "Search for code patterns across the codebase. Use this to find code snippets, function calls, "
         "specific syntax patterns, or implementation details when you know what the code looks like but "
-        "not necessarily where it is. Returns matching code with line numbers and file locations."
+        "not necessarily where it is. Returns matching code with line numbers and file locations. "
+        "NOTE: This tool searches CODE CONTENT only, not file paths or file names."
     )
 
     args_schema: type[BaseModel] = GrepCodeInput  # type: ignore[assignment]

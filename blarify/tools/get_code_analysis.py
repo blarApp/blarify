@@ -4,7 +4,7 @@ from typing import Any, Optional, List
 
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager
 from blarify.tools.utils import resolve_reference_id
@@ -22,16 +22,6 @@ class FlexibleInput(BaseModel):
     reference_id: Optional[str] = Field(None, description="Reference ID (32-char handle) for the symbol")
     file_path: Optional[str] = Field(None, description="Path to the file containing the symbol")
     symbol_name: Optional[str] = Field(None, description="Name of the function/class/method")
-
-    @model_validator(mode="after")
-    def validate_inputs(self):
-        if self.reference_id:
-            if len(self.reference_id) != 32:
-                raise ValueError("Reference ID must be a 32 character string")
-            return self
-        if not (self.file_path and self.symbol_name):
-            raise ValueError("Provide either reference_id OR (file_path AND symbol_name)")
-        return self
 
 
 class GetCodeAnalysis(BaseTool):
@@ -166,8 +156,13 @@ CODE for {node_result.node_name}:
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Returns code analysis for a symbol with relationships."""
+        if reference_id:
+            if len(reference_id) != 32:
+                return f"Invalid input: reference_id must be exactly 32 characters, got {len(reference_id)}. Provide a valid reference_id OR both file_path and symbol_name."
+        elif not (file_path and symbol_name):
+            return "Invalid input: Provide either reference_id (32-char) OR both file_path and symbol_name together."
+
         try:
-            # Resolve the reference ID from inputs
             node_id = resolve_reference_id(
                 self.db_manager, reference_id=reference_id, file_path=file_path, symbol_name=symbol_name
             )

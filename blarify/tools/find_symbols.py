@@ -25,17 +25,18 @@ def mark_deleted_or_added_lines(text: str) -> str:
 
 
 class Input(BaseModel):
-    name: str = Field(description="Name of the symbol to search for (exact match)", min_length=1)
+    name: Optional[str] = Field(default=None, description="Name of the symbol to search for (exact match)")
     type: str = Field(description="Type of symbol to search for. Must be one of: 'FUNCTION', 'CLASS', 'FILE', 'FOLDER'")
+    path_contains: Optional[str] = Field(default=None, description="Filter by file path containing this pattern (e.g., 'components/auth' or 'page.tsx')")
 
 
 class FindSymbols(BaseTool):
     name: str = "find_symbols"
     description: str = (
-        "Search for code symbols (functions, classes, files, or folders) by EXACT name match. "
-        "Use this when you know the precise symbol name. "
-        "Returns matching symbols with their IDs, file locations, and code previews. "
-        "Both 'name' and 'type' parameters are required."
+        "Search for code symbols (functions, classes, files, or folders) by EXACT name match "
+        "or by path pattern. Use 'name' for exact symbol name matching, or 'path_contains' "
+        "to find symbols where the file path contains a pattern (e.g., 'page.tsx', 'components/auth'). "
+        "Returns matching symbols with their IDs, file locations, and code previews."
     )
     db_manager: AbstractDbManager = Field(description="Database manager for queries")
 
@@ -43,18 +44,23 @@ class FindSymbols(BaseTool):
 
     def _run(
         self,
-        name: str,
         type: str,
+        name: Optional[str] = None,
+        path_contains: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> dict[str, Any] | str:
-        """Find symbols by exact name and type."""
+        """Find symbols by exact name and/or path pattern."""
+        if not name and not path_contains:
+            return "Invalid input: Provide either 'name' (exact match) or 'path_contains' (path pattern), or both."
+
         node_type = type.upper()
         if node_type not in {"FUNCTION", "CLASS", "FILE", "FOLDER"}:
             return "Invalid type. Must be one of: 'FUNCTION', 'CLASS', 'FILE', 'FOLDER'"
 
-        dto_nodes = self.db_manager.get_node_by_name_and_type(
+        dto_nodes = self.db_manager.get_nodes_by_name_type_and_path(
             name=name,
             node_type=node_type,
+            path_contains=path_contains,
         )
 
         # Convert DTOs to response models

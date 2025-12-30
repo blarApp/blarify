@@ -2438,3 +2438,20 @@ def get_node_by_name_and_type_query() -> LiteralString:
         RETURN n.node_id as node_id, n.name as node_name, labels(n) as node_type,
                n.path as file_path, n.text as code
     """
+
+
+def get_nodes_by_name_type_and_path_query() -> LiteralString:
+    """Cypher query to retrieve nodes by type with optional name and path filtering.
+
+    Returns:
+        Cypher query string for retrieving nodes by type, name, and/or path pattern
+    """
+    return """
+        MATCH (n:NODE {entityId: $entity_id})
+        WHERE ($repo_ids IS NULL OR n.repoId IN $repo_ids)
+          AND $node_type IN labels(n)
+          AND ($name IS NULL OR n.name = $name)
+          AND ($path_contains IS NULL OR n.path CONTAINS $path_contains)
+        RETURN n.node_id as node_id, n.name as node_name, labels(n) as node_type,
+               n.path as file_path, n.text as code
+    """

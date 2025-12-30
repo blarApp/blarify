@@ -14,19 +14,19 @@ class AbstractDbManager:
         """Close the connection to the database."""
         raise NotImplementedError
 
-    def save_graph(self, nodes, edges):
+    def save_graph(self, nodes: List[Any], edges: List[Any]) -> None:
         """Save nodes and edges to the database."""
         raise NotImplementedError
 
-    def create_nodes(self, nodeList):
+    def create_nodes(self, nodeList: List[Any]) -> None:
         """Create nodes in the database."""
         raise NotImplementedError
 
-    def create_edges(self, edgesList):
+    def create_edges(self, edgesList: List[Any]) -> None:
         """Create edges between nodes in the database."""
         raise NotImplementedError
 
-    def detatch_delete_nodes_with_path(self, path):
+    def detatch_delete_nodes_with_path(self, path: str) -> None:
         """Detach and delete nodes matching the given path."""
         raise NotImplementedError
 
@@ -78,5 +78,27 @@ class AbstractDbManager:
         Note:
             entity_id (mandatory) and repo_id (optional) are injected from manager instance.
             If repo_id is None, searches across all repos for the entity.
+        """
+        raise NotImplementedError
+
+    def get_nodes_by_name_type_and_path(
+        self,
+        node_type: str,
+        name: Optional[str] = None,
+        path_contains: Optional[str] = None,
+    ):
+        """
+        Retrieve nodes by type with optional name and path filtering.
+
+        Args:
+            node_type: Type/label of the node to search for
+            name: Optional exact name match
+            path_contains: Optional path substring to filter by
+
+        Returns:
+            List of node data transfer objects
+
+        Note:
+            At least one of name or path_contains should be provided.
         """
         raise NotImplementedError

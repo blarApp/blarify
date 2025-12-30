@@ -10,7 +10,11 @@ from blarify.repositories.graph_db_manager.adapters.node_search_result_adapter i
 from blarify.repositories.graph_db_manager.db_manager import AbstractDbManager, ENVIRONMENT
 from blarify.repositories.graph_db_manager.dtos.node_search_result_dto import ReferenceSearchResultDTO
 from blarify.repositories.graph_db_manager.dtos.node_found_by_name_type import NodeFoundByNameTypeDto
-from blarify.repositories.graph_db_manager.queries import get_node_by_id_query, get_node_by_name_and_type_query
+from blarify.repositories.graph_db_manager.queries import (
+    get_node_by_id_query,
+    get_node_by_name_and_type_query,
+    get_nodes_by_name_type_and_path_query,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +339,43 @@ class Neo4jManager(AbstractDbManager):
 
         # Convert records to DTOs
         nodes = []
+        for record in records:
+            node = NodeFoundByNameTypeDto(
+                node_id=record.get("node_id", ""),
+                node_name=record.get("node_name", ""),
+                node_type=record.get("node_type", []),
+                file_path=record.get("file_path", ""),
+                code=record.get("code"),
+            )
+            nodes.append(node)
+
+        return nodes
+
+    def get_nodes_by_name_type_and_path(
+        self,
+        node_type: str,
+        name: Optional[str] = None,
+        path_contains: Optional[str] = None,
+    ) -> list[NodeFoundByNameTypeDto]:
+        """
+        Retrieve nodes by type with optional name and path filtering.
+
+        Args:
+            node_type: Type/label of the node to search for
+            name: Optional exact name match
+            path_contains: Optional path substring to filter by
+
+        Returns:
+            List of NodeFoundByNameTypeDto objects containing node information
+        """
+        params: dict[str, str | None] = {
+            "node_type": node_type,
+            "name": name,
+            "path_contains": path_contains,
+        }
+        records = self.query(cypher_query=get_nodes_by_name_type_and_path_query(), parameters=params)
+
+        nodes: list[NodeFoundByNameTypeDto] = []
         for record in records:
             node = NodeFoundByNameTypeDto(
                 node_id=record.get("node_id", ""),

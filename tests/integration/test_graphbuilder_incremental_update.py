@@ -47,8 +47,8 @@ def make_llm_mock(
     return m
 
 
-@pytest.mark.asyncio
-@pytest.mark.neo4j_integration
+@pytest.mark.asyncio  # type: ignore[misc]
+@pytest.mark.neo4j_integration  # type: ignore[misc]
 class TestGraphBuilderIncrementalUpdate:
     """Test incremental update functionality with realistic scenarios."""
 
@@ -97,9 +97,9 @@ class TestGraphBuilderIncrementalUpdate:
         # Verify new file was added
         final_functions = await graph_assertions.get_node_properties("FUNCTION")
 
-        assert len(final_functions) == initial_function_count + 1, (
-            f"Should have {initial_function_count + 1} functions after adding new file"
-        )
+        assert (
+            len(final_functions) == initial_function_count + 1
+        ), f"Should have {initial_function_count + 1} functions after adding new file"
 
         function_names = {f["name"] for f in final_functions}
         assert "initial_function" in function_names, "Original function should still exist"
@@ -388,13 +388,13 @@ class TestGraphBuilderIncrementalUpdate:
         final_workflows = await graph_assertions.get_node_properties("WORKFLOW")
         final_docs = await graph_assertions.get_node_properties("DOCUMENTATION")
 
-        assert len(final_workflows) == initial_workflow_count, (
-            f"Workflows should not duplicate. Expected {initial_workflow_count}, got {len(final_workflows)}"
-        )
+        assert (
+            len(final_workflows) == initial_workflow_count
+        ), f"Workflows should not duplicate. Expected {initial_workflow_count}, got {len(final_workflows)}"
 
-        assert len(final_docs) == initial_doc_count, (
-            f"Documentation should not duplicate. Expected {initial_doc_count}, got {len(final_docs)}"
-        )
+        assert (
+            len(final_docs) == initial_doc_count
+        ), f"Documentation should not duplicate. Expected {initial_doc_count}, got {len(final_docs)}"
 
         # Verify the new code was added
         final_functions = await graph_assertions.get_node_properties("FUNCTION")
@@ -466,9 +466,9 @@ class TestGraphBuilderIncrementalUpdate:
 
         # Verify workflows were updated (count should remain same, content should change)
         final_workflows = await graph_assertions.get_node_properties("WORKFLOW")
-        assert len(final_workflows) == initial_workflow_count, (
-            f"Workflow count should remain the same. Expected {initial_workflow_count}, got {len(final_workflows)}"
-        )
+        assert (
+            len(final_workflows) == initial_workflow_count
+        ), f"Workflow count should remain the same. Expected {initial_workflow_count}, got {len(final_workflows)}"
 
         # Verify documentation for main function was updated (count should remain same)
         final_docs = await graph_assertions.get_node_properties("DOCUMENTATION")
@@ -562,9 +562,9 @@ class TestGraphBuilderIncrementalUpdate:
         assert "main" in final_function_names, "main should still exist after update"
 
         # KEY ASSERTION: Verify workflows were created for both the modified function AND its caller
-        assert len(final_workflows) >= initial_workflow_count, (
-            f"Should have at least {initial_workflow_count} workflows after update, got {len(final_workflows)}"
-        )
+        assert (
+            len(final_workflows) >= initial_workflow_count
+        ), f"Should have at least {initial_workflow_count} workflows after update, got {len(final_workflows)}"
 
         # Get final node IDs to verify workflows reference them
         final_helper_a = [f for f in final_functions if f["name"] == "helper_a"][0]
@@ -774,9 +774,9 @@ class TestGraphBuilderIncrementalUpdate:
 
                 unexpected_node_tokens = ["standalone", "standalone.py"]
                 for token in unexpected_node_tokens:
-                    assert not any(token in node for node in documented_nodes), (
-                        f"Documentation should not run for '{token}', but calls included: {documented_summary}"
-                    )
+                    assert not any(
+                        token in node for node in documented_nodes
+                    ), f"Documentation should not run for '{token}', but calls included: {documented_summary}"
 
                 async def assert_documentation_exists(node_id: str, expected_label: str) -> None:
                     docs = await test_data_isolation["container"].execute_cypher(
@@ -894,9 +894,9 @@ class TestGraphBuilderIncrementalUpdate:
 
         # Check that old main-related edge IDs are not present
         for old_edge_id in initial_main_step_edge_ids:
-            assert old_edge_id not in final_all_edge_ids, (
-                f"Old WORKFLOW_STEP edge {old_edge_id} for main should have been deleted"
-            )
+            assert (
+                old_edge_id not in final_all_edge_ids
+            ), f"Old WORKFLOW_STEP edge {old_edge_id} for main should have been deleted"
 
         db_manager.close()
 
@@ -986,3 +986,119 @@ class TestGraphBuilderIncrementalUpdate:
         assert docs_with_describes_final[0]["count"] == len(final_docs), "All docs should have DESCRIBES after cleanup"
 
         db_manager.close()
+
+    async def test_incremental_update_redocuments_affected_nodes(
+        self,
+        docker_check: Any,
+        test_data_isolation: Dict[str, Any],
+        temp_project_dir: Path,
+        test_code_examples_path: Path,
+        graph_assertions: GraphAssertions,
+    ) -> None:
+        """
+        Test that incremental_update re-documents affected nodes:
+        - All nodes inside changed file (hierarchy)
+        - Direct callers of changed nodes (1 level only)
+        - Parent folders
+
+        And does NOT re-document nodes 2+ levels away.
+
+        Uses simple_linear workflow: main() → process_data() → transform_value()
+        """
+        import shutil
+
+        # Copy simple_linear workflow to temp dir
+        src_dir = test_code_examples_path / "workflows" / "simple_linear"
+        for file_name in ["main.py", "processor.py", "utils.py", "__init__.py"]:
+            shutil.copy(src_dir / file_name, temp_project_dir / file_name)
+
+        response_prefix: Dict[str, str] = {"value": "Initial"}
+
+        def node_specific_doc(input_dict: Dict[str, Any]) -> str:
+            node_name = input_dict.get("node_name") or input_dict.get("node_path") or "unknown"
+            return f"{response_prefix['value']} doc for {node_name}"
+
+        llm_provider = make_llm_mock(dumb_response=node_specific_doc)
+
+        db_manager = Neo4jManager(
+            uri=test_data_isolation["uri"],
+            user="neo4j",
+            password=test_data_isolation["password"],
+            repo_id=test_data_isolation["repo_id"],
+            entity_id=test_data_isolation["entity_id"],
+        )
+
+        try:
+            with (
+                patch("blarify.prebuilt.graph_builder.LLMProvider", return_value=llm_provider),
+                patch(
+                    "blarify.documentation.documentation_creator.LLMProvider",
+                    return_value=llm_provider,
+                ),
+            ):
+                builder = GraphBuilder(
+                    root_path=str(temp_project_dir),
+                    db_manager=db_manager,
+                    generate_embeddings=False,
+                )
+
+                builder.build(
+                    save_to_db=True,
+                    create_workflows=False,
+                    create_documentation=True,
+                )
+
+                # Verify initial docs were created for all nodes
+                async def get_doc_content(node_name: str) -> str:
+                    docs = await test_data_isolation["container"].execute_cypher(
+                        """
+                        MATCH (doc:DOCUMENTATION)-[:DESCRIBES]->(n:NODE)
+                        WHERE n.name = $name
+                        RETURN doc.content as content
+                        """,
+                        parameters={"name": node_name},
+                    )
+                    return docs[0]["content"] if docs else ""
+
+                # Verify initial state - all should have "Initial"
+                for node_name in ["transform_value", "process_data", "main"]:
+                    content = await get_doc_content(node_name)
+                    assert "Initial" in content, f"{node_name} should have Initial doc before update"
+
+                # Change mock to return "Updated"
+                response_prefix["value"] = "Updated"
+
+                # Modify utils.py (leaf node in call chain)
+                utils_file = temp_project_dir / "utils.py"
+                utils_file.write_text(
+                    '"""Utility functions for the workflow."""\n\n'
+                    "def transform_value(value: int) -> int:\n"
+                    '    """Transform a value by tripling it."""\n'
+                    "    return value * 3\n"
+                )
+
+                # Run incremental update targeting utils.py
+                updated_files = [UpdatedFile(path=str(utils_file))]
+                builder.incremental_update(
+                    updated_files,
+                    save_to_db=True,
+                    create_workflows=False,
+                    create_documentation=True,
+                )
+
+                # ASSERT: Changed file nodes → "Updated"
+                transform_content = await get_doc_content("transform_value")
+                assert "Updated" in transform_content, "transform_value (changed file) should have Updated doc"
+
+                # ASSERT: Direct caller (1 level) → "Updated"
+                process_data_content = await get_doc_content("process_data")
+                assert "Updated" in process_data_content, "process_data (direct caller) should have Updated doc"
+
+                # ASSERT: 2 levels away → still "Initial" (NOT updated)
+                main_content = await get_doc_content("main")
+                assert "Initial" in main_content, (
+                    "main() (2 levels away) should NOT be re-documented. " f"Got: {main_content}"
+                )
+
+        finally:
+            db_manager.close()

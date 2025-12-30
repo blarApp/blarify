@@ -177,7 +177,8 @@ CODE for {node_result.node_name}:
 
         # Format the output nicely like the script example
         output = "=" * 80 + "\n"
-        output += f"📄 FILE: {node_result.node_name}\n"
+        output += f"📄 NAME: {node_result.node_name}\n"
+        output += f"📁 PATH: {node_result.node_path}\n"
         output += "=" * 80 + "\n"
         # Filter out NODE label from display
         labels = [label for label in node_result.node_labels if label != "NODE"]

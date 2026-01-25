@@ -27,6 +27,7 @@ tree-sitter-ruby = { version = "^0.23.0", optional = false }
 tree-sitter-c-sharp = { version = "^0.23.1", optional = false }
 tree-sitter-php = { version = "^0.23.11", optional = false }
 falkordb = "^1.0.10"
+kuzu = "^0.11.0"
 requests = "^2.32.3"
 typing-extensions = "^4.12.2"
 jedi-language-server = "^0.43.1"

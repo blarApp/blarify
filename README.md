@@ -107,22 +107,37 @@ Interactive visualization and exploration interface:
 - **Neo4j Management**: Automatic Docker container management
 - **Workspace Analysis**: One-click codebase analysis and ingestion
 
-### Neo4j Integration
-Graph database storage and querying:
+### Graph Database Support
 
+Choose the database that fits your workflow:
+
+#### Neo4j (Server-based)
+Full-featured graph database with advanced capabilities:
 - **Node Types**: Files, classes, functions, documentation, concepts
 - **Relationships**: Dependencies, inheritance, calls, references, documentation links
 - **Query Interface**: Cypher queries for complex graph traversal
 - **Data Persistence**: Maintain graph state across sessions
+- **Use when**: You need advanced graph algorithms, multi-user access, or production deployments
+
+#### Kuzu (Embedded - Recommended for local use)
+Lightweight embedded graph database with zero configuration:
+- **Embedded**: Runs in-process, no server required
+- **File-based**: Simple directory-based storage
+- **openCypher**: Same query language as Neo4j
+- **Zero Config**: Just specify a database path
+- **Use when**: Local development, simple workflows, no server management needed
+
+#### FalkorDB (Redis-based)
+Redis-backed graph database for high-performance scenarios
 
 ## 📦 Installation & Setup
 
 ### Prerequisites
 
 - **Python**: 3.10-3.14
-- **Docker Desktop**: For Neo4j container management
+- **Docker Desktop**: Optional - only needed for Neo4j (not required for Kuzu)
 - **VS Code**: 1.74.0+ (for extension)
-- **Node.js**: 16+ (for Neo4j container manager)
+- **Node.js**: 16+ (for Neo4j container manager, optional)
 
 ### Core Installation
 
@@ -133,11 +148,14 @@ Graph database storage and querying:
 
 2. **Set up environment variables**:
    ```bash
-   # Required for Neo4j
+   # For Kuzu (embedded database - recommended for local use)
+   export KUZU_DB_PATH="~/.cue/kuzu_db"  # Optional, defaults to this path
+
+   # For Neo4j (server-based - optional)
    export NEO4J_URI="bolt://localhost:7687"
    export NEO4J_USERNAME="neo4j"
    export NEO4J_PASSWORD="your-secure-password"
-   
+
    # Optional: Azure OpenAI for LLM features
    export AZURE_OPENAI_API_KEY="your-api-key"
    export AZURE_OPENAI_ENDPOINT="https://your-instance.openai.azure.com/"
@@ -225,13 +243,27 @@ relationships = graph.get_relationships_as_objects()
 print(f"Built graph with {len(nodes)} nodes and {len(relationships)} relationships")
 ```
 
-### Save to Neo4j
+### Save to Graph Database
 
 ```python
+# Option 1: Use Kuzu (embedded, zero-config)
+from cue.db_managers.kuzu_manager import KuzuManager
+
+graph_manager = KuzuManager(repo_id="my-project", entity_id="main")
+graph_manager.save_graph(nodes, relationships)
+graph_manager.close()
+
+# Option 2: Use Neo4j (server-based)
 from cue.db_managers.neo4j_manager import Neo4jManager
 
-# Save to Neo4j
 graph_manager = Neo4jManager(repo_id="my-project", entity_id="main")
+graph_manager.save_graph(nodes, relationships)
+graph_manager.close()
+
+# Option 3: Use FalkorDB (Redis-based)
+from cue.db_managers.falkordb_manager import FalkorDBManager
+
+graph_manager = FalkorDBManager(repo_id="my-project", entity_id="main")
 graph_manager.save_graph(nodes, relationships)
 graph_manager.close()
 ```

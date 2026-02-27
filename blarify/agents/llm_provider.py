@@ -47,6 +47,7 @@ MODEL_PROVIDER_DICT = {
     "gemini-2.5-pro-preview-06-05": ChatGoogleGenerativeAI,
     "claude-3-5-haiku-latest": ChatAnthropic,
     "claude-sonnet-4-20250514": ChatAnthropic,
+    "gemini-3-flash-preview": ChatGoogleGenerativeAI,
 }
 
 

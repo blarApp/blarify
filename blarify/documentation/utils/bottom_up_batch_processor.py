@@ -20,6 +20,9 @@ from blarify.agents.prompt_templates import (
     LEAF_NODE_ANALYSIS_TEMPLATE,
     PARENT_NODE_ANALYSIS_TEMPLATE,
     FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
+    FRONTEND_LEAF_NODE_ANALYSIS_TEMPLATE,
+    FRONTEND_FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE,
+    FRONTEND_PARENT_NODE_ANALYSIS_TEMPLATE,
 )
 from blarify.documentation.queries.batch_processing_queries import (
     get_child_descriptions_query,
@@ -43,6 +46,9 @@ from blarify.documentation.queries import (
 from blarify.graph.graph_environment import GraphEnvironment
 
 logger = logging.getLogger(__name__)
+
+FRONTEND_EXTENSIONS: set[str] = {".tsx", ".jsx", ".vue", ".svelte"}
+FRONTEND_MODEL: str = "gemini-3-flash-preview"
 
 
 class ProcessingResult(BaseModel):
@@ -141,6 +147,13 @@ class BottomUpBatchProcessor:
         # Track nodes during processing
         self.all_documentation_nodes: List[DocumentationNode] = []
         self.all_source_nodes: List[NodeWithContentDto] = []
+
+    @staticmethod
+    def _is_frontend_file(path: str) -> bool:
+        for ext in FRONTEND_EXTENSIONS:
+            if path.endswith(ext):
+                return True
+        return False
 
     def process_node(self, node_path: str) -> ProcessingResult:
         """
@@ -554,9 +567,9 @@ class BottomUpBatchProcessor:
             DocumentationNode with generated description
         """
         try:
-            # Use standard leaf template for both functions and files
-            # No cycle detection needed - leaf nodes can't be in cycles
-            system_prompt, input_prompt = LEAF_NODE_ANALYSIS_TEMPLATE.get_prompts()
+            is_frontend = self._is_frontend_file(node.path)
+            template = FRONTEND_LEAF_NODE_ANALYSIS_TEMPLATE if is_frontend else LEAF_NODE_ANALYSIS_TEMPLATE
+            system_prompt, input_prompt = template.get_prompts()
             prompt_dict = {
                 "node_name": node.name,
                 "node_labels": " | ".join(node.labels),
@@ -564,9 +577,9 @@ class BottomUpBatchProcessor:
                 "node_content": node.content or "",
             }
 
-            # Generate description using LLM
+            ai_model: Optional[str] = FRONTEND_MODEL if is_frontend else None
             description = self.agent_caller.call_dumb_agent(
-                system_prompt=system_prompt, input_dict=prompt_dict, input_prompt=input_prompt
+                system_prompt=system_prompt, input_dict=prompt_dict, input_prompt=input_prompt, ai_model=ai_model
             )
 
             # Create DocumentationNode
@@ -612,15 +625,18 @@ class BottomUpBatchProcessor:
             DocumentationNode with generated description
         """
         try:
-            # Check if it's a function with calls
             is_function_with_calls = "FUNCTION" in node.labels and child_descriptions
+            is_frontend = self._is_frontend_file(node.path)
 
             if is_function_with_calls:
-                # Use function calls context for functions
                 child_calls_context = self._create_function_calls_context(child_descriptions)
 
-                # Always use FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE (no cycle checking)
-                system_prompt, input_prompt = FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE.get_prompts()
+                template = (
+                    FRONTEND_FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE
+                    if is_frontend
+                    else FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE
+                )
+                system_prompt, input_prompt = template.get_prompts()
                 prompt_dict = {
                     "node_name": node.name,
                     "node_labels": " | ".join(node.labels),
@@ -631,14 +647,12 @@ class BottomUpBatchProcessor:
                     "child_calls_context": child_calls_context,
                 }
             else:
-                # Parent node (class, file, folder)
-                system_prompt, input_prompt = PARENT_NODE_ANALYSIS_TEMPLATE.get_prompts()
+                template = FRONTEND_PARENT_NODE_ANALYSIS_TEMPLATE if is_frontend else PARENT_NODE_ANALYSIS_TEMPLATE
+                system_prompt, input_prompt = template.get_prompts()
 
-                # Create enhanced content based on node type
                 if "FOLDER" in node.labels:
                     enhanced_content = self._create_child_descriptions_summary(child_descriptions)
                 else:
-                    # For files and code nodes with actual content, replace skeleton comments
                     enhanced_content = self._replace_skeleton_comments_with_descriptions(
                         node.content, child_descriptions
                     )
@@ -650,9 +664,9 @@ class BottomUpBatchProcessor:
                     "node_content": enhanced_content,
                 }
 
-            # Generate description using LLM
+            ai_model: Optional[str] = FRONTEND_MODEL if is_frontend else None
             description = self.agent_caller.call_dumb_agent(
-                system_prompt=system_prompt, input_dict=prompt_dict, input_prompt=input_prompt
+                system_prompt=system_prompt, input_dict=prompt_dict, input_prompt=input_prompt, ai_model=ai_model
             )
 
             # Create DocumentationNode

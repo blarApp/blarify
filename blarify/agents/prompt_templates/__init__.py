@@ -20,13 +20,16 @@ from .leaf_node_analysis import LEAF_NODE_ANALYSIS_TEMPLATE
 from .parent_node_analysis import PARENT_NODE_ANALYSIS_TEMPLATE
 from .function_with_calls_analysis import FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE
 from .spec_discovery import SPEC_DISCOVERY_TEMPLATE
+from .frontend_leaf_node_analysis import FRONTEND_LEAF_NODE_ANALYSIS_TEMPLATE
+from .frontend_function_with_calls_analysis import FRONTEND_FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE
+from .frontend_parent_node_analysis import FRONTEND_PARENT_NODE_ANALYSIS_TEMPLATE
 
 __all__ = [
     "PromptTemplate",
-    "PromptTemplateManager", 
+    "PromptTemplateManager",
     "template_manager",
     "FRAMEWORK_DETECTION_TEMPLATE",
-    "SYSTEM_OVERVIEW_TEMPLATE", 
+    "SYSTEM_OVERVIEW_TEMPLATE",
     "COMPONENT_ANALYSIS_TEMPLATE",
     "API_DOCUMENTATION_TEMPLATE",
     "COMPONENT_IDENTIFICATION_TEMPLATE",
@@ -37,5 +40,8 @@ __all__ = [
     "LEAF_NODE_ANALYSIS_TEMPLATE",
     "PARENT_NODE_ANALYSIS_TEMPLATE",
     "FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE",
-    "SPEC_DISCOVERY_TEMPLATE"
+    "SPEC_DISCOVERY_TEMPLATE",
+    "FRONTEND_LEAF_NODE_ANALYSIS_TEMPLATE",
+    "FRONTEND_FUNCTION_WITH_CALLS_ANALYSIS_TEMPLATE",
+    "FRONTEND_PARENT_NODE_ANALYSIS_TEMPLATE",
 ]
